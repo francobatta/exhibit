@@ -216,7 +216,7 @@ impl Library {
 
     pub fn status(&self) -> Result<LibraryStatus> {
         Ok(LibraryStatus {
-            counts: query::library_counts(&self.conn, &*self.volumes)?,
+            counts: query::library_counts(&self.conn)?,
             sources: self.list_sources()?,
             tmdb_key: self.has_secret(TMDB_KEY)?,
             agent_key: self.has_secret(AGENT_KEY)?,

@@ -438,23 +438,24 @@ pub struct LibraryCounts {
     pub unprobed: u32,
 }
 
-pub fn library_counts(c: &Connection, v: &dyn Volumes) -> Result<LibraryCounts> {
-    let of_kind = |kind: &str| -> Result<u32> {
+pub fn library_counts(c: &Connection) -> Result<LibraryCounts> {
+    // Items matching `cond` with a file at or below them.
+    let count = |cond: &str| -> Result<u32> {
         Ok(c.query_row(
             &format!(
                 "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r \
                  JOIN tree t ON t.root_id = r.id \
-                 JOIN files f ON f.item_id = t.id WHERE r.kind = '{kind}'"
+                 JOIN files f ON f.item_id = t.id WHERE {cond}"
             ),
             [],
             |r| r.get(0),
         )?)
     };
     Ok(LibraryCounts {
-        movies: of_kind("movie")?,
-        shows: of_kind("show")?,
-        other: of_kind("other")?,
-        needs_review: needs_review(c, v)?.len() as u32,
+        movies: count("r.kind = 'movie'")?,
+        shows: count("r.kind = 'show'")?,
+        other: count("r.kind = 'other'")?,
+        needs_review: count("r.match_state = 'needsreview'")?,
         unprobed: c.query_row("SELECT count(*) FROM files WHERE probed = 0", [], |r| {
             r.get(0)
         })?,
@@ -485,7 +486,8 @@ pub(crate) fn first_episode(c: &Connection, root: Id, unwatched_only: bool) -> R
 }
 
 /// Marks an item watched or not; on a show or season it applies to every episode below.
-/// Marking watched creates a play state when there is none; unmarking resets the position.
+/// Either way the stored position goes back to 0; marking watched creates a play state when
+/// there is none.
 pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     let kind: String = c
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
@@ -508,7 +510,8 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
         if watched {
             tx.prepare_cached(
                 "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
-                 VALUES (?1, 0, 0, 1, ?2) ON CONFLICT(item_id) DO UPDATE SET watched = 1",
+                 VALUES (?1, 0, 0, 1, ?2) \
+                 ON CONFLICT(item_id) DO UPDATE SET watched = 1, position_s = 0",
             )?
             .execute(params![t, db::now()])?;
         } else {
@@ -913,6 +916,9 @@ mod tests {
         for &id in &eps {
             assert!(item(&e.c, &e.v, id).unwrap().play.unwrap().watched);
         }
+        // A watched item keeps no partial progress.
+        let started = item(&e.c, &e.v, eps[0]).unwrap().play.unwrap();
+        assert_eq!(started.position_s, 0.0);
         let fresh = item(&e.c, &e.v, eps[2]).unwrap().play.unwrap();
         assert_eq!((fresh.position_s, fresh.duration_s), (0.0, 0.0));
         assert!(fresh.last_played_at > 0);
@@ -1068,7 +1074,7 @@ mod tests {
             enum_str(MatchState::NeedsReview)
         ));
         e.exec("UPDATE files SET probed = 1 WHERE id = 1");
-        let n = library_counts(&e.c, &e.v).unwrap();
+        let n = library_counts(&e.c).unwrap();
         assert_eq!(
             n,
             LibraryCounts {
