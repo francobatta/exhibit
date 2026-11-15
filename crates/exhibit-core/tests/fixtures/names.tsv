@@ -1,0 +1,99 @@
+# File-name parser corpus. Tab-separated; an empty cell means None. Lines starting with '#' are comments.
+path	title	year	season	episode	episode_end	hint
+The.Matrix.1999.1080p.BluRay.x264-GROUP.mkv	The Matrix	1999				movie
+Blade Runner 2049 (2017) [2160p HDR].mkv	Blade Runner 2049	2017				movie
+2001.A.Space.Odyssey.1968.REMASTERED.mkv	2001 A Space Odyssey	1968				movie
+1917.2019.2160p.UHD.BluRay.x265.mkv	1917	2019				movie
+2012.mkv	2012					unknown
+Amélie.2001.FRENCH.1080p.mkv	Amélie	2001				movie
+千と千尋の神隠し (2001).mkv	千と千尋の神隠し	2001				movie
+Severance.S02E04.2160p.ATVP.WEB-DL.H265-GRP.mkv	Severance		2	4		episode
+show.name.1x03.avi	show name		1	3		episode
+The.Bear.S03E01E02.1080p.mkv	The Bear		3	1	2	episode
+Breaking Bad/Season 1/01 - Pilot.mkv	Breaking Bad		1	1		episode
+Breaking Bad (2008)/S02/Breaking.Bad.S02E05.mkv	Breaking Bad	2008	2	5		episode
+[SubsGroup] Cowboy Bebop - 05 [1080p][ABCD1234].mkv	Cowboy Bebop			5		episode
+Some Show/Specials/S00E02 - Behind the Scenes.mkv	Some Show		0	2		episode
+rips/disc1/title_t00.mkv	title t00					unknown
+Heat.1995.Directors.Cut.PROPER.1080p.BluRay.DTS.x264.mkv	Heat	1995				movie
+# Scene-style movies
+Inception.2010.1080p.BluRay.x264-SPARKS.mkv	Inception	2010				movie
+The.Dark.Knight.2008.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-EPSiLON.mkv	The Dark Knight	2008				movie
+Mad.Max.Fury.Road.2015.1080p.BluRay.DTS-HD.MA.7.1.x264.mkv	Mad Max Fury Road	2015				movie
+Spider-Man.Into.the.Spider-Verse.2018.1080p.WEB-DL.DD5.1.H264-FGT.mkv	Spider-Man Into the Spider-Verse	2018				movie
+Her.2013.720p.BRRip.XviD.AC3-RARBG.avi	Her	2013				movie
+Dune.Part.Two.2024.2160p.WEB-DL.DDP5.1.Atmos.DV.HDR.H.265-FLUX.mkv	Dune Part Two	2024				movie
+Avengers.Endgame.2019.IMAX.2160p.DSNP.WEB-DL.mkv	Avengers Endgame	2019				movie
+The.Lord.of.the.Rings.The.Return.of.the.King.2003.EXTENDED.1080p.BluRay.x264.mkv	The Lord of the Rings The Return of the King	2003				movie
+Se7en.1995.REMASTERED.1080p.BluRay.mkv	Se7en	1995				movie
+Arrival.2016.H.264-GRP.mkv	Arrival	2016				movie
+Gravity.2013.1920x1080.mkv	Gravity	2013				movie
+Back.to.the.Future.1985.mkv	Back to the Future	1985				movie
+Up.2009.1080p.mkv	Up	2009				movie
+Inception.1080p.BluRay.x264.mkv	Inception					unknown
+# Titles containing numbers or year-like numbers
+Apollo.13.1995.1080p.BluRay.mkv	Apollo 13	1995				movie
+Ocean's.8.2018.720p.WEB-DL.mkv	Ocean's 8	2018				movie
+Terminator.2.Judgment.Day.1991.1080p.mkv	Terminator 2 Judgment Day	1991				movie
+Fast.and.Furious.6.2013.1080p.BluRay.mkv	Fast and Furious 6	2013				movie
+Wonder.Woman.1984.2020.1080p.mkv	Wonder Woman 1984	2020				movie
+2046.2004.CHINESE.1080p.BluRay.mkv	2046	2004				movie
+2001.A.Space.Odyssey.mkv	2001 A Space Odyssey					unknown
+The.100.S02E03.mkv	The 100		2	3		episode
+9-1-1.S04E05.mkv	9-1-1		4	5		episode
+24/Season 1/24.S01E01.mkv	24		1	1		episode
+# Plain-named movies and folder years
+Ocean's Eleven (2001).mkv	Ocean's Eleven	2001				movie
+Back to the Future Part II (1989).mkv	Back to the Future Part II	1989				movie
+Crouching Tiger, Hidden Dragon (2000) [1080p].mkv	Crouching Tiger, Hidden Dragon	2000				movie
+Dune (2021) [1080p] [YTS.MX].mp4	Dune	2021				movie
+Inception (2010)/Inception (2010) - 1080p.mkv	Inception	2010				movie
+Movies/The Godfather (1972)/The Godfather (1972).mkv	The Godfather	1972				movie
+The Thing (1982)/The.Thing.1080p.BluRay.mkv	The Thing	1982				movie
+Parasite (2019)/Parasite.2019.KOREAN.1080p.WEBRip.x264.mkv	Parasite	2019				movie
+the.french.connection.1971.1080p.bluray.x264.mkv	the french connection	1971				movie
+Mr. Holland's Opus (1995).mkv	Mr Holland's Opus	1995				movie
+Charlotte's.Web.2006.720p.mkv	Charlotte's Web	2006				movie
+Uncut.Gems.2019.1080p.WEB-DL.mkv	Uncut Gems	2019				movie
+# Non-Latin scripts and diacritics
+Léon.The.Professional.1994.EXTENDED.1080p.BluRay.x264.mkv	Léon The Professional	1994				movie
+Le.Fabuleux.Destin.d'Amélie.Poulain.2001.TRUEFRENCH.720p.mkv	Le Fabuleux Destin d'Amélie Poulain	2001				movie
+Брат (1997).mkv	Брат	1997				movie
+기생충.2019.1080p.mkv	기생충	2019				movie
+Ο.Θίασος.1975.mkv	Ο Θίασος	1975				movie
+Godzilla.Minus.One.2023.JAPANESE.1080p.mkv	Godzilla Minus One	2023				movie
+Amélie (2001)/Amélie.mkv	Amélie	2001				movie
+# TV episodes
+The.Office.US.S05E14.720p.HDTV.x264.mkv	The Office US		5	14		episode
+Game of Thrones - S08E06 - The Iron Throne.mkv	Game of Thrones		8	6		episode
+Doctor.Who.2005.S01E01.Rose.720p.mkv	Doctor Who	2005	1	1		episode
+true.detective.s01e08.1080p.mkv	true detective		1	8		episode
+Seinfeld 4x11 The Contest.avi	Seinfeld		4	11		episode
+Stranger Things S04E09 Chapter Nine The Piggyback 2160p NF WEB-DL.mkv	Stranger Things		4	9		episode
+Avatar The Last Airbender Season 2 Episode 12.mkv	Avatar The Last Airbender		2	12		episode
+The.Simpsons.S01E01-E02.mkv	The Simpsons		1	1	2	episode
+Friends.S01E01-02.1080p.mkv	Friends		1	1	2	episode
+Twin.Peaks.S03E01E02E03.mkv	Twin Peaks		3	1	3	episode
+# Folder-derived titles and seasons
+Lost/Season 3/Lost - 3x05 - The Cost of Living.mkv	Lost		3	5		episode
+The Wire/Season 2/The Wire S02E01.mkv	The Wire		2	1		episode
+Fargo (2014)/Season 01/Fargo.S01E03.mkv	Fargo	2014	1	3		episode
+Sherlock/Series 1/Sherlock - S01E02 - The Blind Banker.mkv	Sherlock		1	2		episode
+Planet Earth II/S01E03.mkv	Planet Earth II		1	3		episode
+Westworld/Season 4/05.mkv	Westworld		4	5		episode
+The Sopranos/Season 6/S06E21 - Made in America.mkv	The Sopranos		6	21		episode
+Band of Brothers (2001)/Episode 03.mkv	Band of Brothers	2001		3		episode
+The.Expanse.S02.1080p.BluRay-GRP/E04.mkv	The Expanse		2	4		episode
+Breaking Bad\Season 2\Breaking.Bad.S02E03.mkv	Breaking Bad		2	3		episode
+# Anime fansub names
+[HorribleSubs] Shingeki no Kyojin - 25 [720p].mkv	Shingeki no Kyojin			25		episode
+[Erai-raws] Jujutsu Kaisen - 12v2 [1080p][Multiple Subtitle].mkv	Jujutsu Kaisen			12		episode
+[SubsPlease] Mob Psycho 100 III - 05 (1080p) [E1A2B3C4].mkv	Mob Psycho 100 III			5		episode
+[Judas] Steins;Gate - S01E05.mkv	Steins;Gate		1	5		episode
+[SubsPlease] One Piece - 1071 [1080p].mkv	One Piece			1071		episode
+[Coalgirls] Toradora! 07 [1080p].mkv	Toradora!			7		episode
+[Group] 進撃の巨人 - 01 [1080p].mkv	進撃の巨人			1		episode
+ナルト/Season 1/ナルト - 05.mkv	ナルト		1	5		episode
+# Personal videos
+Home Videos/birthday_party.mp4	birthday party					unknown
+random_clip.mp4	random clip					unknown
