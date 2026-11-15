@@ -1,10 +1,14 @@
 pub mod db;
 pub mod error;
+pub mod identify;
+mod identify_show;
+pub mod matcher;
 pub mod model;
 pub mod mpv_ipc;
 pub mod nfo;
 pub mod parse;
 pub mod probe;
+mod rows;
 pub mod scan;
 pub mod secrets;
 pub mod tmdb;
