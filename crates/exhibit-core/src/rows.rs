@@ -75,7 +75,9 @@ pub(crate) fn play_state_from_row(r: &Row) -> rusqlite::Result<PlayState> {
 }
 
 /// Columns of the listing query's outer select, in the order `summary_from_row` reads them.
-pub(crate) const SUMMARY_COLUMNS: &str = "b.id, b.kind, b.title, b.year, b.season, b.episode,      b.show_title, b.poster, b.backdrop, b.runtime_min, b.height, b.hdr, b.watched,      b.progress, b.loved, b.available, b.match_state";
+pub(crate) const SUMMARY_COLUMNS: &str = "b.id, b.kind, b.title, b.year, b.season, b.episode, \
+     b.show_title, b.poster, b.backdrop, b.runtime_min, b.height, b.hdr, b.watched, \
+     b.progress, b.loved, b.available, b.match_state";
 
 pub(crate) fn summary_from_row(r: &Row) -> rusqlite::Result<ItemSummary> {
     Ok(ItemSummary {

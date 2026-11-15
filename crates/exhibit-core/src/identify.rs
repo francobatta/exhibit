@@ -523,7 +523,13 @@ pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
         for sql in [
             "UPDATE files SET item_id=?2 WHERE item_id=?1",
             "UPDATE play_log SET item_id=?2 WHERE item_id=?1",
-            "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at)              SELECT ?2, position_s, duration_s, watched, last_played_at FROM play_state              WHERE item_id=?1              ON CONFLICT(item_id) DO UPDATE SET position_s=excluded.position_s,              duration_s=excluded.duration_s, watched=excluded.watched,              last_played_at=excluded.last_played_at              WHERE excluded.last_played_at > play_state.last_played_at",
+            "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
+             SELECT ?2, position_s, duration_s, watched, last_played_at FROM play_state \
+             WHERE item_id=?1 \
+             ON CONFLICT(item_id) DO UPDATE SET position_s=excluded.position_s, \
+             duration_s=excluded.duration_s, watched=excluded.watched, \
+             last_played_at=excluded.last_played_at \
+             WHERE excluded.last_played_at > play_state.last_played_at",
             "UPDATE items SET loved = 1 WHERE id=?2 AND (SELECT loved FROM items WHERE id=?1)",
         ] {
             c.prepare_cached(sql)?.execute([from, into])?;
