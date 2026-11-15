@@ -97,3 +97,13 @@ Breaking Bad\Season 2\Breaking.Bad.S02E03.mkv	Breaking Bad		2	3		episode
 # Personal videos
 Home Videos/birthday_party.mp4	birthday party					unknown
 random_clip.mp4	random clip					unknown
+# Year followed by plain words; year-like numbers inside titles
+Blade.Runner.1982.The.Final.Cut.1080p.mkv	Blade Runner	1982				movie
+Death.Race.2000.1975.mkv	Death Race 2000	1975				movie
+Wonder.Woman.1984.2020.2160p.mkv	Wonder Woman 1984	2020				movie
+Apocalypse Now 1979 Redux.mkv	Apocalypse Now	1979				movie
+# Generic folders never supply a title
+Movies/01.mkv	01					unknown
+TV Shows/Breaking Bad/Season 1/01 - Pilot.mkv	Breaking Bad		1	1		episode
+Anime/Cowboy Bebop/05.mkv	Cowboy Bebop			5		episode
+Downloads/Season 2/03.mkv	03		2	3		episode

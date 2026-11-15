@@ -2,6 +2,7 @@
 
 use regex::Regex;
 use std::sync::LazyLock;
+use std::time::{SystemTime, UNIX_EPOCH};
 use unicode_normalization::UnicodeNormalization;
 use unicode_normalization::char::is_combining_mark;
 
@@ -32,26 +33,41 @@ pub fn parse_path(rel_path: &str) -> ParsedName {
     let folders: Vec<Name> = parts.iter().rev().map(|f| parse_folder(f)).collect();
     let in_season_folder = folders.iter().any(|f| f.is_season_folder);
 
-    let mut name = parse_name(strip_extension(file), in_season_folder);
+    let stem = strip_extension(file);
+    let mut name = parse_name(stem, in_season_folder);
     let file_title_usable = is_usable_title(&name.title);
+    let mut title_from_folder = false;
 
-    // Nearest folder first: season folders fill the season; the first folder with a usable
-    // title is the show or movie folder, which supplies the title if the file had none and
-    // the year when it names the same title.
-    for folder in &folders {
+    // Nearest folder first: season folders fill the season; generic folders (`Movies`,
+    // `Disc 1`) are skipped; the first remaining folder with a usable title is the show or
+    // movie folder, which supplies the title if the file had none and the year when it names
+    // the same title.
+    for (folder, folder_name) in folders.iter().zip(parts.iter().rev()) {
         if name.season.is_none() {
             name.season = folder.season;
         }
-        if folder.is_season_folder || !is_usable_title(&folder.title) {
+        if folder.is_season_folder
+            || is_generic_folder(folder_name)
+            || !is_usable_title(&folder.title)
+        {
             continue;
         }
         if !file_title_usable {
             name.title = folder.title.clone();
             name.year = name.year.or(folder.year);
+            title_from_folder = true;
         } else if normalize_title(&name.title) == normalize_title(&folder.title) {
             name.year = name.year.or(folder.year);
         }
         break;
+    }
+    if !file_title_usable && !title_from_folder {
+        // No folder names the title: fall back to the cleaned file-name stem. A file that is
+        // only a number (`Movies/01.mkv`) is then an episode only inside a season folder.
+        name.title = clean_name(stem);
+        if name.bare_number && !in_season_folder {
+            name.episode = None;
+        }
     }
 
     let hint = if name.season.is_some() || name.episode.is_some() {
@@ -93,6 +109,8 @@ struct Name {
     episode_end: Option<i32>,
     /// `Season 2`, `S02`, `Specials`: a folder that only names a season.
     is_season_folder: bool,
+    /// The whole name is one number (`05`), read as an episode only with folder context.
+    bare_number: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -111,7 +129,38 @@ struct Tok {
     raw: String,
 }
 
-static RE_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^(?:19|20)\d\d$").unwrap());
+static RE_YEAR: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}$").unwrap());
+/// Latest plausible release year: next year.
+static MAX_YEAR: LazyLock<i32> = LazyLock::new(|| {
+    const SECS_PER_YEAR: u64 = 31_556_952; // mean Gregorian year
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs());
+    1970 + i32::try_from(secs / SECS_PER_YEAR).unwrap_or(0) + 1
+});
+/// Folder names that never name a title (compared after `normalize_title`).
+const GENERIC_FOLDERS: &[&str] = &[
+    "movies",
+    "movie",
+    "films",
+    "film",
+    "tv",
+    "tv shows",
+    "shows",
+    "series",
+    "anime",
+    "videos",
+    "video",
+    "media",
+    "downloads",
+    "download",
+    "other",
+    "misc",
+    "new folder",
+    "rips",
+];
+static RE_GENERIC_DISC: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(?:disc|disk|cd|dvd) ?\d+$").unwrap());
 static RE_SXE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)^s(\d{1,3})e(\d{1,4})((?:-?e\d{1,4}|-\d{1,4})*)$").unwrap());
 static RE_NXN: LazyLock<Regex> =
@@ -180,6 +229,30 @@ fn strip_extension(file: &str) -> &str {
     }
 }
 
+fn is_generic_folder(folder: &str) -> bool {
+    let normalized = normalize_title(folder);
+    GENERIC_FOLDERS.contains(&normalized.as_str()) || RE_GENERIC_DISC.is_match(&normalized)
+}
+
+/// The name with separators turned into spaces and outer dashes dropped.
+fn clean_name(name: &str) -> String {
+    join_title(&tokenize(name))
+}
+
+/// Joins tokens as written, dropping dashes at either end.
+fn join_title(mut toks: &[Tok]) -> String {
+    while toks.first().is_some_and(is_dash) {
+        toks = &toks[1..];
+    }
+    while toks.last().is_some_and(is_dash) {
+        toks = &toks[..toks.len() - 1];
+    }
+    toks.iter()
+        .map(|t| t.raw.as_str())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// A title is usable when it has at least two letters or digits.
 fn is_usable_title(title: &str) -> bool {
     title.chars().filter(|c| c.is_alphanumeric()).count() >= 2
@@ -201,9 +274,13 @@ fn parse_name(name: &str, in_season_folder: bool) -> Name {
 
     // `boundary` is where the title ends: the first release tag, bracket or episode marker.
     let mut boundary = n;
+    // Where an episode marker or number sits; years are only looked for before it.
+    let mut episode_at = n;
     if let Some(ep) = leading_episode(&toks, start, absolute_allowed) {
         out.episode = Some(ep);
+        out.bare_number = toks.len() == start + 1;
         boundary = start;
+        episode_at = start;
     } else {
         for i in start..n {
             let tok = &toks[i];
@@ -216,6 +293,7 @@ fn parse_name(name: &str, in_season_folder: bool) -> Name {
                 out.episode = episode;
                 out.episode_end = episode_end;
                 boundary = i;
+                episode_at = i;
                 break;
             }
             // `Title - 05` in a fansub name or season folder; `Title 05 [1080p]` in a fansub name.
@@ -229,33 +307,21 @@ fn parse_name(name: &str, in_season_folder: bool) -> Name {
             if absolute.is_some() {
                 out.episode = absolute;
                 boundary = i;
+                episode_at = i;
                 break;
             }
         }
     }
 
-    // The year is the last year-like token (never the first) that is followed by a tag,
-    // bracket, episode marker or the end.
+    // The year is the last standalone year token before any episode marker, never the
+    // first token, whatever follows it; the title ends at it.
     let mut title_end = boundary;
-    for i in start + 1..=boundary.min(n.saturating_sub(1)) {
-        if is_year(&toks[i]) && is_terminated(&toks, i, boundary) {
-            out.year = toks[i].text.parse().ok();
-            title_end = i;
-        }
+    if let Some(i) = (start + 1..episode_at).rev().find(|&i| is_year(&toks[i])) {
+        out.year = toks[i].text.parse().ok();
+        title_end = title_end.min(i);
     }
 
-    let mut title = &toks[start.min(title_end)..title_end];
-    while title.first().is_some_and(is_dash) {
-        title = &title[1..];
-    }
-    while title.last().is_some_and(is_dash) {
-        title = &title[..title.len() - 1];
-    }
-    out.title = title
-        .iter()
-        .map(|t| t.raw.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
+    out.title = join_title(&toks[start.min(title_end)..title_end]);
     out
 }
 
@@ -346,20 +412,18 @@ fn episode_marker(toks: &[Tok], i: usize) -> Option<Marker> {
     Some((None, num(&c[1]), None))
 }
 
-/// Whether the token after `i` (skipping dashes) ends the title.
-fn is_terminated(toks: &[Tok], i: usize, boundary: usize) -> bool {
-    let j = (i + 1..toks.len())
-        .find(|&j| !is_dash(&toks[j]))
-        .unwrap_or(toks.len());
-    j >= boundary || toks[j].kind != TokKind::Word || is_tag(toks, j)
-}
-
 fn is_dash(tok: &Tok) -> bool {
     tok.kind == TokKind::Word && tok.text == "-"
 }
 
+/// A standalone (bare or bracketed) number in 1900..=next year.
 fn is_year(tok: &Tok) -> bool {
-    tok.kind != TokKind::Group && RE_YEAR.is_match(&tok.text)
+    tok.kind != TokKind::Group
+        && RE_YEAR.is_match(&tok.text)
+        && tok
+            .text
+            .parse::<i32>()
+            .is_ok_and(|y| (1900..=*MAX_YEAR).contains(&y))
 }
 
 fn is_tag(toks: &[Tok], i: usize) -> bool {
