@@ -162,13 +162,18 @@ pub fn probe_file(tools: &Tools, file: &Path) -> Result<TechInfo> {
 
 /// Probe every file with `probed = 0` on an online source. Each file is marked probed
 /// whether it worked or not, so a bad file is not retried on every run. `on` is called
-/// with the file id after each attempt. Returns (ok, failed).
+/// with the file id after each attempt. Returns (ok, failed). With neither ffprobe nor mpv
+/// available it fails with `Error::Tool` before touching any row, so the files stay
+/// unprobed until a tool is installed.
 pub fn probe_pending(
     c: &Connection,
     v: &dyn Volumes,
     tools: &Tools,
     on: &mut dyn FnMut(Id),
 ) -> Result<(u32, u32)> {
+    if tools.ffprobe.is_none() && tools.mpv.is_none() {
+        return Err(Error::Tool("neither ffprobe nor mpv is installed".into()));
+    }
     let (mut ok, mut failed) = (0, 0);
     for source in source_rows(c)? {
         let Some(root) = resolve(v, &source) else {
@@ -564,11 +569,22 @@ mod tests {
     fn offline_source_is_left_alone() {
         let l = lib();
         let none = FakeVolumes(vec![]);
-        let tools = Tools::default();
+        let tools = Tools {
+            ffprobe: Some(PathBuf::from("ffprobe")),
+            ..Tools::default()
+        };
         assert_eq!(
             probe_pending(&l.c, &none, &tools, &mut |_| {}).unwrap(),
             (0, 0)
         );
+        assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
+    }
+
+    #[test]
+    fn no_tool_is_an_error_and_leaves_files_unprobed() {
+        let l = lib();
+        let r = probe_pending(&l.c, &l.v, &Tools::default(), &mut |_| {});
+        assert!(matches!(r, Err(Error::Tool(_))));
         assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
     }
 }

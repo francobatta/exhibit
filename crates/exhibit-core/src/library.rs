@@ -13,8 +13,9 @@ use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::model::{Id, ItemKind, MatchSource, Source};
 use crate::player::{self, PlayOutcome};
 use crate::probe;
-use crate::query::{self, HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
-use crate::rows::enum_str;
+use crate::query::{
+    self, HistoryEntry, ItemDetail, ItemSummary, LibraryCounts, SearchQuery, Shelf,
+};
 use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
 use crate::tmdb::{Tmdb, UreqHttp};
@@ -26,11 +27,8 @@ const AGENT_KEY: &str = "agent";
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LibraryStatus {
-    pub movies: u32,
-    pub shows: u32,
-    pub other: u32,
-    pub needs_review: u32,
-    pub unprobed: u32,
+    #[serde(flatten)]
+    pub counts: LibraryCounts,
     pub sources: Vec<Source>,
     pub tmdb_key: bool,
     pub agent_key: bool,
@@ -115,14 +113,16 @@ impl Library {
             .collect()
     }
 
-    /// Returns (ok, failed). `Error::Tool` when neither ffprobe nor mpv is installed, so
-    /// no file is marked probed without a tool to probe it.
+    /// Returns (ok, failed); `Error::Tool` when neither ffprobe nor mpv is installed.
     pub fn probe_pending(&self, on: &mut dyn FnMut(Id)) -> Result<(u32, u32)> {
         let tools = tools::tools(&self.conn, &self.env)?;
-        if tools.ffprobe.is_none() && tools.mpv.is_none() {
-            return Err(Error::Tool("neither ffprobe nor mpv is installed".into()));
-        }
         probe::probe_pending(&self.conn, &*self.volumes, &tools, on)
+    }
+
+    /// True when at least one tool that can probe a file (ffprobe or mpv) is usable.
+    pub fn can_probe(&self) -> Result<bool> {
+        let t = tools::tools(&self.conn, &self.env)?;
+        Ok(t.ffprobe.is_some() || t.mpv.is_some())
     }
 
     pub fn identify(&self, scope: IdentifyScope, on: &mut dyn FnMut(Id)) -> Result<IdentifyReport> {
@@ -215,31 +215,11 @@ impl Library {
 
     pub fn status(&self) -> Result<LibraryStatus> {
         Ok(LibraryStatus {
-            movies: self.count_kind(ItemKind::Movie)?,
-            shows: self.count_kind(ItemKind::Show)?,
-            other: self.count_kind(ItemKind::Other)?,
-            needs_review: self.needs_review()?.len() as u32,
-            unprobed: self.conn.query_row(
-                "SELECT count(*) FROM files WHERE probed = 0 AND present = 1",
-                [],
-                |r| r.get(0),
-            )?,
+            counts: query::library_counts(&self.conn, &*self.volumes)?,
             sources: self.list_sources()?,
             tmdb_key: self.has_secret(TMDB_KEY)?,
             agent_key: self.has_secret(AGENT_KEY)?,
             tools: self.detect_tools()?,
         })
-    }
-
-    /// Items of `kind` with at least one present file in their subtree.
-    fn count_kind(&self, kind: ItemKind) -> Result<u32> {
-        Ok(self.conn.query_row(
-            "WITH RECURSIVE tree(root_id, id) AS (SELECT id, id FROM items \
-               UNION ALL SELECT tree.root_id, i.id FROM tree JOIN items i ON i.parent_id = tree.id) \
-             SELECT count(DISTINCT r.id) FROM items r JOIN tree t ON t.root_id = r.id \
-               JOIN files f ON f.item_id = t.id AND f.present = 1 WHERE r.kind = ?1",
-            [enum_str(kind)],
-            |r| r.get(0),
-        )?)
     }
 }

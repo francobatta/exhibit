@@ -436,6 +436,40 @@ pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> 
         .collect()
 }
 
+/// Headline numbers for the status view. Movies, shows and other count items with a present
+/// file somewhere beneath them; `needs_review` and `unprobed` are what still wants attention.
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct LibraryCounts {
+    pub movies: u32,
+    pub shows: u32,
+    pub other: u32,
+    pub needs_review: u32,
+    pub unprobed: u32,
+}
+
+pub fn library_counts(c: &Connection, v: &dyn Volumes) -> Result<LibraryCounts> {
+    let of_kind = |kind: ItemKind| -> Result<u32> {
+        Ok(c.query_row(
+            &format!(
+                "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r                  JOIN tree t ON t.root_id = r.id                  JOIN files f ON f.item_id = t.id AND f.present = 1 WHERE r.kind = ?1"
+            ),
+            [enum_str(kind)],
+            |r| r.get(0),
+        )?)
+    };
+    Ok(LibraryCounts {
+        movies: of_kind(ItemKind::Movie)?,
+        shows: of_kind(ItemKind::Show)?,
+        other: of_kind(ItemKind::Other)?,
+        needs_review: needs_review(c, v)?.len() as u32,
+        unprobed: c.query_row(
+            "SELECT count(*) FROM files WHERE probed = 0 AND present = 1",
+            [],
+            |r| r.get(0),
+        )?,
+    })
+}
+
 /// First unwatched episode of a show that has a file, by season then episode, specials
 /// (season 0) after the numbered seasons and episodes with no season last.
 pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
@@ -1033,6 +1067,33 @@ mod tests {
         assert_eq!(d.files.len(), 1);
         assert!(d.children.is_empty());
         assert!(matches!(item(&e.c, &e.v, 424242), Err(Error::NotFound(_))));
+    }
+
+    #[test]
+    fn library_counts_count_items_with_files() {
+        let e = env();
+        let unsure = e.with_file(ItemKind::Movie, "Unsure", None);
+        e.with_file(ItemKind::Movie, "Fine", None);
+        e.with_file(ItemKind::Other, "Clip", None);
+        e.add(ItemKind::Movie, "No file", None);
+        e.show("Show", 2);
+        e.add(ItemKind::Show, "Empty show", None);
+        e.exec(&format!(
+            "UPDATE items SET match_state='{}' WHERE id={unsure}",
+            enum_str(MatchState::NeedsReview)
+        ));
+        e.exec("UPDATE files SET probed = 1 WHERE id = 1");
+        let n = library_counts(&e.c, &e.v).unwrap();
+        assert_eq!(
+            n,
+            LibraryCounts {
+                movies: 2,
+                shows: 1,
+                other: 1,
+                needs_review: 1,
+                unprobed: 4,
+            }
+        );
     }
 
     #[test]
