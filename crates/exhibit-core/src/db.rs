@@ -1,4 +1,4 @@
-use crate::error::Result;
+use crate::error::{Error, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 
@@ -29,9 +29,21 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
     let c = Connection::open(data_dir.join("exhibit.db"))?;
     c.busy_timeout(std::time::Duration::from_millis(5000))?;
     c.pragma_update(None, "foreign_keys", "ON")?;
-    let _mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+    use_wal(&c)?;
     migrate(&c)?;
     Ok(c)
+}
+
+/// Switches to WAL, which several processes sharing the database rely on.
+fn use_wal(c: &Connection) -> Result<()> {
+    let mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
+    if !mode.eq_ignore_ascii_case("wal") {
+        return Err(Error::Invalid(format!(
+            "the database folder does not support SQLite WAL mode (got journal mode {mode}); \
+             set EXHIBIT_DATA_DIR to a folder on a local drive"
+        )));
+    }
+    Ok(())
 }
 
 fn migrate(c: &Connection) -> Result<()> {
@@ -112,6 +124,18 @@ mod tests {
                 .unwrap();
             assert_eq!(n, 1, "{t}");
         }
+    }
+
+    #[test]
+    fn no_wal_is_an_error() {
+        // An in-memory database answers `memory`, as a folder without WAL support answers
+        // `delete`.
+        let c = Connection::open_in_memory().unwrap();
+        let e = use_wal(&c).unwrap_err();
+        assert!(
+            matches!(&e, crate::error::Error::Invalid(m) if m.contains("WAL")),
+            "{e}"
+        );
     }
 
     #[test]
