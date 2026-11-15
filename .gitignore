@@ -2,3 +2,5 @@
 node_modules/
 target/
 dist/
+ui/dist/
+crates/exhibit-app/gen/
