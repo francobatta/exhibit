@@ -18,7 +18,8 @@ export default function App() {
       onLibraryChanged(() => status().then(setLib).catch(fail)),
       onJobStatus(setJob),
     ];
-    return () => off.forEach((p) => p.then((f) => f()));
+    off.forEach((p) => p.catch(fail));
+    return () => off.forEach((p) => p.then((f) => f()).catch(fail));
   }, []);
 
   return (

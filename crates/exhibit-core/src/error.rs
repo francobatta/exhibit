@@ -13,6 +13,21 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
+impl Error {
+    /// The machine-readable kind every front end prints beside the message.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Error::Db(_) => "db",
+            Error::Io(_) => "io",
+            Error::NotFound(_) => "not_found",
+            Error::SourceOffline(_) => "source_offline",
+            Error::Tool(_) => "tool",
+            Error::Provider(_) => "provider",
+            Error::Invalid(_) => "invalid",
+        }
+    }
+}
+
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -46,5 +61,26 @@ impl From<rusqlite::Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(e: std::io::Error) -> Self {
         Error::Io(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kinds_are_the_printed_names() {
+        let cases = [
+            (Error::Db(rusqlite::Error::InvalidQuery), "db"),
+            (Error::Io(std::io::Error::other("disk")), "io"),
+            (Error::NotFound("x".into()), "not_found"),
+            (Error::SourceOffline("x".into()), "source_offline"),
+            (Error::Tool("x".into()), "tool"),
+            (Error::Provider("x".into()), "provider"),
+            (Error::Invalid("x".into()), "invalid"),
+        ];
+        for (e, kind) in cases {
+            assert_eq!(e.kind(), kind);
+        }
     }
 }

@@ -2,6 +2,7 @@
 //! `Library` connection, so quick commands never wait behind them.
 
 use std::collections::VecDeque;
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -13,6 +14,7 @@ use exhibit_core::{Library, RefreshEvent, RefreshOptions, RefreshPhase};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
+use crate::error::panic_message;
 use crate::state::Changed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -88,6 +90,27 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
         ..JobStatus::default()
     }));
     emit(Emit::Changed);
+}
+
+/// Where a job reports.
+pub type Sink<'a> = &'a mut dyn FnMut(Emit);
+
+/// Runs `job`, turning a panic into a final idle status that names it, so the worker
+/// thread carries on with the next job. False when the job panicked.
+pub fn run_caught(job: &mut dyn FnMut(Sink), emit: Sink) -> bool {
+    let caught = panic::catch_unwind(AssertUnwindSafe(|| job(&mut *emit)));
+    let Err(p) = caught else {
+        return true;
+    };
+    emit(Emit::Status(JobStatus {
+        last_error: Some(format!(
+            "The job stopped unexpectedly: {}",
+            panic_message(p)
+        )),
+        ..JobStatus::default()
+    }));
+    emit(Emit::Changed);
+    false
 }
 
 /// What the owner reads while a phase runs.
@@ -186,8 +209,13 @@ impl WorkerHandle {
                         }
                     }
                 }
-                if let Some(lib) = &lib {
-                    run_job(lib, job, &mut sink);
+                let survived = match &lib {
+                    Some(l) => run_caught(&mut |emit| run_job(l, job, emit), &mut sink),
+                    None => true,
+                };
+                if !survived {
+                    // Its connection may be mid-transaction: the next job opens a fresh one.
+                    lib = None;
                 }
             }
         });
@@ -294,5 +322,32 @@ mod tests {
         assert_eq!(q.pop(), Job::Refresh(Some(1)));
         assert_eq!(q.pop(), Job::Identify(IdentifyScope::Review));
         assert_eq!(q.pop(), Job::Refresh(None));
+    }
+
+    #[test]
+    fn a_panicking_job_is_reported_and_the_worker_goes_on() {
+        let mut emits = Vec::new();
+        let survived = run_caught(
+            &mut |emit| {
+                emit(Emit::Status(JobStatus {
+                    phase: Some(RefreshPhase::Scanning),
+                    ..JobStatus::default()
+                }));
+                panic!("disk on fire");
+            },
+            &mut |e| emits.push(e),
+        );
+        assert!(!survived);
+        let Emit::Status(last) = &emits[emits.len() - 2] else {
+            panic!("{emits:?}")
+        };
+        assert_eq!(last.phase, None);
+        assert!(last.last_error.as_deref().unwrap().contains("disk on fire"));
+        assert_eq!(emits.last(), Some(&Emit::Changed));
+
+        // A job that finishes is left alone.
+        let mut quiet = Vec::new();
+        assert!(run_caught(&mut |_| {}, &mut |e| quiet.push(e)));
+        assert!(quiet.is_empty());
     }
 }

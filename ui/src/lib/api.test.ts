@@ -2,6 +2,10 @@ import { beforeAll, describe, expect, test } from "bun:test";
 
 const calls: Array<{ cmd: string; args: unknown }> = [];
 
+// A fresh copy of the module per test, so no test depends on another having called `boot`.
+let copies = 0;
+const fresh = () => import(`./api.ts?copy=${copies++}`) as Promise<typeof import("./api")>;
+
 beforeAll(() => {
   // A stand-in for the Tauri page bridge: records commands, answers `boot`.
   const g = globalThis as unknown as Record<string, unknown>;
@@ -21,14 +25,14 @@ beforeAll(() => {
 
 describe("imageUrl", () => {
   test("is null before boot and for a missing name", async () => {
-    const api = await import("./api");
+    const api = await fresh();
     expect(api.imageUrl("movie-603-poster.jpg")).toBeNull();
     await api.boot();
     expect(api.imageUrl(null)).toBeNull();
   });
 
   test("points into the image folder, small posters beside large ones", async () => {
-    const api = await import("./api");
+    const api = await fresh();
     await api.boot();
     const url = (p: string) => `http://asset.localhost/${encodeURIComponent(p)}`;
     expect(api.imageUrl("movie-603-poster.jpg")).toBe(
@@ -44,7 +48,7 @@ describe("imageUrl", () => {
 });
 
 test("commands send camelCase arguments under their snake_case names", async () => {
-  const api = await import("./api");
+  const api = await fresh();
   calls.length = 0;
   await api.applyMatch(4, 603, "movie");
   await api.setWatched(4, true);

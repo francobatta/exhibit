@@ -203,7 +203,14 @@ export interface PlayOutcome {
   watched: boolean;
 }
 
-export type ErrorKind = "not_found" | "invalid" | "offline" | "tool" | "provider" | "io" | "db";
+export type ErrorKind =
+  | "not_found"
+  | "invalid"
+  | "source_offline"
+  | "tool"
+  | "provider"
+  | "io"
+  | "db";
 
 /** What a failed command rejects with. */
 export interface ApiError {

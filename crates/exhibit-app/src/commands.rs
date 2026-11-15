@@ -1,5 +1,6 @@
 //! One command per `Library` operation. Quick calls share the state's library; calls that
-//! wait on the network open their own, so they never hold up the others.
+//! wait on the network or on tool processes (`status` runs each tool's `--version`) open
+//! their own, so they never hold up the others.
 
 use std::path::{Path, PathBuf};
 
@@ -8,10 +9,10 @@ use exhibit_core::model::{Candidate, Id, ItemKind, Source};
 use exhibit_core::query::{HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
 use exhibit_core::tools::{Tool, ToolStatus};
 use exhibit_core::{Library, LibraryStatus};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
-use crate::error::ApiResult;
+use crate::error::{ApiError, ApiResult};
 use crate::folders::{self, Folder};
 use crate::playback;
 use crate::state::AppState;
@@ -27,7 +28,7 @@ pub struct Boot {
 
 #[tauri::command(async)]
 pub fn boot(state: State<'_, AppState>) -> ApiResult<Boot> {
-    let status = state.lib().status()?;
+    let status = Library::open_default()?.status()?;
     Ok(Boot {
         first_run: status.sources.is_empty(),
         image_dir: state.image_dir.to_string_lossy().to_string(),
@@ -36,8 +37,8 @@ pub fn boot(state: State<'_, AppState>) -> ApiResult<Boot> {
 }
 
 #[tauri::command(async)]
-pub fn status(state: State<'_, AppState>) -> ApiResult<LibraryStatus> {
-    Ok(state.lib().status()?)
+pub fn status() -> ApiResult<LibraryStatus> {
+    Ok(Library::open_default()?.status()?)
 }
 
 #[tauri::command(async)]
@@ -125,8 +126,8 @@ pub fn list_folders(path: Option<String>) -> ApiResult<Vec<Folder>> {
 }
 
 #[tauri::command(async)]
-pub fn detect_tools(state: State<'_, AppState>) -> ApiResult<Vec<ToolStatus>> {
-    Ok(state.lib().detect_tools()?)
+pub fn detect_tools() -> ApiResult<Vec<ToolStatus>> {
+    Ok(Library::open_default()?.detect_tools()?)
 }
 
 #[tauri::command(async)]
@@ -142,6 +143,30 @@ pub fn set_tool_path(
     Ok(())
 }
 
+/// The secrets the window may set: the TMDB key and the agent key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SecretName {
+    Tmdb,
+    Agent,
+}
+
+impl SecretName {
+    /// Read from the command's string, so an unknown name is an `invalid` error the window
+    /// can show rather than a failure to call the command at all.
+    pub fn parse(name: &str) -> ApiResult<SecretName> {
+        serde_json::from_value(serde_json::Value::from(name))
+            .map_err(|_| ApiError::invalid(&format!("no secret is called \"{name}\"")))
+    }
+
+    fn key(self) -> &'static str {
+        match self {
+            SecretName::Tmdb => "tmdb",
+            SecretName::Agent => "agent",
+        }
+    }
+}
+
 /// The value goes to the credential store and is never echoed back.
 #[tauri::command(async)]
 pub fn set_secret(
@@ -149,7 +174,8 @@ pub fn set_secret(
     name: String,
     value: Option<String>,
 ) -> ApiResult<()> {
-    state.lib().set_secret(&name, value.as_deref())?;
+    let name = SecretName::parse(&name)?;
+    state.lib().set_secret(name.key(), value.as_deref())?;
     state.changed.notify();
     Ok(())
 }
@@ -181,4 +207,19 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> ApiResult<()> {
             .map_err(|e| std::io::Error::other(e.to_string()))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_known_secrets_can_be_set() {
+        assert_eq!(SecretName::parse("tmdb").unwrap().key(), "tmdb");
+        assert_eq!(SecretName::parse("agent").unwrap().key(), "agent");
+        for bad in ["", "TMDB", "openai", "tmdb "] {
+            let e = SecretName::parse(bad).unwrap_err();
+            assert_eq!(e.kind, "invalid", "{bad:?}");
+        }
+    }
 }

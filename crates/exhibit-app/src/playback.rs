@@ -1,8 +1,9 @@
 //! Playback runs on its own thread and its own `Library` connection, so the window stays
 //! responsive; when the player exits the window hears `play-ended` and comes back to front.
 
+use std::panic::{self, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use exhibit_core::{Library, Result};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager};
 
-use crate::error::{ApiError, ApiResult};
+use crate::error::{ApiError, ApiResult, panic_message};
 use crate::state::AppState;
 
 /// How long `play` waits for a failure that happens before the player starts.
@@ -27,6 +28,58 @@ pub struct PlayEnded {
     pub next_episode: Option<Id>,
 }
 
+/// Decides who reports a play's result: the `play` command while it still waits, or
+/// `play-ended` after. Exactly one of them reports an error; success always reaches
+/// `play-ended` (and also releases a waiting command).
+pub struct Handoff {
+    waiter: Mutex<Option<mpsc::SyncSender<ApiResult<()>>>>,
+    answer: Mutex<mpsc::Receiver<ApiResult<()>>>,
+}
+
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+impl Handoff {
+    pub fn new() -> Handoff {
+        let (tx, rx) = mpsc::sync_channel(1);
+        Handoff {
+            waiter: Mutex::new(Some(tx)),
+            answer: Mutex::new(rx),
+        }
+    }
+
+    /// Player side, once the result is known. Returns what is left for `play-ended`.
+    /// The answer is sent while the lock is held, so `wait` can never stop waiting between
+    /// this taking the sender and sending through it.
+    pub fn deliver<T>(&self, result: ApiResult<T>) -> Option<ApiResult<T>> {
+        let mut waiter = lock(&self.waiter);
+        match (waiter.take(), result) {
+            (Some(tx), Err(e)) => {
+                let _ = tx.send(Err(e));
+                None
+            }
+            (Some(tx), ok) => {
+                let _ = tx.send(Ok(()));
+                Some(ok)
+            }
+            (None, r) => Some(r),
+        }
+    }
+
+    /// Command side: an error delivered within `wait` is returned; after that the command
+    /// stops waiting and succeeds, and any later result belongs to `play-ended`.
+    pub fn wait(&self, wait: Duration) -> ApiResult<()> {
+        let answer = lock(&self.answer);
+        if let Ok(r) = answer.recv_timeout(wait) {
+            return r;
+        }
+        lock(&self.waiter).take();
+        // A `deliver` that held the lock before us has already sent.
+        answer.try_recv().unwrap_or(Ok(()))
+    }
+}
+
 /// Starts playing `id` on its own thread. A failure within the first moments (the item's
 /// drive is offline, no mpv) is returned; anything after that arrives with `play-ended`.
 pub fn play(app: &AppHandle, id: Id, resume: bool) -> ApiResult<()> {
@@ -34,67 +87,76 @@ pub fn play(app: &AppHandle, id: Id, resume: bool) -> ApiResult<()> {
     if state.playing.swap(true, Ordering::SeqCst) {
         return Err(ApiError::invalid("Something is already playing"));
     }
-    let (tx, rx) = mpsc::sync_channel::<ApiResult<()>>(1);
-    // Holds the sender while `play` still waits; the thread answers through it if so.
-    let waiting = Arc::new(Mutex::new(Some(tx)));
-    let w = waiting.clone();
+    let handoff = Arc::new(Handoff::new());
+    let h = handoff.clone();
     let app2 = app.clone();
     thread::spawn(move || {
-        let result = Library::open_default().and_then(|lib| {
-            let outcome = lib.play(id, resume)?;
-            let next = next_after(&|i| lib.item(i), &outcome).unwrap_or_else(|e| {
-                eprintln!("exhibit: cannot find the next episode: {e}");
-                None
-            });
-            Ok((outcome, next))
-        });
-        let waiter = w.lock().unwrap_or_else(|e| e.into_inner()).take();
-        match (result, waiter) {
-            // Failed before the player started: the command reports it.
-            (Err(e), Some(tx)) => {
-                app2.state::<AppState>()
-                    .playing
-                    .store(false, Ordering::SeqCst);
-                let _ = tx.send(Err(e.into()));
-            }
-            (result, waiter) => {
-                if let Some(tx) = waiter {
-                    let _ = tx.send(Ok(()));
-                }
-                let ended = match result {
-                    Ok((outcome, next_episode)) => PlayEnded {
-                        outcome: Some(outcome),
-                        error: None,
-                        next_episode,
-                    },
-                    Err(e) => PlayEnded {
-                        outcome: None,
-                        error: Some(e.into()),
-                        next_episode: None,
-                    },
-                };
-                finish(&app2, &ended);
-            }
+        let _guard = PanicGuard(app2.clone());
+        let played = panic::catch_unwind(AssertUnwindSafe(|| played(id, resume)))
+            .unwrap_or_else(|p| Err(stopped(&panic_message(p))));
+        app2.state::<AppState>()
+            .playing
+            .store(false, Ordering::SeqCst);
+        if let Some(result) = h.deliver(played) {
+            finish(&app2, &ended(result));
         }
     });
-    match rx.recv_timeout(START_WAIT) {
-        Ok(r) => r,
-        Err(_) => {
-            // Stop waiting; an answer sent just before this still counts.
-            waiting.lock().unwrap_or_else(|e| e.into_inner()).take();
-            rx.try_recv().unwrap_or(Ok(()))
+    handoff.wait(START_WAIT)
+}
+
+/// Plays to the end and finds the episode to offer next.
+fn played(id: Id, resume: bool) -> ApiResult<(PlayOutcome, Option<Id>)> {
+    let lib = Library::open_default()?;
+    let outcome = lib.play(id, resume)?;
+    let next = next_after(&|i| lib.item(i), &outcome).unwrap_or_else(|e| {
+        eprintln!("exhibit: cannot find the next episode: {e}");
+        None
+    });
+    Ok((outcome, next))
+}
+
+fn stopped(why: &str) -> ApiError {
+    std::io::Error::other(format!("playback stopped unexpectedly: {why}")).into()
+}
+
+fn ended(result: ApiResult<(PlayOutcome, Option<Id>)>) -> PlayEnded {
+    match result {
+        Ok((outcome, next_episode)) => PlayEnded {
+            outcome: Some(outcome),
+            error: None,
+            next_episode,
+        },
+        Err(e) => PlayEnded {
+            outcome: None,
+            error: Some(e),
+            next_episode: None,
+        },
+    }
+}
+
+/// A panic anywhere on the playback thread still frees the flag and tells the window.
+struct PanicGuard(AppHandle);
+
+impl Drop for PanicGuard {
+    fn drop(&mut self) {
+        if thread::panicking() {
+            self.0
+                .state::<AppState>()
+                .playing
+                .store(false, Ordering::SeqCst);
+            let _ = self
+                .0
+                .emit("play-ended", ended(Err(stopped("see the log"))));
         }
     }
 }
 
-/// The player exited: free the flag, tell the window, bring it back with keyboard focus.
+/// The player exited: tell the window, bring it back with keyboard focus.
 fn finish(app: &AppHandle, ended: &PlayEnded) {
-    let state = app.state::<AppState>();
-    state.playing.store(false, Ordering::SeqCst);
     if let Err(e) = app.emit("play-ended", ended) {
         eprintln!("exhibit: cannot emit play-ended: {e}");
     }
-    state.changed.notify();
+    app.state::<AppState>().changed.notify();
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.unminimize();
         let _ = w.show();
@@ -231,5 +293,52 @@ mod tests {
     fn next_after_an_episode_without_a_show_is_none() {
         let orphan = |id| Ok(detail(id, ItemKind::Episode, None, None));
         assert_eq!(next_after(&orphan, &outcome(5, true)).unwrap(), None);
+    }
+
+    fn failed() -> ApiResult<u32> {
+        Err(ApiError::invalid("offline"))
+    }
+
+    #[test]
+    fn an_early_error_is_returned_from_the_command() {
+        let h = Handoff::new();
+        assert_eq!(h.deliver(failed()), None);
+        assert_eq!(h.wait(Duration::from_millis(10)), failed().map(|_| ()));
+    }
+
+    #[test]
+    fn a_late_error_goes_to_play_ended() {
+        let h = Handoff::new();
+        assert_eq!(h.wait(Duration::from_millis(10)), Ok(()));
+        assert_eq!(h.deliver(failed()), Some(failed()));
+    }
+
+    #[test]
+    fn success_releases_the_command_and_reaches_play_ended() {
+        let h = Handoff::new();
+        assert_eq!(h.deliver(Ok(5)), Some(Ok(5)));
+        assert_eq!(h.wait(Duration::from_millis(10)), Ok(()));
+        let late = Handoff::new();
+        assert_eq!(late.wait(Duration::from_millis(1)), Ok(()));
+        assert_eq!(late.deliver(Ok(5)), Some(Ok(5)));
+    }
+
+    /// Racing the timeout: an error is always reported by exactly one side.
+    #[test]
+    fn an_error_is_reported_exactly_once_whatever_the_timing() {
+        for i in 0..300u64 {
+            let h = Arc::new(Handoff::new());
+            let h2 = h.clone();
+            let player = thread::spawn(move || {
+                thread::sleep(Duration::from_micros(i * 7 % 1500));
+                h2.deliver(failed())
+            });
+            let command = h.wait(Duration::from_millis(1));
+            let ended = player.join().unwrap();
+            assert!(
+                command.is_err() != ended.is_some(),
+                "round {i}: command {command:?}, play-ended {ended:?}"
+            );
+        }
     }
 }

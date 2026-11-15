@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window: core events and window basics, nothing else.",
+  "description": "The main window: listening to events, nothing else. App commands need no permission and artwork loads through the runtime-scoped asset protocol.",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
 }

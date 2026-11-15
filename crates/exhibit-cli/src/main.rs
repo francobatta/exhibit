@@ -246,14 +246,5 @@ fn main() -> ExitCode {
 }
 
 fn error_json(e: &Error) -> Value {
-    let kind = match e {
-        Error::Db(_) => "db",
-        Error::Io(_) => "io",
-        Error::NotFound(_) => "not_found",
-        Error::SourceOffline(_) => "source_offline",
-        Error::Tool(_) => "tool",
-        Error::Provider(_) => "provider",
-        Error::Invalid(_) => "invalid",
-    };
-    json!({"error": {"kind": kind, "message": e.to_string()}})
+    json!({"error": {"kind": e.kind(), "message": e.to_string()}})
 }
