@@ -143,7 +143,14 @@ SQLite, stored with an image cache under the user's application data folder. The
 
 **Metadata source.** **(call)** TMDB for movies and shows, using a free API key the owner enters once at first run. The key can be skipped: without it, every file appears under its cleaned-up name with a thumbnail and no artwork, and nothing is sent to needs review. Identification can be run over the whole library at any later time, so adding the key afterwards fills everything in. Artwork is downloaded to the local cache at sizes suited to a 4K TV.
 
-**Technical details and thumbnails.** **(call)** Read resolution, HDR and track information directly from the file containers in Rust, and generate thumbnails for Other by asking mpv to render a single frame. This avoids shipping ffmpeg. If native parsing proves unreliable, the builder may propose an alternative, but must not add a large bundled dependency without asking.
+**Technical details and thumbnails (owner).** Exhibit bundles no media tools. It uses tools already installed on the machine, which it detects automatically and which the owner can point to in Settings:
+
+- **Detection.** On first run and whenever Settings is opened, look for mpv, ffprobe and ffmpeg on the PATH and in the usual install locations (including package-manager folders such as Scoop, Chocolatey and winget, and next to a found mpv). Show each tool as found, with its path and version, or not found. The owner can override any path by hand; a hand-set path is never replaced by detection.
+- **Technical details** (duration, resolution, HDR format, audio and subtitle tracks): use ffprobe when present, because it is fastest. **(call)** Otherwise ask mpv, by opening the file in a hidden mpv without playing it and reading its properties. Both give the same fields.
+- **Thumbnails** for Other: use ffmpeg when present, otherwise mpv rendering a single frame.
+- **Nothing found.** The library still works from names and TMDB data. Technical details and thumbnails are absent, and Settings says which tool would supply them.
+- Technical details are filled in after names and artwork, in the background, so a slow probe never delays the gallery.
+- **(call)** The tool list is fixed at mpv, ffprobe and ffmpeg for the first version. Adding another tool (for example MediaInfo) must be a small change, but is not built until needed.
 
 ## 11. Playback
 
@@ -192,8 +199,8 @@ Anything destructive to the owner's files is out of scope: Exhibit never renames
 - **Item details.** Full placard, file details, versions, and actions: play or resume, mark watched, loved, fix match.
 - **Needs review.** As in section 10.
 - **Ask.** The text box, summoned by one gamepad button or a keyboard shortcut from anywhere, with an on-screen keyboard when a gamepad is in use.
-- **Settings.** One screen: sources, mpv location, TMDB key, agent key. **(call)** Nothing else in the first version.
-- **First run.** Add a folder, confirm mpv, enter the TMDB key. The library fills in live behind it.
+- **Settings.** One screen: sources, tools (mpv, ffprobe, ffmpeg: detected automatically, each overridable), TMDB key, agent key. **(call)** Nothing else in the first version.
+- **First run.** Add a folder, confirm the detected tools (asking only for what was not found), enter the TMDB key. The library fills in live behind it.
 
 **Input.** One focus system drives everything. Gamepad directions, keyboard arrows and mouse hover all move the same focus, so no screen can work under one input and not another. Every action is reachable with a direction pad and four buttons. **(call)** The window opens fullscreen by default and remembers if the owner changes that.
 
