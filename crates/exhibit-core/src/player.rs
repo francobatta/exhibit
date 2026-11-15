@@ -21,8 +21,8 @@ use crate::tools::{Tool, Tools};
 use crate::volume::Volumes;
 use crate::{db, mpv_ipc, query, scan};
 
-/// Position over duration at which an item counts as watched.
-pub const WATCHED_FRACTION: f64 = 0.90;
+pub use crate::model::WATCHED_FRACTION;
+
 /// Playback resumes only from a stored position past this many seconds.
 const RESUME_MIN_S: f64 = 5.0;
 /// How long mpv has to open its control channel after it starts.
@@ -183,12 +183,14 @@ fn pipe_name() -> String {
 }
 
 fn no_mpv(c: &Connection) -> Result<Error> {
-    Ok(Error::Tool(
-        match db::get_setting(c, &Tool::Mpv.setting_key())? {
-            Some(p) => format!("mpv not found at {p}"),
-            None => "mpv not found on PATH or in the usual install folders".to_string(),
-        },
-    ))
+    let key = Tool::Mpv.setting_key();
+    Ok(Error::Tool(match db::get_setting(c, &key)? {
+        Some(p) => format!("mpv not found at {p}"),
+        None => format!(
+            "mpv not found on PATH or in the usual install folders; \
+             set its location in the `{key}` setting"
+        ),
+    }))
 }
 
 /// Opens mpv's control channel, retrying while mpv runs, for up to `CONNECT_TIMEOUT`.
@@ -216,19 +218,11 @@ fn target(c: &Connection, id: Id) -> Result<Id> {
     if kind != enum_str(ItemKind::Show) && kind != enum_str(ItemKind::Season) {
         return Ok(id);
     }
-    if let Some(next) = query::next_episode(c, id)? {
-        return Ok(next);
+    match query::next_episode(c, id)? {
+        Some(next) => Ok(next),
+        None => query::first_episode(c, id, false)?
+            .ok_or_else(|| Error::NotFound(format!("no episode with a file under item {id}"))),
     }
-    c.prepare_cached(
-        "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
-             SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
-         SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = ?2 \
-         WHERE EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
-         ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
-    )?
-    .query_row(params![id, enum_str(ItemKind::Episode)], |r| r.get(0))
-    .optional()?
-    .ok_or_else(|| Error::NotFound(format!("no episode with a file under item {id}")))
 }
 
 /// Absolute path of the item's best file: on an online source, tallest picture, then largest.
@@ -754,6 +748,19 @@ mod tests {
         match play(&e.c, &e.v, &Tools::default(), id, true) {
             Err(crate::error::Error::Tool(m)) => {
                 assert!(m.contains(&*gone.to_string_lossy()), "{m}")
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn play_without_any_mpv_names_the_setting() {
+        let e = env();
+        let id = e.add(ItemKind::Movie, "Heat", None);
+        e.file(e.src, id, "Heat.mkv", None, 1);
+        match play(&e.c, &e.v, &Tools::default(), id, true) {
+            Err(crate::error::Error::Tool(m)) => {
+                assert!(m.contains("PATH") && m.contains("tool.mpv"), "{m}")
             }
             other => panic!("{other:?}"),
         }

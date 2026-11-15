@@ -4,7 +4,7 @@
 
 use crate::db;
 use crate::error::{Error, Result};
-use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState};
+use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
     FILE_COLUMNS, ITEM_COLUMNS, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS, enum_str, item_from_row,
     media_file_from_row, play_state_from_row, summary_from_row,
@@ -17,8 +17,6 @@ use std::collections::{HashMap, HashSet};
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
-/// Position over duration at which an item counts as watched.
-const WATCHED_THRESHOLD: f64 = 0.90;
 const TASTE_KEY: &str = "taste_profile";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -378,7 +376,7 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
                AND position_s / duration_s < ?1 \
              ORDER BY last_played_at DESC, item_id LIMIT ?2",
         )?
-        .query_map(params![WATCHED_THRESHOLD, limit], |r| {
+        .query_map(params![WATCHED_FRACTION, limit], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })?
         .collect::<rusqlite::Result<_>>()?;
@@ -441,16 +439,26 @@ pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> 
 /// First unwatched episode of a show that has a file, by season then episode, specials
 /// (season 0) after the numbered seasons and episodes with no season last.
 pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
+    first_episode(c, show_id, true)
+}
+
+/// First episode with a file under `root` (a show or season) in viewing order, specials
+/// (season 0) after the numbered seasons and episodes with no season last; with
+/// `unwatched_only`, the first one not yet watched.
+pub(crate) fn first_episode(c: &Connection, root: Id, unwatched_only: bool) -> Result<Option<Id>> {
     Ok(c.prepare_cached(
         "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
              SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
          SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = ?2 \
          LEFT JOIN play_state p ON p.item_id = e.id \
-         WHERE coalesce(p.watched, 0) = 0 \
+         WHERE (?3 = 0 OR coalesce(p.watched, 0) = 0) \
            AND EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
          ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
     )?
-    .query_row(params![show_id, enum_str(ItemKind::Episode)], |r| r.get(0))
+    .query_row(
+        params![root, enum_str(ItemKind::Episode), unwatched_only],
+        |r| r.get(0),
+    )
     .optional()?)
 }
 
