@@ -495,7 +495,7 @@ fn save_movie(
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )?;
             // Provisional and movie items become the movie; an episode hands its files over.
-            if kind == enum_str(ItemKind::Other) || kind == enum_str(ItemKind::Movie) {
+            if kind == "other" || kind == "movie" {
                 fill_item(&tx, item_id, &fill, how)?;
                 item_id
             } else {
@@ -535,13 +535,11 @@ pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
 }
 
 pub(crate) fn set_review(c: &Connection, item_id: Id, scored: &[Candidate]) -> Result<()> {
-    c.prepare_cached("UPDATE items SET match_state=?2, candidates=?3, confidence=?4 WHERE id=?1")?
-        .execute(params![
-            item_id,
-            enum_str(MatchState::NeedsReview),
-            json(scored),
-            scored.first().map(|c| f64::from(c.score))
-        ])?;
+    let score = scored.first().map(|c| f64::from(c.score));
+    c.prepare_cached(
+        "UPDATE items SET match_state='needsreview', candidates=?2, confidence=?3 WHERE id=?1",
+    )?
+    .execute(params![item_id, json(scored), score])?;
     Ok(())
 }
 
@@ -704,7 +702,7 @@ pub fn move_to_other(c: &Connection, item_id: Id) -> Result<()> {
         .query_row([item_id], |r| r.get(0))
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("item {item_id}")))?;
-    if kind == enum_str(ItemKind::Show) || kind == enum_str(ItemKind::Season) {
+    if kind == "show" || kind == "season" {
         return Err(Error::Invalid(format!(
             "item {item_id} is a {kind}; only items with files can move to Other"
         )));
@@ -715,18 +713,12 @@ pub fn move_to_other(c: &Connection, item_id: Id) -> Result<()> {
         .optional()?
         .map(|rel| parse::parse_path(&rel).title);
     c.prepare_cached(
-        "UPDATE items SET kind=?2, parent_id=NULL, title=coalesce(?3, title), year=NULL, \
+        "UPDATE items SET kind='other', parent_id=NULL, title=coalesce(?2, title), year=NULL, \
          season=NULL, episode=NULL, overview=NULL, runtime_min=NULL, genres='[]', \
-         people='[]', poster=NULL, backdrop=NULL, tmdb_id=NULL, match_state=?4, \
-         match_source=?5, confidence=NULL, candidates='[]' WHERE id=?1",
+         people='[]', poster=NULL, backdrop=NULL, tmdb_id=NULL, match_state='manual', \
+         match_source='manual', confidence=NULL, candidates='[]' WHERE id=?1",
     )?
-    .execute(params![
-        item_id,
-        enum_str(ItemKind::Other),
-        title,
-        enum_str(MatchState::Manual),
-        enum_str(MatchSource::Manual)
-    ])?;
+    .execute(params![item_id, title])?;
     Ok(())
 }
 

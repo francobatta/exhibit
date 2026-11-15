@@ -13,7 +13,6 @@ use crate::identify::{
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
 use crate::parse::{normalize_title, parse_path};
-use crate::rows::enum_str;
 use crate::tmdb::{EpisodeMeta, MetadataProvider, SeasonMeta, ShowMeta};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
@@ -379,10 +378,12 @@ fn place(
 /// The season (by season number) or episode (by episode number) under `parent`.
 fn child(c: &Connection, parent: Id, kind: ItemKind, number: i32) -> Result<Option<Id>> {
     let sql = match kind {
-        ItemKind::Season => "SELECT id FROM items WHERE parent_id=?1 AND kind=?2 AND season=?3",
-        _ => "SELECT id FROM items WHERE parent_id=?1 AND kind=?2 AND episode=?3",
+        ItemKind::Season => {
+            "SELECT id FROM items WHERE parent_id=?1 AND kind='season' AND season=?2"
+        }
+        _ => "SELECT id FROM items WHERE parent_id=?1 AND kind='episode' AND episode=?2",
     };
     Ok(c.prepare_cached(sql)?
-        .query_row(params![parent, enum_str(kind), number], |r| r.get(0))
+        .query_row(params![parent, number], |r| r.get(0))
         .optional()?)
 }

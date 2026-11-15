@@ -138,21 +138,18 @@ fn list(
     limit: u32,
     offset: u32,
 ) -> Result<Vec<ItemSummary>> {
-    let show = p.bind(enum_str(ItemKind::Show));
-    let season = p.bind(enum_str(ItemKind::Season));
-    let episode = p.bind(enum_str(ItemKind::Episode));
     let (limit_p, offset_p) = (p.bind(limit as i64), p.bind(offset as i64));
-    let container = format!("i.kind IN ({show}, {season})");
+    let container = "i.kind IN ('show', 'season')";
     // Episodes at or below the item that have a file, all of them and the watched ones.
     let has_file = "EXISTS (SELECT 1 FROM files ff WHERE ff.item_id = e.id)";
     let total = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
-         WHERE t.root_id = i.id AND e.kind = {episode} AND {has_file})"
+         WHERE t.root_id = i.id AND e.kind = 'episode' AND {has_file})"
     );
     let seen = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
          JOIN play_state q ON q.item_id = e.id \
-         WHERE t.root_id = i.id AND e.kind = {episode} AND q.watched = 1 AND {has_file})"
+         WHERE t.root_id = i.id AND e.kind = 'episode' AND q.watched = 1 AND {has_file})"
     );
     // Technical field of the item's first file that has any (any episode's, for a show).
     let tech = |field: &str| {
@@ -171,7 +168,7 @@ fn list(
         "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT {SUMMARY_COLUMNS} FROM (\
            SELECT i.id, i.kind, i.parent_id, i.title, i.year, i.season, i.episode, \
              (SELECT s.title FROM tree t JOIN items s ON s.id = t.root_id \
-                WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = {show}) AS show_title, \
+                WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = 'show') AS show_title, \
              i.poster, i.backdrop, i.runtime_min, {height} AS height, {hdr} AS hdr, \
              CASE WHEN {container} THEN {total} > 0 AND {seen} = {total} \
                   ELSE coalesce(p.watched, 0) END AS watched, \
@@ -221,18 +218,14 @@ fn fts_query(text: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" "))
 }
 
-fn default_kinds(p: &mut Params) -> String {
-    let kinds = [ItemKind::Movie, ItemKind::Show, ItemKind::Other]
-        .map(|k| p.bind(enum_str(k)))
-        .join(", ");
-    format!("b.kind IN ({kinds})")
-}
+/// Listings show movies, shows and other items unless a kind is asked for.
+const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
 
 pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
     let mut p = Params::new(&online_sources(c, v)?);
     let mut w = vec![match q.kind {
         Some(k) => format!("b.kind = {}", p.bind(enum_str(k))),
-        None => default_kinds(&mut p),
+        None => DEFAULT_KINDS.to_string(),
     }];
     if let Some(m) = q.text.as_deref().and_then(fts_query) {
         // A hit on an episode or season counts for every item above it.
@@ -339,30 +332,29 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
 pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Vec<ItemSummary>> {
     let online = online_sources(c, v)?;
     let limit = limit.min(MAX_LIMIT);
-    let mut p = Params::new(&online);
     let (wheres, order) = match s {
         Shelf::ContinueWatching => return continue_watching(c, &online, limit),
         Shelf::RecentlyAdded => (
-            vec![default_kinds(&mut p)],
+            vec![DEFAULT_KINDS],
             // A show rises when an episode arrives.
             "(SELECT max(d.added_at) FROM tree t JOIN items d ON d.id = t.id \
               WHERE t.root_id = b.id) DESC, b.id DESC",
         ),
         Shelf::Unwatched => (
             vec![
-                format!("b.kind = {}", p.bind(enum_str(ItemKind::Movie))),
+                "b.kind = 'movie'",
                 "NOT EXISTS (SELECT 1 FROM play_state q WHERE q.item_id = b.id \
-                 AND (q.watched = 1 OR q.position_s > 0))"
-                    .to_string(),
+                 AND (q.watched = 1 OR q.position_s > 0))",
             ],
             "b.added_at DESC, b.id DESC",
         ),
         Shelf::Loved => (
-            vec![default_kinds(&mut p), "b.loved = 1".to_string()],
+            vec![DEFAULT_KINDS, "b.loved = 1"],
             "b.added_at DESC, b.id DESC",
         ),
     };
-    list(c, p, &wheres, order, limit, 0)
+    let wheres: Vec<String> = wheres.into_iter().map(String::from).collect();
+    list(c, Params::new(&online), &wheres, order, limit, 0)
 }
 
 /// Items part-way through, plus the next unwatched episode of each show whose latest played
@@ -383,21 +375,18 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
     // shows have offered a next episode.
     let mut q = c.prepare_cached(&format!(
         "WITH RECURSIVE {TREE_CTE} SELECT t.root_id, p.last_played_at, p.watched \
-         FROM tree t JOIN items s ON s.id = t.root_id AND s.kind = ?1 \
-         JOIN items e ON e.id = t.id AND e.kind = ?2 \
+         FROM tree t JOIN items s ON s.id = t.root_id AND s.kind = 'show' \
+         JOIN items e ON e.id = t.id AND e.kind = 'episode' \
          JOIN play_state p ON p.item_id = e.id \
          ORDER BY p.last_played_at DESC, e.season DESC, e.episode DESC"
     ))?;
-    let played = q.query_map(
-        params![enum_str(ItemKind::Show), enum_str(ItemKind::Episode)],
-        |r| {
-            Ok((
-                r.get::<_, Id>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, bool>(2)?,
-            ))
-        },
-    )?;
+    let played = q.query_map([], |r| {
+        Ok((
+            r.get::<_, Id>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, bool>(2)?,
+        ))
+    })?;
     let mut done = HashSet::new();
     let mut offered = 0;
     for row in played {
@@ -424,15 +413,18 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
 /// Their `children` are left empty: review candidates are file-backed provisional items.
 pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> {
     let online = online_sources(c, v)?;
-    let mut p = Params::new(&online);
-    let cond = format!(
-        "b.match_state = {}",
-        p.bind(enum_str(MatchState::NeedsReview))
-    );
-    list(c, p, &[cond], "b.added_at DESC, b.id DESC", u32::MAX, 0)?
-        .into_iter()
-        .map(|s| item_with(c, &online, s.id, false))
-        .collect()
+    let cond = "b.match_state = 'needsreview'".to_string();
+    list(
+        c,
+        Params::new(&online),
+        &[cond],
+        "b.added_at DESC, b.id DESC",
+        u32::MAX,
+        0,
+    )?
+    .into_iter()
+    .map(|s| item_with(c, &online, s.id, false))
+    .collect()
 }
 
 /// Headline numbers for the status view. Movies, shows and other count items with a present
@@ -447,21 +439,21 @@ pub struct LibraryCounts {
 }
 
 pub fn library_counts(c: &Connection, v: &dyn Volumes) -> Result<LibraryCounts> {
-    let of_kind = |kind: ItemKind| -> Result<u32> {
+    let of_kind = |kind: &str| -> Result<u32> {
         Ok(c.query_row(
             &format!(
                 "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r \
                  JOIN tree t ON t.root_id = r.id \
-                 JOIN files f ON f.item_id = t.id WHERE r.kind = ?1"
+                 JOIN files f ON f.item_id = t.id WHERE r.kind = '{kind}'"
             ),
-            [enum_str(kind)],
+            [],
             |r| r.get(0),
         )?)
     };
     Ok(LibraryCounts {
-        movies: of_kind(ItemKind::Movie)?,
-        shows: of_kind(ItemKind::Show)?,
-        other: of_kind(ItemKind::Other)?,
+        movies: of_kind("movie")?,
+        shows: of_kind("show")?,
+        other: of_kind("other")?,
         needs_review: needs_review(c, v)?.len() as u32,
         unprobed: c.query_row("SELECT count(*) FROM files WHERE probed = 0", [], |r| {
             r.get(0)
@@ -482,16 +474,13 @@ pub(crate) fn first_episode(c: &Connection, root: Id, unwatched_only: bool) -> R
     Ok(c.prepare_cached(
         "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
              SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
-         SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = ?2 \
+         SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = 'episode' \
          LEFT JOIN play_state p ON p.item_id = e.id \
-         WHERE (?3 = 0 OR coalesce(p.watched, 0) = 0) \
+         WHERE (?2 = 0 OR coalesce(p.watched, 0) = 0) \
            AND EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
          ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
     )?
-    .query_row(
-        params![root, enum_str(ItemKind::Episode), unwatched_only],
-        |r| r.get(0),
-    )
+    .query_row(params![root, unwatched_only], |r| r.get(0))
     .optional()?)
 }
 
@@ -503,16 +492,13 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
         .query_row([id], |r| r.get(0))
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
-    let container = [ItemKind::Show, ItemKind::Season]
-        .iter()
-        .any(|k| enum_str(*k) == kind);
-    let targets: Vec<Id> = if container {
+    let targets: Vec<Id> = if kind == "show" || kind == "season" {
         c.prepare_cached(
             "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
                  SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
-             SELECT i.id FROM d JOIN items i ON i.id = d.id AND i.kind = ?2",
+             SELECT i.id FROM d JOIN items i ON i.id = d.id AND i.kind = 'episode'",
         )?
-        .query_map(params![id, enum_str(ItemKind::Episode)], |r| r.get(0))?
+        .query_map([id], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?
     } else {
         vec![id]

@@ -13,10 +13,8 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
 use crate::error::{Error, Result};
-use crate::model::{Id, ItemKind, MediaFile, PlayState};
-use crate::rows::{
-    FILE_COLUMNS, PLAY_STATE_COLUMNS, enum_str, media_file_from_row, play_state_from_row,
-};
+use crate::model::{Id, MediaFile, PlayState};
+use crate::rows::{FILE_COLUMNS, PLAY_STATE_COLUMNS, media_file_from_row, play_state_from_row};
 use crate::tools::{Tool, Tools};
 use crate::volume::Volumes;
 use crate::{db, mpv_ipc, query, scan};
@@ -215,7 +213,7 @@ fn target(c: &Connection, id: Id) -> Result<Id> {
         .query_row([id], |r| r.get(0))
         .optional()?
         .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
-    if kind != enum_str(ItemKind::Show) && kind != enum_str(ItemKind::Season) {
+    if kind != "show" && kind != "season" {
         return Ok(id);
     }
     match query::next_episode(c, id)? {
