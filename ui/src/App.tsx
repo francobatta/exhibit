@@ -10,7 +10,7 @@ import { focusItem } from "@/focus/bridge";
 import { FocusRoot } from "@/focus/react";
 import { plain } from "@/lib/api";
 import { LibrarySync, useBoot } from "@/lib/queries";
-import { cycleSection, Screens } from "@/nav/Screens";
+import { cycleSection, openSettings, Screens } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
 
 function Shell() {
@@ -51,7 +51,7 @@ export default function App() {
         <FocusRoot
           onAsk={() => focusItem("ask")}
           onSection={cycleSection}
-          onSettings={() => useNav.getState().push({ screen: "settings" })}
+          onSettings={openSettings}
         />
         <LibrarySync />
         <Backdrop />

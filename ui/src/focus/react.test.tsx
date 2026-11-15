@@ -1,6 +1,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { useState, type ReactNode } from "react";
+import { useNav } from "@/nav/stack";
 import { installBridge, useFocusState } from "./bridge";
 import { FocusGroup, FocusScope, useFocusedKey, useFocusItem } from "./react";
 
@@ -23,6 +24,12 @@ const press = (key: string) =>
       new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }),
     );
     await sleep(5);
+  });
+// Pressing A: a click on the focused element. A synthetic Enter never clicks a native button.
+const select = () =>
+  act(async () => {
+    (document.activeElement as HTMLElement).click();
+    await sleep(10);
   });
 const click = (id: string) =>
   act(async () => {
@@ -264,37 +271,60 @@ test("an arrow at a group's end crosses to the group that way", async () => {
   expect(active()).toBe("r1");
 });
 
+/** A controlled modal, kept mounted and closed through the UI SDK Dialog, as later overlays use it. */
 function Modal({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
-  return open ? (
-    <FocusScope id="menu" modal label="Item menu" onBack={onClose}>
+  return (
+    <FocusScope id="menu" modal open={open} label="Item menu" onBack={onClose}>
       {children}
     </FocusScope>
-  ) : null;
+  );
+}
+
+function MenuPage({ keys, removeOnOpen }: { keys: string[]; removeOnOpen?: string }) {
+  const [open, setOpen] = useState(false);
+  const [shelf, setShelf] = useState(keys);
+  return (
+    <FocusScope id="page" fallbackKey="top">
+      <Row id="topbar" keys={["top"]} />
+      <Row id="shelf" keys={shelf} />
+      <Row id="below" keys={["c"]} />
+      <button id="open" tabIndex={-1} onClick={() => setOpen(true)} />
+      <Modal open={open} onClose={() => setOpen(false)}>
+        <FocusGroup id="menu-actions" orientation="horizontal">
+          <Item k="play" />
+          <MarkWatched onPress={() => setShelf((s) => s.filter((k) => k !== removeOnOpen))} />
+        </FocusGroup>
+      </Modal>
+    </FocusScope>
+  );
+}
+
+/** "Mark as watched": removes the title the menu was opened from, while the menu stays open. */
+function MarkWatched({ onPress }: { onPress: () => void }) {
+  const { ref, props } = useFocusItem<HTMLButtonElement>({ key: "watched", onSelect: onPress });
+  return (
+    <button ref={ref} {...props}>
+      watched
+    </button>
+  );
+}
+
+async function openMenuFrom(key: string) {
+  await act(() => q(key).focus());
+  await click("open");
+  await tick(20);
+  expect(active()).toBe("play");
 }
 
 test("a modal scope traps arrows and returns focus to where it was on close", async () => {
-  function Page() {
-    const [open, setOpen] = useState(false);
-    return (
-      <FocusScope id="page">
-        <Row id="shelf" keys={["a", "b"]} />
-        <Row id="below" keys={["c"]} />
-        <button id="open" tabIndex={-1} onClick={() => setOpen(true)} />
-        <Modal open={open} onClose={() => setOpen(false)}>
-          <Row id="menu-actions" keys={["play", "watched"]} />
-        </Modal>
-      </FocusScope>
-    );
-  }
-  render(<Page />);
+  render(<MenuPage keys={["a", "b"]} />);
   await tick();
+  row("topbar", -300, ["top"]);
   row("shelf", 0, ["a", "b"]);
   row("below", 600, ["c"]);
-  await act(() => q("b").focus());
-  await click("open");
-  await tick();
+  await openMenuFrom("b");
   row("menu-actions", 300, ["play", "watched"]);
-  expect(active()).toBe("play");
+  expect(document.querySelector('[data-slot="dialog-content"]')).not.toBeNull();
   await press("ArrowRight");
   expect(active()).toBe("watched");
   await press("ArrowUp");
@@ -302,9 +332,91 @@ test("a modal scope traps arrows and returns focus to where it was on close", as
   await press("ArrowRight");
   expect(active()).toBe("watched");
   await press("Escape");
-  await tick();
+  await tick(30);
   expect(document.querySelector('[data-focus-key="play"]')).toBeNull();
   expect(active()).toBe("b");
+  // Closed, the page is live again: arrows leave the shelf.
+  await press("ArrowDown");
+  expect(active()).toBe("c");
+});
+
+test("closing a modal whose opener was removed lands on the item that took its place", async () => {
+  render(<MenuPage keys={["a", "b", "x", "d"]} removeOnOpen="b" />);
+  await tick();
+  await openMenuFrom("b");
+  await press("ArrowRight");
+  await select();
+  await tick();
+  await press("Escape");
+  await tick(30);
+  expect(active()).toBe("x");
+});
+
+test("closing a modal whose opener was the last item lands on the new last item", async () => {
+  render(<MenuPage keys={["a", "b"]} removeOnOpen="b" />);
+  await tick();
+  await openMenuFrom("b");
+  await press("ArrowRight");
+  await select();
+  await press("Escape");
+  await tick(30);
+  expect(active()).toBe("a");
+});
+
+test("closing a modal whose opener's group emptied lands on the scope's fallbackKey", async () => {
+  render(<MenuPage keys={["b"]} removeOnOpen="b" />);
+  await tick();
+  await openMenuFrom("b");
+  await press("ArrowRight");
+  await select();
+  await press("Escape");
+  await tick(30);
+  expect(active()).toBe("top");
+});
+
+test("a modal unmounted while open still returns focus", async () => {
+  function Page() {
+    const [open, setOpen] = useState(false);
+    return (
+      <FocusScope id="page">
+        <Row id="shelf" keys={["a", "b"]} />
+        <button id="open" tabIndex={-1} onClick={() => setOpen(true)} />
+        {open && (
+          <FocusScope id="menu" modal label="Item menu" onBack={() => setOpen(false)}>
+            <Row id="menu-actions" keys={["play"]} />
+          </FocusScope>
+        )}
+      </FocusScope>
+    );
+  }
+  render(<Page />);
+  await tick();
+  await openMenuFrom("b");
+  await press("Escape");
+  await tick(30);
+  expect(active()).toBe("b");
+});
+
+test("stranded focus: a key first brings focus back to the scope, and does nothing else", async () => {
+  useNav.getState().replaceRoot({ screen: "home" });
+  useNav.getState().push({ screen: "settings" });
+  render(
+    <FocusScope id="page" restoreKey="b">
+      <Row id="r" keys={["a", "b", "c"]} />
+    </FocusScope>,
+  );
+  await tick();
+  expect(active()).toBe("b");
+  await act(() => (document.activeElement as HTMLElement).blur());
+  expect(document.activeElement).toBe(document.body);
+  await press("Escape");
+  expect(useNav.getState().entries.length).toBe(2);
+  expect(active()).toBe("b");
+  await act(() => (document.activeElement as HTMLElement).blur());
+  await press("ArrowRight");
+  expect(active()).toBe("b");
+  await press("ArrowRight");
+  expect(active()).toBe("c");
 });
 
 test("useFocusedKey follows real focus", async () => {

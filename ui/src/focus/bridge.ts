@@ -30,6 +30,8 @@ export interface GroupEntry {
   enter(from: Box, dir: Dir): boolean;
   /** The element holding the group's tab stop, if it has items. */
   stop(): HTMLElement | undefined;
+  /** Its items' elements, in order. */
+  items(): HTMLElement[];
   /** Called when an arrow leaves this group and no group lies that way. */
   onEdge?: (dir: Dir) => void;
   /** A virtualised group brings items into view itself (`reveal`), so the bridge does not scroll. */
@@ -43,6 +45,12 @@ export interface ScopeEntry {
   onBack?: () => void;
   /** Hears the key of every item focused inside this scope (and not inside a scope within it). */
   onFocusKey?: (key: string) => void;
+  /** False while a screen sits under another one. Absent means active. */
+  active?: boolean;
+  /** Where focus belongs in the scope now: its restoreKey, else fallbackKey, else its first stop. */
+  target?: () => HTMLElement | undefined;
+  /** Where focus goes when what held it inside the scope is gone: fallbackKey, else the first stop. */
+  fallback?: () => HTMLElement | undefined;
 }
 
 interface FocusState {
@@ -121,6 +129,61 @@ function topModal(): ScopeEntry | undefined {
   let top: ScopeEntry | undefined;
   for (const s of scopes.values()) if (s.modal && s.el.isConnected) top = s;
   return top;
+}
+
+/** Whether a modal scope is open. */
+export function modalOpen(): boolean {
+  return topModal() !== undefined;
+}
+
+/** The screen the owner is on: the last active scope that is not modal and not inert. */
+function activeScreen(): ScopeEntry | undefined {
+  let top: ScopeEntry | undefined;
+  for (const s of scopes.values()) if (!s.modal && s.active !== false && live(s.el)) top = s;
+  return top;
+}
+
+/** The registered groups inside `within`, in document order, inert or not. */
+export function groupsIn(within: Element): GroupEntry[] {
+  return inDocumentOrder([...groups].filter((g) => g.el.isConnected && within.contains(g.el)));
+}
+
+/**
+ * Where focus goes back to when an overlay opened from `opener` closes, captured as it opens:
+ * the opener; if it is gone, the item that took its place in its group, else the group's last
+ * item; if the group is gone too, the opener's scope's fallback. Elements need only be on the
+ * page, since the page is still inert under the closing overlay when this runs.
+ */
+export function returnTarget(opener: Element | null): () => HTMLElement | undefined {
+  const el = opener instanceof HTMLElement && opener !== document.body ? opener : undefined;
+  const group = el === undefined ? undefined : groupOf(el);
+  const index = el === undefined || group === undefined ? -1 : group.items().indexOf(el);
+  const scope = el === undefined ? undefined : scopeOf(el);
+  return () => {
+    if (el?.isConnected) return el;
+    if (group !== undefined && groups.has(group) && group.el.isConnected) {
+      const now = group.items().filter((i) => i !== el && i.isConnected);
+      const pick = (index >= 0 ? now[index] : undefined) ?? now.at(-1);
+      if (pick !== undefined) return pick;
+    }
+    return scope?.el.isConnected ? scope.fallback?.() : undefined;
+  };
+}
+
+/** No live element in the active scope holds focus: it fell to the page, into an inert layer, or out from under a modal. */
+function stranded(): boolean {
+  const a = document.activeElement;
+  if (a === null || a === document.body || !live(a)) return true;
+  const modal = topModal();
+  return modal !== undefined && !modal.el.contains(a);
+}
+
+/** Puts focus back where the active scope wants it. False when the scope has nowhere to put it. */
+function restoreFocus(): boolean {
+  const target = (topModal() ?? activeScreen())?.target?.();
+  if (target === undefined) return false;
+  target.focus({ preventScroll: true });
+  return true;
 }
 
 /** The live groups a move may reach: inside the topmost modal while one is open, else anywhere. */
@@ -253,6 +316,16 @@ function onKeyDown(event: KeyboardEvent) {
   }
   if (event.defaultPrevented && !edges.has(event)) return;
   const dir = DIRS[event.key];
+  const acts =
+    dir !== undefined ||
+    event.key === "Escape" ||
+    event.key === "Enter" ||
+    (event.key === "Backspace" && !isTextField(event.target));
+  // Focus is never stranded: the first key brings it back, and that is all the key does.
+  if (acts && stranded() && restoreFocus()) {
+    event.preventDefault();
+    return;
+  }
   if (dir !== undefined) {
     if (event.altKey || event.ctrlKey || event.metaKey || fieldKeeps(event)) return;
     if (moveAcross(dir)) event.preventDefault();

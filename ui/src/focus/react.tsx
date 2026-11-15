@@ -28,6 +28,7 @@ import {
 } from "react";
 import {
   findItem,
+  groupsIn,
   installBridge,
   installShortcuts,
   itemAt,
@@ -36,6 +37,7 @@ import {
   registerGroup,
   registerItem,
   registerScope,
+  returnTarget,
   useFocusState,
   type Box,
   type Dir,
@@ -158,6 +160,7 @@ export function FocusGroup({ id, orientation, remember = true, onEdge, children,
         el: root.current!,
         enter: (from, dir) => enter(group, visited.current && remember, from, dir),
         stop: () => stopOf(group),
+        items: () => group.api.roving.items().map((i) => i.el),
         onEdge: (dir) => edge.current?.(dir),
       }),
     [id, group, remember],
@@ -289,8 +292,10 @@ export function useFocusItem<T extends HTMLElement = HTMLElement>(options: Focus
 
 export interface FocusScopeProps {
   id: string;
-  /** A UI SDK modal layer: focus trapped, the rest of the page inert, focus returned on unmount. */
+  /** A UI SDK modal Dialog layer: focus trapped, the rest of the page inert, focus returned on close. */
   modal?: boolean;
+  /** A modal's open state. Keep the scope mounted and set this false to close it through the Dialog. Default true. */
+  open?: boolean;
   /** The item focus falls back to when a group empties under it. */
   fallbackKey?: string;
   /** The item to focus on mount, and when the scope becomes active again. */
@@ -319,6 +324,7 @@ const live = (el: Element) => el.isConnected && el.closest("[inert]") === null;
 export function FocusScope({
   id,
   modal = false,
+  open = true,
   active = true,
   label,
   className,
@@ -326,51 +332,75 @@ export function FocusScope({
   children,
   ...handlers
 }: FocusScopeProps) {
-  const el = useRef<HTMLDivElement>(null);
-  const latest = useRef(handlers);
+  // The scope's element; a modal's comes and goes with the Dialog's content.
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  const isOpen = !modal || open;
+  const isActive = modal ? open : active;
+  const latest = useRef({ ...handlers, active: isActive });
   useLayoutEffect(() => {
-    latest.current = handlers;
+    latest.current = { ...handlers, active: isActive };
   });
-  // What had focus before a modal opened, read before the modal takes it.
-  const [previous] = useState(() => (modal ? (document.activeElement as HTMLElement | null) : null));
+
+  // Where a modal returns focus, captured as it opens, before it takes focus.
+  const back = useRef<() => HTMLElement | undefined>(() => undefined);
+  useLayoutEffect(() => {
+    if (modal && open) back.current = returnTarget(document.activeElement);
+  }, [modal, open]);
 
   const fallback = useCallback(() => {
-    const root = el.current;
-    if (root === null) return undefined;
+    if (node === null) return undefined;
     const key = latest.current.fallbackKey;
-    const byKey = key === undefined ? undefined : findItem(root, key);
-    if (byKey !== undefined && live(byKey)) return byKey;
-    for (const g of liveGroups(root)) {
+    const byKey = key === undefined ? undefined : findItem(node, key);
+    if (byKey !== undefined) return byKey;
+    for (const g of groupsIn(node)) {
       const stop = g.stop();
       if (stop?.isConnected) return stop;
     }
     return undefined;
-  }, []);
+  }, [node]);
+  const target = useCallback(() => {
+    if (node === null) return undefined;
+    const key = latest.current.restoreKey;
+    return (key == null ? undefined : findItem(node, key)) ?? fallback();
+  }, [node, fallback]);
   const context = useMemo(() => ({ fallback }), [fallback]);
 
   useEffect(() => {
+    if (node === null) return;
     const entry: ScopeEntry = {
       id,
-      el: el.current!,
-      modal,
+      el: node,
+      modal: modal && open,
       get onBack() {
         return latest.current.onBack;
       },
       get onFocusKey() {
         return latest.current.onFocusKey;
       },
+      get active() {
+        return latest.current.active;
+      },
+      target,
+      fallback,
     };
     return registerScope(entry);
-  }, [id, modal]);
+  }, [id, modal, open, node, target, fallback]);
+
+  // A modal unmounted while open never closes through the Dialog; return focus by hand.
+  const openRef = useRef(open);
+  useLayoutEffect(() => {
+    openRef.current = open;
+  });
+  useEffect(() => {
+    if (!modal) return;
+    return () => {
+      if (openRef.current) keepFocus(() => back.current());
+    };
+  }, [modal]);
 
   useEffect(() => {
-    if (!modal || previous === null) return;
-    return () => keepFocus(() => (live(previous) ? previous : undefined));
-  }, [modal, previous]);
-
-  useEffect(() => {
-    if (!active) return;
-    const root = el.current!;
+    if (!isActive || node === null) return;
+    const root = node;
     const want = latest.current.restoreKey ?? null;
     let final = want === null;
     let done = false;
@@ -385,9 +415,9 @@ export function FocusScope({
         return;
       }
       if (want !== null) {
-        const target = findItem(root, want);
-        if (target !== undefined && live(target)) {
-          target.focus({ preventScroll: true });
+        const found = findItem(root, want);
+        if (found !== undefined && live(found)) {
+          found.focus({ preventScroll: true });
           done = true;
           return;
         }
@@ -416,12 +446,12 @@ export function FocusScope({
       observer.disconnect();
       clearTimeout(timer);
     };
-  }, [active, modal]);
+  }, [isActive, modal, node]);
 
   if (!modal) {
     return (
       <ScopeContext value={context}>
-        <div ref={el} data-focus-scope={id} className={className ?? "contents"}>
+        <div ref={setNode} data-focus-scope={id} className={className ?? "contents"}>
           {children}
         </div>
       </ScopeContext>
@@ -431,7 +461,7 @@ export function FocusScope({
   return (
     <ScopeContext value={context}>
       <Dialog
-        open
+        open={isOpen}
         modal
         dismissible={false}
         onDismissAttempt={(details) => {
@@ -440,8 +470,13 @@ export function FocusScope({
         }}
       >
         {backdropClassName !== undefined && <DialogBackdrop className={backdropClassName} />}
-        <DialogContent aria-label={label} initialFocus="none" className={className}>
-          <div ref={el} data-focus-scope={id} className="contents">
+        <DialogContent
+          aria-label={label}
+          initialFocus="none"
+          finalFocus={() => back.current()}
+          className={className}
+        >
+          <div ref={setNode} data-focus-scope={id} className="contents">
             {children}
           </div>
         </DialogContent>

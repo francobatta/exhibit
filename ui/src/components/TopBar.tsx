@@ -1,16 +1,16 @@
 // The bar over every screen: the mark, the top-level sections, the ask field, settings, and a
 // quiet line saying what the library is doing.
 
-import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
 import { count } from "@/lib/format";
-import { focusSpring } from "@/lib/motion";
 import { useJobStatus, useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { openSettings } from "@/nav/Screens";
 import { useNav, type Route } from "@/nav/stack";
+import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
@@ -58,21 +58,6 @@ function SettingsIcon() {
   );
 }
 
-/**
- * The light on a focused label: a short lamp-white line under it that glides from item to item.
- * Every Lamp shares one `layoutId`, so the light travels between groups too.
- */
-export function Lamp() {
-  return (
-    <motion.span
-      layoutId="lamp"
-      aria-hidden
-      transition={focusSpring()}
-      className="pointer-events-none absolute inset-x-0 bottom-1 mx-auto h-0.5 w-6 rounded-full bg-lamp"
-    />
-  );
-}
-
 function BarButton({
   focusKey,
   onSelect,
@@ -110,7 +95,6 @@ function AskField({ label }: { label: string }) {
 export function TopBar() {
   const root = useNav((s) => s.entries[0]!.route);
   const replaceRoot = useNav((s) => s.replaceRoot);
-  const push = useNav((s) => s.push);
   const { data: status } = useStatus();
   const job = jobLine(useJobStatus());
   const review = status?.needs_review ?? 0;
@@ -158,7 +142,7 @@ export function TopBar() {
             focusKey="settings"
             size="icon"
             aria-label="Settings"
-            onSelect={() => push({ screen: "settings" })}
+            onSelect={openSettings}
           >
             <SettingsIcon />
           </BarButton>

@@ -3,7 +3,7 @@
 
 import { useEffect } from "react";
 import { useBackdrop } from "@/components/Backdrop";
-import { Lamp } from "@/components/TopBar";
+import { Lamp } from "@/components/Lamp";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
 import { Empty, ErrorState, Loading } from "@/components/states";

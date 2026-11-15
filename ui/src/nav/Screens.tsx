@@ -2,10 +2,13 @@
 // focus exactly as they were; only the top entry is visible and live, the rest are inert.
 // Push fades the new screen up; Back reverses it.
 
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import type { ReactNode } from "react";
 import { Empty } from "@/components/states";
-import { FocusScope } from "@/focus/react";
+import { Lamp } from "@/components/Lamp";
+import { Button } from "@/components/ui/button";
+import { modalOpen } from "@/focus/bridge";
+import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
 import { Home } from "@/screens/Home";
 import { useNav, type Entry, type Route } from "./stack";
@@ -27,7 +30,39 @@ export function cycleSection(delta: -1 | 1): void {
   replaceRoot(SECTIONS[next]!);
 }
 
-function screenFor(route: Route): ReactNode {
+/** Opens Settings, unless it is already on top or an overlay is open. */
+export function openSettings(): void {
+  const nav = useNav.getState();
+  if (nav.current.screen === "settings" || modalOpen()) return;
+  nav.push({ screen: "settings" });
+}
+
+function GoBack() {
+  const back = useNav((s) => s.back);
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "stub:back", onSelect: () => back() });
+  return (
+    <Button ref={ref} {...props} variant="line" className="relative focus:border-lamp">
+      Go back
+      {focused && <Lamp />}
+    </Button>
+  );
+}
+
+// Screens not built yet. A pushed one offers a way back, so focus has a place on it.
+function Stub({ title, body, pushed }: { title: string; body: string; pushed: boolean }) {
+  return (
+    <>
+      <Empty title={title} body={body} />
+      {pushed && (
+        <FocusGroup id="stub" orientation="horizontal" className="-mt-4 px-edge">
+          <GoBack />
+        </FocusGroup>
+      )}
+    </>
+  );
+}
+
+function screenFor(route: Route, pushed: boolean): ReactNode {
   switch (route.screen) {
     case "home":
       return <Home />;
@@ -37,26 +72,29 @@ function screenFor(route: Route): ReactNode {
     }
     case "show":
     case "details":
-      return <Empty title="Details" body="This screen is built in a later step." />;
+      return <Stub title="Details" body="This screen is built in a later step." pushed={pushed} />;
     case "review":
-      return <Empty title="Needs review" body="This screen is built in a later step." />;
+      return <Stub title="Needs review" body="This screen is built in a later step." pushed={pushed} />;
     case "settings":
-      return <Empty title="Settings" body="This screen is built in a later step." />;
+      return <Stub title="Settings" body="This screen is built in a later step." pushed={pushed} />;
     case "firstRun":
       return <Empty title="Welcome to Exhibit" body="This screen is built in a later step." />;
   }
 }
 
-function Layer({ entry, top }: { entry: Entry; top: boolean }) {
+function Layer({ entry, top, pushed }: { entry: Entry; top: boolean; pushed: boolean }) {
   const setFocusKey = useNav((s) => s.setFocusKey);
+  // A layer leaving after Back keeps its last props while it animates out; it must not hold focus.
+  const present = useIsPresent();
+  const live = top && present;
   const shift = length("--shift-screen");
   const transition = { duration: seconds("--dur-screen"), ease: easeOut() };
   return (
     <motion.div
       className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar"
-      inert={!top}
-      aria-hidden={!top || undefined}
-      style={{ pointerEvents: top ? "auto" : "none" }}
+      inert={!live}
+      aria-hidden={!live || undefined}
+      style={{ pointerEvents: live ? "auto" : "none" }}
       initial={{ opacity: 0, y: shift }}
       animate={top ? { opacity: 1, y: 0 } : { opacity: 0, y: 0 }}
       exit={{ opacity: 0, y: shift }}
@@ -66,10 +104,10 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
       <FocusScope
         id={`entry-${entry.id}`}
         restoreKey={entry.focusKey}
-        active={top}
-        onFocusKey={top ? setFocusKey : undefined}
+        active={live}
+        onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry.route)}
+        {screenFor(entry.route, pushed)}
       </FocusScope>
     </motion.div>
   );
@@ -81,7 +119,7 @@ export function Screens() {
     <main className="relative h-full">
       <AnimatePresence initial={false}>
         {entries.map((e, i) => (
-          <Layer key={e.id} entry={e} top={i === entries.length - 1} />
+          <Layer key={e.id} entry={e} top={i === entries.length - 1} pushed={i > 0} />
         ))}
       </AnimatePresence>
     </main>

@@ -5,6 +5,7 @@
 
 import { createPointerKind } from "@ui-sdk/core";
 import { itemAt, openMenu, useFocusState } from "../bridge";
+import { isTextField } from "./keys";
 
 const HIDE_AFTER = 3000;
 
@@ -19,7 +20,10 @@ export function startPointer(): () => void {
   const onMove = (e: PointerEvent) => {
     if (e.pointerType === "touch") return;
     if (last !== null && last.x === e.clientX && last.y === e.clientY) return;
+    const first = last === null;
     last = { x: e.clientX, y: e.clientY };
+    // The first event may come from content moving under a cursor that rests where it was left.
+    if (first) return;
     useFocusState.getState().setMode("pointer");
     hide(false);
     clearTimeout(timer);
@@ -32,6 +36,8 @@ export function startPointer(): () => void {
 
   // The ContextMenu key also sends this event, at the focused element.
   const onContextMenu = (e: MouseEvent) => {
+    // A text field keeps its own menu, with Paste.
+    if (isTextField(e.target)) return;
     e.preventDefault();
     const item = itemAt(e.target);
     if (item !== undefined && item !== document.activeElement) item.focus({ preventScroll: true });

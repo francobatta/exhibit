@@ -49,6 +49,31 @@ test("content scrolling under a still pointer does not take focus; a real move d
   expect(useFocusState.getState().mode).toBe("pointer");
 });
 
+test("the first pointer event after start only records where the pointer rests", () => {
+  const before = item("before");
+  const under = item("under");
+  before.focus();
+  // Nothing has moved since launch; content slides under the resting cursor.
+  pointer("pointerover", under, 40, 40);
+  expect(document.activeElement).toBe(before);
+  pointer("pointermove", under, 40, 40);
+  expect(document.activeElement).toBe(before);
+  pointer("pointermove", under, 41, 40);
+  expect(document.activeElement).toBe(under);
+});
+
+test("right-click inside a text field keeps the native menu", () => {
+  let menus = 0;
+  const field = document.createElement("input");
+  document.body.append(field);
+  unregister.push(registerItem(field, () => ({ key: "ask", onMenu: () => menus++ })));
+  field.focus();
+  const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 });
+  field.dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(false);
+  expect(menus).toBe(0);
+});
+
 test("moving over something that is not a focus item leaves focus where it is", () => {
   const a = item("a");
   a.focus();

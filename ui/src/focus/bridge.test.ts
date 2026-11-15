@@ -82,6 +82,7 @@ function group(id: string, rect: Box, parent: HTMLElement, onEdge?: () => void) 
         return items.length > 0;
       },
       stop: () => items[0],
+      items: () => items,
       onEdge,
     }),
   );

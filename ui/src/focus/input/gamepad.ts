@@ -92,7 +92,9 @@ export function step(
   return { state: { held: [...pad.buttons], dir, since, next }, actions };
 }
 
+// `select` reaches here only with nothing focused: as Enter, the bridge puts focus back first.
 const KEYS: Partial<Record<PadAction, string>> = {
+  select: "Enter",
   up: "ArrowUp",
   down: "ArrowDown",
   left: "ArrowLeft",
@@ -106,8 +108,8 @@ const KEYS: Partial<Record<PadAction, string>> = {
 
 function perform(action: PadAction, onSettings: () => void) {
   const target = (document.activeElement as HTMLElement | null) ?? document.body;
-  if (action === "select") {
-    if (target !== document.body) target.click();
+  if (action === "select" && target !== document.body) {
+    target.click();
     return;
   }
   if (action === "settings") return onSettings();
