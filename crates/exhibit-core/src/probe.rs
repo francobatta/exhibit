@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::model::{AudioTrack, Id, SubTrack, TechInfo};
-use crate::scan::{resolve, source_rows};
+use crate::scan::{join_rel, resolve, source_rows};
 use crate::tools::{Tools, run_with_timeout};
 use crate::volume::Volumes;
 
@@ -187,7 +187,7 @@ pub fn probe_pending(
             .query_map([source.id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
         for (id, rel) in files {
-            let path = rel.split('/').fold(root.clone(), |p, s| p.join(s));
+            let path = join_rel(&root, &rel);
             let tech = probe_file(tools, &path)
                 .and_then(|t| serde_json::to_string(&t).map_err(|e| Error::Tool(format!("{e}"))));
             match tech {

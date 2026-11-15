@@ -524,7 +524,7 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
                 "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
                  VALUES (?1, 0, 0, 1, ?2) ON CONFLICT(item_id) DO UPDATE SET watched = 1",
             )?
-            .execute(params![t, scan::now()])?;
+            .execute(params![t, db::now()])?;
         } else {
             tx.prepare_cached(
                 "UPDATE play_state SET watched = 0, position_s = 0 WHERE item_id = ?1",

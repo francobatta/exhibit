@@ -11,7 +11,7 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 use walkdir::WalkDir;
 
 pub const VIDEO_EXTENSIONS: &[&str] = &[
@@ -120,7 +120,7 @@ pub fn add_source(c: &Connection, v: &dyn Volumes, path: &Path) -> Result<Source
     c.prepare_cached(
         "INSERT INTO sources(path, volume_id, added_at, last_path) VALUES (?1, ?2, ?3, ?4)",
     )?
-    .execute(params![rel, volume_id, now(), abs.to_string_lossy()])?;
+    .execute(params![rel, volume_id, db::now(), abs.to_string_lossy()])?;
     Ok(Source {
         id: c.last_insert_rowid(),
         path: abs,
@@ -269,7 +269,7 @@ fn scan_with(
         }
     });
 
-    let scanned_at = now();
+    let scanned_at = db::now();
     let mut added = Vec::new();
     let tx = db::write_tx(c)?;
     for (file_id, size, mtime) in &changed {
@@ -359,13 +359,14 @@ fn is_video(p: &Path) -> bool {
 
 /// Absolute path of a source through its volume's current root, if the volume is mounted.
 pub(crate) fn resolve(v: &dyn Volumes, row: &SourceRow) -> Option<PathBuf> {
-    let root = v.find(&row.volume_id)?;
-    Some(
-        row.path
-            .split('/')
-            .filter(|s| !s.is_empty())
-            .fold(root, |p, s| p.join(s)),
-    )
+    Some(join_rel(&v.find(&row.volume_id)?, &row.path))
+}
+
+/// `root` joined with a stored relative path (forward slashes; `""` is `root` itself).
+pub(crate) fn join_rel(root: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .filter(|s| !s.is_empty())
+        .fold(root.to_path_buf(), |p, s| p.join(s))
 }
 
 /// `p` (relative) as forward-slash segments; `None` if it is not plain Unicode names.
@@ -398,12 +399,6 @@ fn path_key(rel: &str) -> String {
     } else {
         rel.to_string()
     }
-}
-
-pub(crate) fn now() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// On Windows, the `\\?\` extended-length form of an absolute path, so folders deeper than

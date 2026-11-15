@@ -14,7 +14,7 @@ use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, Tec
 use crate::nfo::{self, ExternalId, NfoInfo};
 use crate::parse::{self, KindHint};
 use crate::rows::{ITEM_COLUMNS, enum_str, item_from_row};
-use crate::scan::{resolve, source_rows};
+use crate::scan::{join_rel, resolve, source_rows};
 use crate::tmdb::{MetadataProvider, MovieMeta, SearchHit};
 use crate::volume::Volumes;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -229,9 +229,7 @@ fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec
     let mut out: Vec<Pending> = Vec::new();
     for row in rows {
         let (item_id, added_at, source_id, rel_path, tech) = row?;
-        let abs = roots
-            .get(&source_id)
-            .map(|root| rel_path.split('/').fold(root.clone(), |p, s| p.join(s)));
+        let abs = roots.get(&source_id).map(|root| join_rel(root, &rel_path));
         let duration_min = tech
             .and_then(|t| serde_json::from_str::<TechInfo>(&t).ok())
             .map(|t| t.duration_s / 60.0)

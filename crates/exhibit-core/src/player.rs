@@ -112,7 +112,7 @@ pub fn play(
         return Ok(previous);
     }
     let pipe = pipe_name();
-    let started_at = scan::now();
+    let started_at = db::now();
     let mut child = build_command(player, &file, start, &pipe)
         .spawn()
         .map_err(cannot_start)?;
@@ -140,7 +140,7 @@ pub fn record(
         return Err(Error::NotFound(format!("item {item_id}")));
     }
     let finished = duration_s > 0.0 && position_s / duration_s >= WATCHED_FRACTION;
-    let now = scan::now();
+    let now = db::now();
     let tx = db::write_tx(c)?;
     let (stored, watched) = tx
         .prepare_cached(
@@ -246,11 +246,7 @@ fn choose_file(c: &Connection, v: &dyn Volumes, id: Id) -> Result<PathBuf> {
             )
         });
     if let Some((f, s)) = best {
-        return Ok(f
-            .rel_path
-            .split('/')
-            .filter(|seg| !seg.is_empty())
-            .fold(s.path.clone(), |p, seg| p.join(seg)));
+        return Ok(scan::join_rel(&s.path, &f.rel_path));
     }
     match files
         .iter()
@@ -579,7 +575,7 @@ mod tests {
         assert_eq!(log.len(), 1);
         assert_eq!((log[0].0, log[0].1, log[0].3), (id, 1_000, 1000.0));
         assert!(
-            log[0].2 >= scan::now() - 5,
+            log[0].2 >= db::now() - 5,
             "ended_at is the time record runs"
         );
     }

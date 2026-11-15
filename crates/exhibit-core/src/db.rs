@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Migrations in order; `PRAGMA user_version` holds how many have been applied.
 const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
@@ -71,6 +72,13 @@ pub(crate) fn write_tx(c: &Connection) -> Result<Transaction<'_>> {
         c,
         TransactionBehavior::Immediate,
     )?)
+}
+
+/// The current time in Unix seconds.
+pub(crate) fn now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 pub fn get_setting(c: &Connection, key: &str) -> Result<Option<String>> {
