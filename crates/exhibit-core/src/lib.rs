@@ -4,4 +4,6 @@ pub mod model;
 pub mod nfo;
 pub mod parse;
 pub mod scan;
+pub mod secrets;
+pub mod tools;
 pub mod volume;
