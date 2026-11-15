@@ -160,8 +160,8 @@ pub fn probe_file(tools: &Tools, file: &Path) -> Result<TechInfo> {
     }
 }
 
-/// Probe every file with `probed = 0` on an online source. Each file is marked probed
-/// whether it worked or not, so a bad file is not retried on every run. `on` is called
+/// Probe every file with `probed = 0` on an online source. Each file still on disk is marked
+/// probed whether it worked or not, so a bad file is not retried on every run. `on` is called
 /// with the file id after each attempt. Returns (ok, failed). With neither ffprobe nor mpv
 /// available it fails with `Error::Tool` before touching any row, so the files stay
 /// unprobed until a tool is installed.
@@ -176,7 +176,7 @@ pub fn probe_pending(
     }
     let (mut ok, mut failed) = (0, 0);
     for source in source_rows(c)? {
-        let Some(root) = resolve(v, &source) else {
+        let Some(root) = resolve(v, &source).filter(|p| p.is_dir()) else {
             continue;
         };
         let files: Vec<(Id, String)> = c
@@ -194,8 +194,11 @@ pub fn probe_pending(
                 Some(_) => ok += 1,
                 None => failed += 1,
             }
-            c.prepare_cached("UPDATE files SET tech = ?1, probed = 1 WHERE id = ?2")?
-                .execute(rusqlite::params![tech, id])?;
+            // A file gone from disk is the scanner's business; it is not marked probed.
+            if tech.is_some() || path.exists() {
+                c.prepare_cached("UPDATE files SET tech = ?1, probed = 1 WHERE id = ?2")?
+                    .execute(rusqlite::params![tech, id])?;
+            }
             on(id);
         }
     }
@@ -479,7 +482,6 @@ mod tests {
 
     struct Lib {
         _data: tempfile::TempDir,
-        #[cfg_attr(not(windows), allow(dead_code))] // read by the Windows-only .bat tests
         drive: tempfile::TempDir,
         c: Connection,
         v: FakeVolumes,
@@ -578,6 +580,36 @@ mod tests {
             (0, 0)
         );
         assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
+    }
+
+    /// A tool that cannot start, so every probe fails.
+    fn broken_tool(l: &Lib) -> Tools {
+        Tools {
+            ffprobe: Some(l.drive.path().join("no-such-ffprobe.exe")),
+            ..Tools::default()
+        }
+    }
+
+    #[test]
+    fn missing_source_folder_is_left_alone() {
+        let l = lib();
+        std::fs::remove_dir_all(l.drive.path().join("media")).unwrap();
+        assert_eq!(
+            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_| {}).unwrap(),
+            (0, 0)
+        );
+        assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
+    }
+
+    #[test]
+    fn vanished_file_stays_unprobed() {
+        let l = lib();
+        std::fs::remove_file(l.drive.path().join("media").join("a.mkv")).unwrap();
+        assert_eq!(
+            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_| {}).unwrap(),
+            (0, 2)
+        );
+        assert_eq!(state(&l.c), vec![(0, false), (1, false)]);
     }
 
     #[test]
