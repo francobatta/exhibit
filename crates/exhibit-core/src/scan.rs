@@ -36,9 +36,17 @@ pub enum ScanEvent {
     Finished(ScanReport),
 }
 
-/// Files matching this under `SAMPLE_MAX_BYTES` are release samples, not the film.
+/// A file under `SAMPLE_MAX_BYTES` (150 MiB) whose name has the word "sample", or that lies
+/// in a folder named exactly "sample", is a release sample, not the film.
 static SAMPLE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)\bsample\b").unwrap());
 const SAMPLE_MAX_BYTES: u64 = 150 * 1024 * 1024;
+
+fn is_sample(rel: &str, size: u64) -> bool {
+    let mut parts = rel.rsplit('/');
+    let name = parts.next().unwrap_or(rel);
+    size < SAMPLE_MAX_BYTES
+        && (SAMPLE.is_match(name) || parts.any(|dir| dir.eq_ignore_ascii_case("sample")))
+}
 
 /// A `sources` row: `path` is relative to the volume root (forward slashes, no leading
 /// slash, `""` for the root itself); `last_path` is the last known absolute path.
@@ -306,7 +314,7 @@ fn walk(root: &Path) -> Walked {
             unreadable.push(rel);
             continue;
         };
-        if md.len() < SAMPLE_MAX_BYTES && SAMPLE.is_match(&rel) {
+        if is_sample(&rel, md.len()) {
             continue;
         }
         let mtime = match md.modified().map(|t| t.duration_since(UNIX_EPOCH)) {
@@ -761,6 +769,10 @@ mod tests {
         );
         write(e.drive.path(), "media/Paprika (2006)/Sample/clip.mkv", 1000);
         write(e.drive.path(), "media/Samples Of Life (2001).mkv", 1000);
+        write(e.drive.path(), "media/Movie/movie-sample.mkv", 1000);
+        write(e.drive.path(), "media/Movie/SAMPLE/clip.mkv", 1000);
+        // "sample" in a folder name that is not exactly "sample" does not count.
+        write(e.drive.path(), "media/The Sample Show/S01E01.mkv", 1000);
         // A big file named "sample" is kept: only small clips are samples.
         let big = write(e.drive.path(), "media/The Sample (2020).mkv", 0);
         fs::File::options()
@@ -774,7 +786,7 @@ mod tests {
 
         assert_eq!(
             scan(&e.c, &v, src.id),
-            report(src.id, true, [3, 0, 0, 0, 0])
+            report(src.id, true, [4, 0, 0, 0, 0])
         );
         let stored: Vec<String> = file_rows(&e.c).into_iter().map(|r| r.0).collect();
         assert_eq!(
@@ -782,7 +794,8 @@ mod tests {
             vec![
                 "Paprika (2006)/Paprika.mkv",
                 "Samples Of Life (2001).mkv",
-                "The Sample (2020).mkv"
+                "The Sample (2020).mkv",
+                "The Sample Show/S01E01.mkv"
             ]
         );
     }
