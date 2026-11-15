@@ -13,7 +13,7 @@ use crate::scan;
 use crate::volume::Volumes;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
@@ -145,15 +145,16 @@ fn list(
     let episode = p.bind(enum_str(ItemKind::Episode));
     let (limit_p, offset_p) = (p.bind(limit as i64), p.bind(offset as i64));
     let container = format!("i.kind IN ({show}, {season})");
-    // Episodes at or below the item, all of them and the watched ones.
+    // Episodes at or below the item that have a file, all of them and the watched ones.
+    let has_file = "EXISTS (SELECT 1 FROM files ff WHERE ff.item_id = e.id)";
     let total = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
-         WHERE t.root_id = i.id AND e.kind = {episode})"
+         WHERE t.root_id = i.id AND e.kind = {episode} AND {has_file})"
     );
     let seen = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
          JOIN play_state q ON q.item_id = e.id \
-         WHERE t.root_id = i.id AND e.kind = {episode} AND q.watched = 1)"
+         WHERE t.root_id = i.id AND e.kind = {episode} AND q.watched = 1 AND {has_file})"
     );
     // Technical field of the item's first file that has any (any episode's, for a show).
     let tech = |field: &str| {
@@ -283,6 +284,11 @@ pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<It
 /// Full details of one item, hidden or not. Children are the seasons of a show or the
 /// episodes of a season (only those with files).
 pub fn item(c: &Connection, v: &dyn Volumes, id: Id) -> Result<ItemDetail> {
+    item_with(c, &online_sources(c, v)?, id, true)
+}
+
+/// `item` with the online sources already known; `children` false leaves the list empty.
+fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<ItemDetail> {
     let item = c
         .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id = ?1"))?
         .query_row([id], item_from_row)
@@ -300,23 +306,30 @@ pub fn item(c: &Connection, v: &dyn Volumes, id: Id) -> Result<ItemDetail> {
         ))?
         .query_row([id], play_state_from_row)
         .optional()?;
-    let online = online_sources(c, v)?;
+    // Rooted at this item, so the cost does not grow with the library.
     let available = c
-        .prepare_cached(&format!(
-            "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} \
-             SELECT coalesce(max(avail), 0) FROM lib WHERE item_id = ?2"
-        ))?
-        .query_row(params![json_ids(&online), id], |r| r.get(0))?;
-    let mut p = Params::new(&online);
-    let cond = format!("b.parent_id = {}", p.bind(id));
-    let children = list(
-        c,
-        p,
-        &[cond],
-        "b.season IS NULL, b.season, b.episode IS NULL, b.episode, b.title COLLATE NOCASE, b.id",
-        u32::MAX,
-        0,
-    )?;
+        .prepare_cached(
+            "WITH RECURSIVE d(id) AS (SELECT ?2 UNION ALL \
+                 SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
+             SELECT coalesce(max(f.present = 1 AND f.source_id IN \
+                 (SELECT value FROM json_each(?1))), 0) \
+             FROM d JOIN files f ON f.item_id = d.id",
+        )?
+        .query_row(params![json_ids(online), id], |r| r.get(0))?;
+    let children = if children {
+        let mut p = Params::new(online);
+        let cond = format!("b.parent_id = {}", p.bind(id));
+        list(
+            c,
+            p,
+            &[cond],
+            "b.season IS NULL, b.season, b.episode IS NULL, b.episode, b.title COLLATE NOCASE, b.id",
+            u32::MAX,
+            0,
+        )?
+    } else {
+        Vec::new()
+    };
     Ok(ItemDetail {
         item,
         files,
@@ -362,32 +375,45 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
         .prepare_cached(
             "SELECT last_played_at, item_id FROM play_state \
              WHERE watched = 0 AND position_s > 0 AND duration_s > 0 \
-               AND position_s / duration_s < ?1",
+               AND position_s / duration_s < ?1 \
+             ORDER BY last_played_at DESC, item_id LIMIT ?2",
         )?
-        .query_map([WATCHED_THRESHOLD], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .query_map(params![WATCHED_THRESHOLD, limit], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?
         .collect::<rusqlite::Result<_>>()?;
-    // Every played episode with its show, latest first.
-    let played: Vec<(Id, i64, bool)> = c
-        .prepare_cached(&format!(
-            "WITH RECURSIVE {TREE_CTE} SELECT t.root_id, p.last_played_at, p.watched \
-             FROM tree t JOIN items s ON s.id = t.root_id AND s.kind = ?1 \
-             JOIN items e ON e.id = t.id AND e.kind = ?2 \
-             JOIN play_state p ON p.item_id = e.id \
-             ORDER BY p.last_played_at DESC, e.season DESC, e.episode DESC"
-        ))?
-        .query_map(
-            params![enum_str(ItemKind::Show), enum_str(ItemKind::Episode)],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )?
-        .collect::<rusqlite::Result<_>>()?;
-    let mut done = Vec::new();
-    for (show, played_at, watched) in played {
-        if done.contains(&show) {
+    // Played episodes with their show, latest first; read lazily and stop once `limit`
+    // shows have offered a next episode.
+    let mut q = c.prepare_cached(&format!(
+        "WITH RECURSIVE {TREE_CTE} SELECT t.root_id, p.last_played_at, p.watched \
+         FROM tree t JOIN items s ON s.id = t.root_id AND s.kind = ?1 \
+         JOIN items e ON e.id = t.id AND e.kind = ?2 \
+         JOIN play_state p ON p.item_id = e.id \
+         ORDER BY p.last_played_at DESC, e.season DESC, e.episode DESC"
+    ))?;
+    let played = q.query_map(
+        params![enum_str(ItemKind::Show), enum_str(ItemKind::Episode)],
+        |r| {
+            Ok((
+                r.get::<_, Id>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, bool>(2)?,
+            ))
+        },
+    )?;
+    let mut done = HashSet::new();
+    let mut offered = 0;
+    for row in played {
+        let (show, played_at, watched) = row?;
+        if offered >= limit {
+            break;
+        }
+        if !done.insert(show) {
             continue;
         }
-        done.push(show);
         if watched && let Some(next) = next_episode(c, show)? {
             picks.push((played_at, next));
+            offered += 1;
         }
     }
     picks.sort_by_key(|&(at, id)| (std::cmp::Reverse(at), id));
@@ -398,20 +424,22 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
 }
 
 /// Items waiting for the owner to confirm a match.
+/// Their `children` are left empty: review candidates are file-backed provisional items.
 pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> {
-    let mut p = Params::new(&online_sources(c, v)?);
+    let online = online_sources(c, v)?;
+    let mut p = Params::new(&online);
     let cond = format!(
         "b.match_state = {}",
         p.bind(enum_str(MatchState::NeedsReview))
     );
     list(c, p, &[cond], "b.added_at DESC, b.id DESC", u32::MAX, 0)?
         .into_iter()
-        .map(|s| item(c, v, s.id))
+        .map(|s| item_with(c, &online, s.id, false))
         .collect()
 }
 
 /// First unwatched episode of a show that has a file, by season then episode, specials
-/// (season 0) last.
+/// (season 0) after the numbered seasons and episodes with no season last.
 pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
     Ok(c.prepare_cached(
         "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
@@ -420,7 +448,7 @@ pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
          LEFT JOIN play_state p ON p.item_id = e.id \
          WHERE coalesce(p.watched, 0) = 0 \
            AND EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
-         ORDER BY e.season = 0, e.season, e.episode, e.id LIMIT 1",
+         ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
     )?
     .query_row(params![show_id, enum_str(ItemKind::Episode)], |r| r.get(0))
     .optional()?)
@@ -903,7 +931,26 @@ mod tests {
         e.play(c, 0.0, 0.0, true, 1);
         assert_eq!(next(), Some(sp));
         e.play(sp, 0.0, 0.0, true, 1);
+        // An episode with no season comes after the specials.
+        let loose = e.with_file(ItemKind::Episode, "loose", Some(show));
+        assert_eq!(next(), Some(loose));
+        e.play(loose, 0.0, 0.0, true, 1);
         assert_eq!(next(), None);
+    }
+
+    #[test]
+    fn rollups_ignore_episodes_without_files() {
+        let e = env();
+        let (show, season, eps) = e.show("S", 2);
+        let missing = e.add(ItemKind::Episode, "Missing", Some(season));
+        assert!(!e.summary(show).watched);
+        e.play(eps[0], 100.0, 100.0, true, 1);
+        assert_eq!(e.summary(show).progress, Some(0.5));
+        e.play(eps[1], 100.0, 100.0, true, 1);
+        assert!(e.summary(show).watched);
+        assert_eq!(e.summary(show).progress, Some(1.0));
+        assert!(e.summary(season).watched);
+        assert!(item(&e.c, &e.v, missing).is_ok());
     }
 
     #[test]
@@ -987,7 +1034,8 @@ mod tests {
         e.with_file(ItemKind::Movie, "Fine", None);
         let hidden = e.add(ItemKind::Movie, "No file", None);
         e.exec(&format!(
-            "UPDATE items SET match_state='needsreview' WHERE id IN ({a}, {hidden})"
+            "UPDATE items SET match_state='{}' WHERE id IN ({a}, {hidden})",
+            enum_str(MatchState::NeedsReview)
         ));
         let r = needs_review(&e.c, &e.v).unwrap();
         assert_eq!(r.len(), 1);
@@ -1039,5 +1087,154 @@ mod tests {
         assert_eq!(taste_profile(&e.c).unwrap(), "");
         set_taste_profile(&e.c, "likes slow cinema").unwrap();
         assert_eq!(taste_profile(&e.c).unwrap(), "likes slow cinema");
+    }
+
+    /// Run with `cargo test --release -p exhibit-core scale_5000_items -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn scale_5000_items() {
+        let e = env();
+        let tx = e.c.unchecked_transaction().unwrap();
+        let tech = serde_json::to_string(&TechInfo {
+            duration_s: 100.0,
+            width: 1920,
+            height: 1080,
+            video_codec: "hevc".into(),
+            hdr: None,
+            audio: vec![],
+            subtitles: vec![],
+        })
+        .unwrap();
+        let mut n = 0;
+        let mut add = |kind: ItemKind, title: String, parent: Option<Id>, state: MatchState| {
+            n += 1;
+            tx.execute(
+                "INSERT INTO items(kind, title, parent_id, match_state, added_at, year) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, 1990 + ?5 % 30)",
+                params![enum_str(kind), title, parent, enum_str(state), n],
+            )
+            .unwrap();
+            let id = tx.last_insert_rowid();
+            tx.execute(
+                "INSERT INTO files(source_id, rel_path, item_id, tech) VALUES (?1, ?2, ?3, ?4)",
+                params![e.src, format!("f{id}.mkv"), id, tech],
+            )
+            .unwrap();
+            id
+        };
+        let movies: Vec<Id> = (0..4000)
+            .map(|i| {
+                add(
+                    ItemKind::Movie,
+                    format!("Film {i} Harbor"),
+                    None,
+                    MatchState::Matched,
+                )
+            })
+            .collect();
+        let mut first_eps = Vec::new();
+        let mut a_show = 0;
+        for s in 0..50 {
+            let show = add(
+                ItemKind::Show,
+                format!("Series {s}"),
+                None,
+                MatchState::Matched,
+            );
+            a_show = show;
+            for sn in 1..=2 {
+                let season = add(
+                    ItemKind::Season,
+                    format!("Season {sn}"),
+                    Some(show),
+                    MatchState::Matched,
+                );
+                for ep in 1..=10 {
+                    let id = add(
+                        ItemKind::Episode,
+                        format!("Series {s} S{sn}E{ep}"),
+                        Some(season),
+                        MatchState::Matched,
+                    );
+                    tx.execute(
+                        "UPDATE items SET season=?2, episode=?3 WHERE id=?1",
+                        params![id, sn, ep],
+                    )
+                    .unwrap();
+                    if sn == 1 && ep == 1 {
+                        first_eps.push(id);
+                    }
+                }
+            }
+        }
+        for i in 0..300 {
+            add(
+                ItemKind::Movie,
+                format!("Unsure {i}"),
+                None,
+                MatchState::NeedsReview,
+            );
+        }
+        let play = |id: Id, pos: f64, watched: bool, at: i64| {
+            tx.execute(
+                "INSERT INTO play_state VALUES (?1, ?2, 100, ?3, ?4)",
+                params![id, pos, watched, at],
+            )
+            .unwrap();
+        };
+        for (i, &m) in movies.iter().take(100).enumerate() {
+            play(m, 50.0, false, i as i64);
+        }
+        for (i, &m) in movies.iter().skip(100).take(50).enumerate() {
+            play(m, 100.0, true, i as i64);
+        }
+        for (i, &id) in first_eps.iter().enumerate() {
+            play(id, 100.0, true, 1000 + i as i64);
+        }
+        // Shows and seasons hold no file of their own, only their episodes do.
+        tx.execute(
+            "DELETE FROM files WHERE item_id IN (SELECT id FROM items WHERE kind IN (?1, ?2))",
+            params![enum_str(ItemKind::Show), enum_str(ItemKind::Season)],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        assert_eq!(e.n("items"), 4000 + 50 * 23 + 300);
+
+        let time = |name: &str, f: &dyn Fn()| {
+            let t = std::time::Instant::now();
+            f();
+            let d = t.elapsed();
+            eprintln!("{name}: {d:?}");
+            assert!(d.as_millis() < 250, "{name} took {d:?}");
+        };
+        time("search (no text)", &|| {
+            assert_eq!(
+                search(&e.c, &e.v, &SearchQuery::default()).unwrap().len(),
+                50
+            );
+        });
+        time("search (two words)", &|| {
+            let q = SearchQuery {
+                text: Some("film harb".into()),
+                ..Default::default()
+            };
+            assert_eq!(search(&e.c, &e.v, &q).unwrap().len(), 50);
+        });
+        for s in [
+            Shelf::ContinueWatching,
+            Shelf::RecentlyAdded,
+            Shelf::Unwatched,
+            Shelf::Loved,
+        ] {
+            time(&format!("shelf {s:?}"), &|| {
+                shelf(&e.c, &e.v, s, 50).unwrap();
+            });
+        }
+        time("item (show)", &|| {
+            assert_eq!(item(&e.c, &e.v, a_show).unwrap().children.len(), 2);
+        });
+        time("needs_review", &|| {
+            assert_eq!(needs_review(&e.c, &e.v).unwrap().len(), 300);
+        });
     }
 }
