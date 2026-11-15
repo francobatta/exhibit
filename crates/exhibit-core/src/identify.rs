@@ -55,13 +55,18 @@ pub(crate) struct Pending {
     pub(crate) added_at: i64,
 }
 
-/// Where a pending item goes after its sidecar and name are read.
+/// Where a pending item goes after its sidecar and name are read. The nfo routes keep the
+/// title and year, to match by name when TMDB does not know the nfo's id.
 enum Route {
     Movie {
         title: String,
         year: Option<i32>,
     },
-    NfoMovie(i64),
+    NfoMovie {
+        id: i64,
+        title: String,
+        year: Option<i32>,
+    },
     Episode {
         title: String,
         year: Option<i32>,
@@ -70,7 +75,11 @@ enum Route {
         episode: Option<i32>,
     },
     /// An `.nfo` names a show but the file name has no episode number.
-    ShowWithoutEpisode(i64),
+    ShowWithoutEpisode {
+        id: i64,
+        title: String,
+        year: Option<i32>,
+    },
 }
 
 /// How an item was matched, written alongside its metadata.
@@ -157,8 +166,9 @@ pub fn identify(
     Ok(report)
 }
 
-/// Adds an outcome to the report. A provider error is counted against the items and the run
-/// continues; any other error (the database) ends the run.
+/// Adds an outcome to the report. A provider error (or something TMDB does not have) is
+/// counted against the items and the run continues; any other error (the database, a
+/// rejected key) ends the run.
 fn record(
     report: &mut IdentifyReport,
     label: &str,
@@ -170,7 +180,7 @@ fn record(
             report.matched += matched;
             report.needs_review += review;
         }
-        Err(e @ Error::Provider(_)) => {
+        Err(e @ (Error::Provider(_) | Error::NotFound(_))) => {
             report.failed += items;
             report.errors.push(format!("{label}: {e}"));
         }
@@ -248,14 +258,9 @@ fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec
 fn route(p: &dyn MetadataProvider, item: &Pending) -> Result<Route> {
     let parsed = parse::parse_path(&item.rel_path);
     let episodic = parsed.hint == KindHint::Episode;
-    let (mut title, mut year, mut show_id) = (parsed.title, parsed.year, None);
+    let (mut title, mut year, mut target) = (parsed.title, parsed.year, None);
     if let Some(side) = item.abs.as_deref().and_then(sidecar) {
-        match nfo_target(p, &side.info, side.show_level || episodic)? {
-            Some((id, ItemKind::Movie)) => return Ok(Route::NfoMovie(id)),
-            Some((id, _)) if episodic => show_id = Some(id),
-            Some((id, _)) => return Ok(Route::ShowWithoutEpisode(id)),
-            None => {}
-        }
+        target = nfo_target(p, &side.info, side.show_level || episodic)?;
         // A show's nfo names the show, so it speaks only for episode files; a movie or
         // scene nfo only for files that are not episodes.
         if side.show_level == episodic
@@ -265,17 +270,19 @@ fn route(p: &dyn MetadataProvider, item: &Pending) -> Result<Route> {
             year = side.info.year.or(year);
         }
     }
-    Ok(if episodic {
-        Route::Episode {
+    // In an episode's context the nfo id is always a show's.
+    Ok(match (target, episodic) {
+        (Some((id, ItemKind::Movie)), _) => Route::NfoMovie { id, title, year },
+        (Some((id, _)), false) => Route::ShowWithoutEpisode { id, title, year },
+        (None, false) => Route::Movie { title, year },
+        (target, true) => Route::Episode {
             title,
             year,
-            show_id,
+            show_id: target.map(|(id, _)| id),
             // Absolute numbering (no season) maps to season 1.
             season: parsed.season.unwrap_or(1),
             episode: parsed.episode,
-        }
-    } else {
-        Route::Movie { title, year }
+        },
     })
 }
 
@@ -311,7 +318,8 @@ fn sidecar(file: &Path) -> Option<Sidecar> {
 /// The first id in the nfo that resolves in this context, as (TMDB id, Movie or Show). A
 /// TMDB id is never tried as the other kind: in a show context (a show nfo, or an episode
 /// file) it is the show's id; in a movie context it is the movie's id, checked by `movie()`
-/// later, and a TV id is ignored. IMDb and TVDB results of the wrong kind are ignored too.
+/// later, and a TV id is ignored. IMDb and TVDB results of the wrong kind, or that TMDB does
+/// not know, are ignored too.
 fn nfo_target(
     p: &dyn MetadataProvider,
     info: &NfoInfo,
@@ -327,10 +335,13 @@ fn nfo_target(
             (ExternalId::Tmdb(n) | ExternalId::TmdbTv(n), true) => Some((*n, wanted)),
             (ExternalId::Tmdb(n), false) => Some((*n, wanted)),
             (ExternalId::TmdbTv(_), false) => None,
-            _ => p
-                .find_external(id)?
-                .filter(|hit| hit.kind == wanted)
-                .map(|hit| (hit.tmdb_id, hit.kind)),
+            _ => match p.find_external(id) {
+                Ok(hit) => hit
+                    .filter(|hit| hit.kind == wanted)
+                    .map(|hit| (hit.tmdb_id, hit.kind)),
+                Err(Error::NotFound(_)) => None,
+                Err(e) => return Err(e),
+            },
         };
         if target.is_some() {
             return Ok(target);
@@ -348,24 +359,31 @@ fn identify_single(
 ) -> Result<Counts> {
     match route {
         Route::Movie { title, year } => match_movie(c, p, cache_dir, item, &title, year),
-        Route::NfoMovie(id) => {
-            let meta = p.movie(id)?;
-            let how = How::certain(MatchSource::Nfo);
-            save_movie(c, p, cache_dir, item.item_id, &meta, how)?;
-            Ok((1, 0))
-        }
-        Route::ShowWithoutEpisode(id) => {
-            let s = p.show(id)?;
-            let only = Candidate {
-                tmdb_id: s.tmdb_id,
-                kind: ItemKind::Show,
-                title: s.title,
-                year: s.year,
-                score: 1.0,
-            };
-            set_review(c, item.item_id, &[only])?;
-            Ok((0, 1))
-        }
+        // A stale or wrong-kind nfo id is ignored: the item is matched by name instead.
+        Route::NfoMovie { id, title, year } => match p.movie(id) {
+            Ok(meta) => {
+                let how = How::certain(MatchSource::Nfo);
+                save_movie(c, p, cache_dir, item.item_id, &meta, how)?;
+                Ok((1, 0))
+            }
+            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, item, &title, year),
+            Err(e) => Err(e),
+        },
+        Route::ShowWithoutEpisode { id, title, year } => match p.show(id) {
+            Ok(s) => {
+                let only = Candidate {
+                    tmdb_id: s.tmdb_id,
+                    kind: ItemKind::Show,
+                    title: s.title,
+                    year: s.year,
+                    score: 1.0,
+                };
+                set_review(c, item.item_id, &[only])?;
+                Ok((0, 1))
+            }
+            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, item, &title, year),
+            Err(e) => Err(e),
+        },
         Route::Episode { .. } => unreachable!("episodes are identified in groups"),
     }
 }
@@ -773,8 +791,9 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// What the TMDB client returns for HTTP 404.
     fn not_found(what: String) -> Error {
-        Error::Provider(format!("HTTP 404 for {what}"))
+        Error::NotFound(format!("TMDB has nothing at {what}"))
     }
 
     impl MetadataProvider for Fake {
@@ -1413,9 +1432,91 @@ mod tests {
     struct EchoHttp;
 
     impl crate::tmdb::Http for EchoHttp {
-        fn get(&self, url: &str, _bearer: Option<&str>) -> Result<Vec<u8>> {
+        fn get(&self, url: &str, _bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
             Err(Error::Provider(format!("request failed: {url}")))
         }
+    }
+
+    /// Answers every request with the status it holds and counts the requests.
+    struct StatusHttp(u16, RefCell<u32>);
+
+    impl crate::tmdb::Http for &StatusHttp {
+        fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
+            *self.1.borrow_mut() += 1;
+            Ok((self.0, b"{}".to_vec()))
+        }
+    }
+
+    #[test]
+    fn rejected_key_stops_the_run_at_once() {
+        let files = [
+            "Heat (1995).mkv",
+            "Paprika (2006).mkv",
+            "The Matrix (1999).mkv",
+        ];
+        let e = env(&files);
+        for status in [401, 403] {
+            let http = StatusHttp(status, RefCell::new(0));
+            let p = crate::tmdb::Tmdb::new("k".into(), &http);
+            let r = identify(
+                &e.c,
+                &e.v,
+                &p,
+                &e.cache(),
+                IdentifyScope::Unmatched,
+                &mut |_| {},
+            );
+            assert!(
+                matches!(&r, Err(Error::Invalid(m)) if m == crate::tmdb::KEY_REJECTED),
+                "{r:?}"
+            );
+            assert_eq!(*http.1.borrow(), 1);
+        }
+        for f in files {
+            let it = file_item(&e, f);
+            assert_eq!((it.kind, it.match_state), (Other, MatchState::Unmatched));
+        }
+    }
+
+    #[test]
+    fn stale_nfo_movie_id_falls_back_to_the_name() {
+        let rel = "Stuff/The Matrix (1999).mkv";
+        let e = env(&[rel]);
+        write(
+            &e.media(),
+            "Stuff/The Matrix (1999).nfo",
+            r#"<movie><uniqueid type="tmdb">999</uniqueid><uniqueid type="imdb">tt9999999</uniqueid></movie>"#,
+        );
+        let p = matrix();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
+        let it = file_item(&e, rel);
+        assert_eq!(
+            (it.tmdb_id, it.match_source),
+            (Some(603), Some(MatchSource::Lookup))
+        );
+        assert_eq!(p.count("movie 999"), 1);
+    }
+
+    #[test]
+    fn stale_nfo_show_id_falls_back_to_the_name() {
+        let ep = "Severance/Season 02/Severance.S02E01.mkv";
+        let extra = "Extras/The Matrix (1999).mkv";
+        let e = env(&[ep, extra]);
+        write(&e.media(), "Severance/tvshow.nfo", &office_nfo(1));
+        // A show nfo beside a file without an episode number.
+        write(&e.media(), "Extras/tvshow.nfo", &office_nfo(2));
+        let mut p = severance();
+        p.movies = matrix().movies;
+        p.movie_hits = matrix().movie_hits;
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 0, 0));
+        let it = file_item(&e, ep);
+        assert_eq!(
+            (it.kind, it.match_source),
+            (Episode, Some(MatchSource::Lookup))
+        );
+        assert_eq!(show_of(&e, ep).tmdb_id, Some(95396));
+        assert_eq!(file_item(&e, extra).tmdb_id, Some(603));
+        assert_eq!((p.count("show 1"), p.count("show 2")), (1, 1));
     }
 
     #[test]

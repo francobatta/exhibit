@@ -111,8 +111,15 @@ pub(crate) fn identify_group(
     cache_dir: &Path,
     g: &Group,
 ) -> Result<Counts> {
-    let (show_id, how) = match g.show_id {
-        Some(id) => (id, How::certain(MatchSource::Nfo)),
+    let seasons = || g.members.iter().map(|m| m.season);
+    // An nfo id TMDB does not know is ignored: the group is searched by name instead.
+    let from_nfo = match g.show_id.map(|id| fetch(p, id, seasons())) {
+        Some(Ok(show)) => Some(show),
+        None | Some(Err(Error::NotFound(_))) => None,
+        Some(Err(e)) => return Err(e),
+    };
+    let (show, how) = match from_nfo {
+        Some(show) => (show, How::certain(MatchSource::Nfo)),
         None => {
             let ev = Evidence {
                 title: &g.title,
@@ -127,7 +134,7 @@ pub(crate) fn identify_group(
                 .collect();
             sort_candidates(&mut scored);
             match matcher::decide(&scored) {
-                Some(best) => (best.tmdb_id, How::lookup(best.score)),
+                Some(best) => (fetch(p, best.tmdb_id, seasons())?, How::lookup(best.score)),
                 None => {
                     let tx = db::write_tx(c)?;
                     for m in &g.members {
@@ -139,7 +146,6 @@ pub(crate) fn identify_group(
             }
         }
     };
-    let show = fetch(p, show_id, g.members.iter().map(|m| m.season))?;
     let art = show_artwork(c, p, cache_dir, &show)?;
     let added_at = g.members.iter().map(|m| m.pending.added_at).min();
 
@@ -148,7 +154,8 @@ pub(crate) fn identify_group(
     let (mut matched, mut review) = (0, 0);
     for m in &g.members {
         let item_id = m.pending.item_id;
-        let m_how = if m.joined { How::joined() } else { how };
+        let joined = m.joined && how.source == MatchSource::Nfo;
+        let m_how = if joined { How::joined() } else { how };
         match m.episode.and_then(|e| show.episode(m.season, e)) {
             Some(ep) => {
                 place(

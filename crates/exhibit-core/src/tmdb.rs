@@ -1,4 +1,5 @@
-//! TMDB (v3) metadata provider over a swappable HTTP layer.
+//! TMDB (API v3) metadata provider over a swappable HTTP layer. The stored credential is
+//! either a v3 key or a v4 read token.
 
 use crate::error::{Error, Result};
 use crate::model::{ItemKind, Person};
@@ -74,9 +75,13 @@ pub trait MetadataProvider {
 }
 
 pub trait Http {
-    /// GET `url`, optionally with a Bearer token. Any non-200 is an `Error::Provider`.
-    fn get(&self, url: &str, bearer: Option<&str>) -> Result<Vec<u8>>;
+    /// GET `url`, optionally with a Bearer token; returns the status and body. Only a request
+    /// that got no response is an error (`Error::Provider`).
+    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)>;
 }
+
+/// The error for HTTP 401 or 403: retrying with the same key cannot succeed.
+pub const KEY_REJECTED: &str = "TMDB rejected the key; set a valid one with `exhibit key set tmdb`";
 
 pub struct Tmdb<H: Http> {
     key: String,
@@ -88,7 +93,8 @@ impl<H: Http> Tmdb<H> {
         Tmdb { key, http }
     }
 
-    /// A key containing a `.` is a v4 read token (Bearer); otherwise a v3 `api_key`.
+    /// A key starting with `eyJ` is a v4 read token (a JWT, sent as Bearer); anything else is
+    /// a v3 key, sent as the `api_key` query parameter.
     fn json(&self, path: &str, params: &[(&str, &str)]) -> Result<Value> {
         let mut url = format!("{API}{path}");
         let mut sep = '?';
@@ -96,16 +102,29 @@ impl<H: Http> Tmdb<H> {
             url.push_str(&format!("{sep}{k}={}", encode(v)));
             sep = '&';
         }
-        let bearer = self.key.contains('.');
+        let bearer = self.key.starts_with("eyJ");
         if !bearer {
             url.push_str(&format!("{sep}api_key={}", encode(&self.key)));
         }
-        let body = self
-            .http
-            .get(&url, bearer.then_some(self.key.as_str()))
-            .map_err(|e| self.redact(e))?;
+        let body = self.fetch(&url, bearer.then_some(self.key.as_str()))?;
         serde_json::from_slice(&body)
             .map_err(|e| Error::Provider(format!("invalid JSON from TMDB: {e}")))
+    }
+
+    /// The body of a 200 response. 404 is `NotFound`, 401 and 403 are `Invalid`
+    /// (`KEY_REJECTED`), any other status a `Provider` error.
+    fn fetch(&self, url: &str, bearer: Option<&str>) -> Result<Vec<u8>> {
+        let (status, body) = self.http.get(url, bearer).map_err(|e| self.redact(e))?;
+        match status {
+            200 => Ok(body),
+            401 | 403 => Err(Error::Invalid(KEY_REJECTED.into())),
+            // The path alone: the query may hold the key.
+            404 => Err(Error::NotFound(format!(
+                "TMDB has nothing at {}",
+                url.split('?').next().unwrap_or_default()
+            ))),
+            s => Err(Error::Provider(format!("HTTP {s}"))),
+        }
     }
 
     /// Replaces the key with `***` in an error's text: a transport error may echo the URL.
@@ -160,31 +179,17 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
 
     fn find_external(&self, id: &ExternalId) -> Result<Option<SearchHit>> {
         let (ext, source) = match id {
-            // A bare TMDB id does not say movie or show: try movie, then show.
+            // A bare TMDB id is a movie's; a show's comes as `TmdbTv`.
             ExternalId::Tmdb(n) => {
-                let hit = match self.movie(*n) {
-                    Ok(m) => SearchHit {
-                        tmdb_id: m.tmdb_id,
-                        kind: ItemKind::Movie,
-                        original_title: m.title.clone(),
-                        title: m.title,
-                        year: m.year,
-                        popularity: 0.0,
-                    },
-                    Err(Error::Provider(_)) => {
-                        let s = self.show(*n)?;
-                        SearchHit {
-                            tmdb_id: s.tmdb_id,
-                            kind: ItemKind::Show,
-                            original_title: s.title.clone(),
-                            title: s.title,
-                            year: s.year,
-                            popularity: 0.0,
-                        }
-                    }
-                    Err(e) => return Err(e),
-                };
-                return Ok(Some(hit));
+                let m = self.movie(*n)?;
+                return Ok(Some(SearchHit {
+                    tmdb_id: m.tmdb_id,
+                    kind: ItemKind::Movie,
+                    original_title: m.title.clone(),
+                    title: m.title,
+                    year: m.year,
+                    popularity: 0.0,
+                }));
             }
             ExternalId::TmdbTv(n) => {
                 let s = self.show(*n)?;
@@ -280,7 +285,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
     }
 
     fn image(&self, path: &str, size: &str) -> Result<Vec<u8>> {
-        self.http.get(&format!("{IMAGE_BASE}/{size}{path}"), None)
+        self.fetch(&format!("{IMAGE_BASE}/{size}{path}"), None)
     }
 }
 
@@ -389,7 +394,7 @@ impl Default for UreqHttp {
 }
 
 impl Http for UreqHttp {
-    fn get(&self, url: &str, bearer: Option<&str>) -> Result<Vec<u8>> {
+    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
         let mut retried = false;
         loop {
             let mut req = self.agent.get(url);
@@ -412,12 +417,13 @@ impl Http for UreqHttp {
                 continue;
             }
             if status != 200 {
-                return Err(Error::Provider(format!("HTTP {status}")));
+                return Ok((status, Vec::new()));
             }
-            return resp
+            let body = resp
                 .body_mut()
                 .read_to_vec()
-                .map_err(|e| Error::Provider(format!("reading response failed: {e}")));
+                .map_err(|e| Error::Provider(format!("reading response failed: {e}")))?;
+            return Ok((status, body));
         }
     }
 }
@@ -429,6 +435,8 @@ mod tests {
 
     struct FakeHttp {
         routes: Vec<(&'static str, &'static str)>,
+        /// Status of every response; 200 serves the routes (404 when none matches).
+        status: u16,
         log: RefCell<Vec<(String, Option<String>)>>,
     }
 
@@ -438,22 +446,36 @@ mod tests {
     }
 
     impl Http for &FakeHttp {
-        fn get(&self, url: &str, bearer: Option<&str>) -> Result<Vec<u8>> {
+        fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
             self.log
                 .borrow_mut()
                 .push((url.to_string(), bearer.map(str::to_string)));
-            self.routes
+            if self.status != 200 {
+                return Ok((self.status, b"{}".to_vec()));
+            }
+            Ok(self
+                .routes
                 .iter()
                 .find(|(k, _)| url.contains(k))
-                .map(|(_, f)| fixture(f))
-                .ok_or_else(|| Error::Provider(format!("HTTP 404 for {url}")))
+                .map_or((404, b"{}".to_vec()), |(_, f)| (200, fixture(f))))
         }
     }
 
     fn fake(routes: &[(&'static str, &'static str)]) -> FakeHttp {
         FakeHttp {
             routes: routes.to_vec(),
+            status: 200,
             log: RefCell::new(vec![]),
+        }
+    }
+
+    /// Fails every request with a message that echoes the URL and the token, as a transport
+    /// error may.
+    struct EchoHttp;
+
+    impl Http for EchoHttp {
+        fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
+            Err(Error::Provider(format!("request failed: {url} {bearer:?}")))
         }
     }
 
@@ -512,22 +534,24 @@ mod tests {
         );
     }
 
+    const V4_TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJzZWtyaXQifQ.c2lnbmF0dXJl";
+
     #[test]
-    fn dotted_key_is_bearer_and_plain_key_is_query() {
+    fn v4_token_is_bearer_and_anything_else_is_api_key() {
         let f = fake(&[("/search/movie", "search_movie_matrix.json")]);
-        Tmdb::new("aa.bb.cc".into(), &f)
+        Tmdb::new(V4_TOKEN.into(), &f)
             .search_movie("x", None)
             .unwrap();
         let (url, bearer) = f.log.borrow()[0].clone();
         assert!(!url.contains("api_key"));
-        assert_eq!(bearer.as_deref(), Some("aa.bb.cc"));
+        assert_eq!(bearer.as_deref(), Some(V4_TOKEN));
 
-        Tmdb::new("plainkey".into(), &f)
-            .search_movie("x", None)
-            .unwrap();
-        let (url, bearer) = f.log.borrow()[1].clone();
-        assert!(url.ends_with("&api_key=plainkey"));
-        assert_eq!(bearer, None);
+        for key in ["0123456789abcdef0123456789abcdef", "a.b"] {
+            Tmdb::new(key.into(), &f).search_movie("x", None).unwrap();
+            let (url, bearer) = f.log.borrow().last().unwrap().clone();
+            assert!(url.ends_with(&format!("&api_key={key}")), "{url}");
+            assert_eq!(bearer, None);
+        }
     }
 
     #[test]
@@ -627,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn find_tmdb_id_tries_movie_then_show() {
+    fn find_tmdb_id_asks_for_the_movie_only() {
         let f = fake(&[
             ("/tv/95396", "tv_95396.json"),
             ("/movie/603", "movie_603.json"),
@@ -635,13 +659,28 @@ mod tests {
         let t = Tmdb::new("k".into(), &f);
         let hit = t.find_external(&ExternalId::Tmdb(603)).unwrap().unwrap();
         assert_eq!((hit.tmdb_id, hit.kind), (603, ItemKind::Movie));
-        let hit = t.find_external(&ExternalId::Tmdb(95396)).unwrap().unwrap();
-        assert_eq!(
-            (hit.tmdb_id, hit.kind, hit.title.as_str()),
-            (95396, ItemKind::Show, "Severance")
-        );
         assert!(matches!(
-            t.find_external(&ExternalId::Tmdb(7)),
+            t.find_external(&ExternalId::Tmdb(95396)),
+            Err(Error::NotFound(_))
+        ));
+        assert!(f.log.borrow().iter().all(|(url, _)| !url.contains("/tv/")));
+    }
+
+    #[test]
+    fn status_codes_map_to_errors() {
+        let mut f = fake(&[]);
+        assert!(matches!(
+            Tmdb::new("k".into(), &f).movie(7),
+            Err(Error::NotFound(_))
+        ));
+        for status in [401, 403] {
+            f.status = status;
+            let e = Tmdb::new("k".into(), &f).movie(603).unwrap_err();
+            assert!(matches!(&e, Error::Invalid(m) if m == KEY_REJECTED), "{e}");
+        }
+        f.status = 500;
+        assert!(matches!(
+            Tmdb::new("k".into(), &f).movie(603),
             Err(Error::Provider(_))
         ));
     }
@@ -660,7 +699,7 @@ mod tests {
         assert_eq!((hit.tmdb_id, hit.kind), (95396, ItemKind::Show));
         assert!(matches!(
             t.find_external(&ExternalId::TmdbTv(603)),
-            Err(Error::Provider(_))
+            Err(Error::NotFound(_))
         ));
         assert!(
             f.log
@@ -672,13 +711,16 @@ mod tests {
 
     #[test]
     fn errors_never_carry_the_key() {
-        // The fake's error text echoes the URL, as a transport error may.
-        let f = fake(&[]);
-        for key in ["sekrit-key-42", "aa.bb.sekrit"] {
-            let e = Tmdb::new(key.into(), &f).movie(9).unwrap_err().to_string();
-            assert!(!e.contains("sekrit"), "{e}");
+        let v3 = "5ec4e75ec4e75ec4e75ec4e75ec4e75e";
+        for key in [v3, V4_TOKEN] {
+            let e = Tmdb::new(key.into(), EchoHttp)
+                .movie(9)
+                .unwrap_err()
+                .to_string();
+            assert!(!e.contains(key), "{e}");
+            assert!(e.contains("***"), "{e}");
         }
-        let e = Tmdb::new("sekrit".into(), &f).movie(9).unwrap_err();
+        let e = Tmdb::new(v3.into(), EchoHttp).movie(9).unwrap_err();
         assert!(e.to_string().contains("api_key=***"), "{e}");
     }
 
@@ -688,6 +730,6 @@ mod tests {
         let t = Tmdb::new("k".into(), &f);
         t.image("/abc.jpg", "w500").unwrap();
         assert_eq!(last_url(&f), "https://image.tmdb.org/t/p/w500/abc.jpg");
-        assert!(matches!(t.movie(9), Err(Error::Provider(_))));
+        assert!(matches!(t.movie(9), Err(Error::NotFound(_))));
     }
 }
