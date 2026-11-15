@@ -200,6 +200,18 @@ pub fn probe_pending(
 /// One frame at `at_s` seconds, scaled to 640 pixels wide, written to `dest` (jpg or png).
 /// ffmpeg if installed, else mpv.
 pub fn thumbnail(tools: &Tools, file: &Path, at_s: f64, dest: &Path) -> Result<()> {
+    if let Some(dir) = dest.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let result = make_thumbnail(tools, file, at_s, dest);
+    if result.is_err() {
+        // A killed or failed tool may leave a partial image behind.
+        let _ = std::fs::remove_file(dest);
+    }
+    result
+}
+
+fn make_thumbnail(tools: &Tools, file: &Path, at_s: f64, dest: &Path) -> Result<()> {
     if let Some(ffmpeg) = &tools.ffmpeg {
         let mut cmd = Command::new(ffmpeg);
         cmd.args(["-v", "error", "-y", "-ss", &at_s.to_string(), "-i"])
@@ -306,17 +318,11 @@ mod mpv_probe {
         let mut s = mpv_ipc::connect(pipe, Duration::from_secs(10))?;
         // Properties are unavailable until the file has loaded.
         let deadline = Instant::now() + Duration::from_secs(20);
-        let duration = loop {
-            match mpv_ipc::get_property(&mut s, "duration") {
-                Ok(d) => break d.as_f64().ok_or_else(|| invalid("duration"))?,
-                Err(Error::Tool(m)) if m.contains("unavailable") && Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(100));
-                }
-                Err(e) => return Err(e),
-            }
-        };
-        let tracks = mpv_ipc::get_property(&mut s, "track-list")?;
-        let params = mpv_ipc::get_property(&mut s, "video-params")?;
+        let duration = mpv_ipc::get_when_ready(&mut s, "duration", deadline)?
+            .as_f64()
+            .ok_or_else(|| invalid("duration"))?;
+        let tracks = mpv_ipc::get_when_ready(&mut s, "track-list", deadline)?;
+        let params = mpv_ipc::get_when_ready(&mut s, "video-params", deadline)?;
         let _ = writeln!(s, r#"{{"command":["quit"]}}"#);
         parse_mpv_properties(&tracks, &params, duration)
     }
@@ -468,6 +474,7 @@ mod tests {
 
     struct Lib {
         _data: tempfile::TempDir,
+        #[cfg_attr(not(windows), allow(dead_code))] // read by the Windows-only .bat tests
         drive: tempfile::TempDir,
         c: Connection,
         v: FakeVolumes,

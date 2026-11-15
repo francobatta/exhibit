@@ -3,6 +3,7 @@
 
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
@@ -57,6 +58,23 @@ pub fn get_property(stream: &mut (impl Read + Write), name: &str) -> Result<Valu
                 other.unwrap_or("no error field")
             ))),
         };
+    }
+}
+
+/// `get_property`, retrying while mpv says the property is unavailable (it appears only
+/// once the file is loaded or the first frame decoded) until `deadline`.
+pub fn get_when_ready(
+    stream: &mut (impl Read + Write),
+    name: &str,
+    deadline: Instant,
+) -> Result<Value> {
+    loop {
+        match get_property(stream, name) {
+            Err(Error::Tool(m)) if m.contains("unavailable") && Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            other => return other,
+        }
     }
 }
 
@@ -137,6 +155,62 @@ mod tests {
         let mut s = fake(r#""error":"property unavailable""#);
         let e = get_property(&mut s, "video-params").unwrap_err();
         assert!(e.to_string().contains("property unavailable"), "{e}");
+    }
+
+    /// Replies "property unavailable" `n` times, then `data` 42.
+    struct Late {
+        input: VecDeque<u8>,
+        unavailable_left: u32,
+    }
+
+    impl Read for Late {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            let n = buf.len().min(self.input.len());
+            for slot in &mut buf[..n] {
+                *slot = self.input.pop_front().unwrap();
+            }
+            Ok(n)
+        }
+    }
+
+    impl Write for Late {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            let req: Value = serde_json::from_slice(buf).unwrap();
+            let id = req["request_id"].as_u64().unwrap();
+            let reply = if self.unavailable_left > 0 {
+                self.unavailable_left -= 1;
+                format!("{{\"request_id\":{id},\"error\":\"property unavailable\"}}\n")
+            } else {
+                format!("{{\"request_id\":{id},\"error\":\"success\",\"data\":42}}\n")
+            };
+            self.input.extend(reply.bytes());
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn late(n: u32) -> Late {
+        Late {
+            input: VecDeque::new(),
+            unavailable_left: n,
+        }
+    }
+
+    #[test]
+    fn get_when_ready_retries_until_available() {
+        let mut s = late(2);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        assert_eq!(get_when_ready(&mut s, "video-params", deadline).unwrap(), 42);
+    }
+
+    #[test]
+    fn get_when_ready_gives_up_at_the_deadline() {
+        let mut s = late(u32::MAX);
+        let deadline = Instant::now() + Duration::from_millis(200);
+        let e = get_when_ready(&mut s, "video-params", deadline).unwrap_err();
+        assert!(e.to_string().contains("unavailable"), "{e}");
     }
 
     #[test]
