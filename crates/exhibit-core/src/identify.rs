@@ -1401,6 +1401,33 @@ mod tests {
         assert_eq!(file_item(&e, files[1]).tmdb_id, Some(10494));
     }
 
+    /// Fails every request with a message that echoes the URL, as a transport error may.
+    struct EchoHttp;
+
+    impl crate::tmdb::Http for EchoHttp {
+        fn get(&self, url: &str, _bearer: Option<&str>) -> Result<Vec<u8>> {
+            Err(Error::Provider(format!("request failed: {url}")))
+        }
+    }
+
+    #[test]
+    fn tmdb_key_never_reaches_report_errors() {
+        let e = env(&["The Matrix (1999).mkv"]);
+        let p = crate::tmdb::Tmdb::new("sekrit-key-42".into(), EchoHttp);
+        let r = identify(
+            &e.c,
+            &e.v,
+            &p,
+            &e.cache(),
+            IdentifyScope::Unmatched,
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!((r.failed, r.errors.len()), (1, 1));
+        assert!(!r.errors[0].contains("sekrit"), "{:?}", r.errors);
+        assert!(r.errors[0].contains("api_key=***"), "{:?}", r.errors);
+    }
+
     #[test]
     fn failed_show_group_changes_nothing() {
         let files = [

@@ -100,9 +100,29 @@ impl<H: Http> Tmdb<H> {
         if !bearer {
             url.push_str(&format!("{sep}api_key={}", encode(&self.key)));
         }
-        let body = self.http.get(&url, bearer.then_some(self.key.as_str()))?;
+        let body = self
+            .http
+            .get(&url, bearer.then_some(self.key.as_str()))
+            .map_err(|e| self.redact(e))?;
         serde_json::from_slice(&body)
             .map_err(|e| Error::Provider(format!("invalid JSON from TMDB: {e}")))
+    }
+
+    /// Replaces the key with `***` in an error's text: a transport error may echo the URL.
+    fn redact(&self, e: Error) -> Error {
+        if self.key.is_empty() {
+            return e;
+        }
+        let hide = |m: String| {
+            m.replace(&encode(&self.key), "***")
+                .replace(&self.key, "***")
+        };
+        match e {
+            Error::Provider(m) => Error::Provider(hide(m)),
+            Error::NotFound(m) => Error::NotFound(hide(m)),
+            Error::Invalid(m) => Error::Invalid(hide(m)),
+            other => other,
+        }
     }
 
     fn search(
@@ -648,6 +668,18 @@ mod tests {
                 .iter()
                 .all(|(url, _)| !url.contains("/movie/"))
         );
+    }
+
+    #[test]
+    fn errors_never_carry_the_key() {
+        // The fake's error text echoes the URL, as a transport error may.
+        let f = fake(&[]);
+        for key in ["sekrit-key-42", "aa.bb.sekrit"] {
+            let e = Tmdb::new(key.into(), &f).movie(9).unwrap_err().to_string();
+            assert!(!e.contains("sekrit"), "{e}");
+        }
+        let e = Tmdb::new("sekrit".into(), &f).movie(9).unwrap_err();
+        assert!(e.to_string().contains("api_key=***"), "{e}");
     }
 
     #[test]
