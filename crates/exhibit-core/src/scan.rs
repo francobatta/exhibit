@@ -211,17 +211,27 @@ fn scan_with(
             "SELECT id, rel_path, size, mtime FROM files WHERE source_id=?1 ORDER BY rel_path",
         )?;
         s.query_map([id], file_row)?
-            .map(|r| r.map(|f| (f.rel_path.clone(), f)))
+            .map(|r| r.map(|f| (path_key(&f.rel_path), f)))
             .collect::<rusqlite::Result<_>>()?
     };
 
     let mut changed = Vec::new();
     let mut new = Vec::new();
+    let mut moved = Vec::new();
     for (rel, (size, mtime)) in &seen {
-        match known.remove(rel) {
-            Some(f) if f.size == *size && f.mtime == *mtime => report.unchanged += 1,
-            Some(f) => changed.push((f.id, *size, *mtime)),
-            None => new.push((rel.clone(), *size, *mtime)),
+        let Some(f) = known.remove(&path_key(rel)) else {
+            new.push((rel.clone(), *size, *mtime));
+            continue;
+        };
+        // On Windows a rename that changes only letter case is the same file.
+        let renamed = f.rel_path != *rel;
+        if renamed {
+            moved.push((f.id, rel.clone()));
+        }
+        if f.size != *size || f.mtime != *mtime {
+            changed.push((f.id, *size, *mtime));
+        } else if !renamed {
+            report.unchanged += 1;
         }
     }
     // Rows under a folder that could not be read are left alone, not removed.
@@ -231,11 +241,25 @@ fn scan_with(
         .collect();
     missing.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
     new.sort();
-    let mut moved = Vec::new();
+    // A missing row and a new path alike in size and mtime are one moved file: when the file
+    // name is the same, or when that size and mtime is unique among both.
+    let mut alike: HashMap<(i64, i64), (u32, u32)> = HashMap::new();
+    for f in &missing {
+        alike.entry((f.size, f.mtime)).or_default().0 += 1;
+    }
+    for (_, size, mtime) in &new {
+        alike.entry((*size, *mtime)).or_default().1 += 1;
+    }
     new.retain(|(rel, size, mtime)| {
-        let pos = missing.iter().position(|f| {
-            f.size == *size && f.mtime == *mtime && file_name(&f.rel_path) == file_name(rel)
-        });
+        let same = |f: &FileRow| f.size == *size && f.mtime == *mtime;
+        let pos = missing
+            .iter()
+            .position(|f| same(f) && path_key(file_name(&f.rel_path)) == path_key(file_name(rel)))
+            .or_else(|| {
+                (alike[&(*size, *mtime)] == (1, 1))
+                    .then(|| missing.iter().position(same))
+                    .flatten()
+            });
         match pos {
             Some(i) => {
                 moved.push((missing.remove(i).id, rel.clone()));
@@ -359,16 +383,21 @@ fn rel_string(p: &Path) -> Option<String> {
 /// Whether relative path `inner` is `outer` or lies under it. Windows names are compared
 /// case-insensitively, as the file system does.
 fn contains(outer: &str, inner: &str) -> bool {
-    let (outer, inner) = if cfg!(windows) {
-        (outer.to_lowercase(), inner.to_lowercase())
-    } else {
-        (outer.to_string(), inner.to_string())
-    };
+    let (outer, inner) = (path_key(outer), path_key(inner));
     outer.is_empty() || inner == outer || inner.starts_with(&format!("{outer}/"))
 }
 
 fn file_name(rel: &str) -> &str {
     rel.rsplit('/').next().unwrap_or(rel)
+}
+
+/// A relative path as the file system compares it: case-insensitively on Windows.
+fn path_key(rel: &str) -> String {
+    if cfg!(windows) {
+        rel.to_lowercase()
+    } else {
+        rel.to_string()
+    }
 }
 
 pub(crate) fn now() -> i64 {
@@ -632,6 +661,77 @@ mod tests {
         let r = scan_with(&e.c, &v, src.id, &mut |_| {}, denied).unwrap();
         assert_eq!(r, report(src.id, true, [0, 0, 0, 0, 1]));
         assert_eq!(file_rows(&e.c), before);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn case_only_rename_keeps_item() {
+        let e = env();
+        media_tree(e.drive.path());
+        let v = vols(e.drive.path());
+        let src = add_source(&e.c, &v, &e.drive.path().join("media")).unwrap();
+        scan(&e.c, &v, src.id);
+        let item = item_of(&e.c, TREE[0]);
+        let dir = e
+            .drive
+            .path()
+            .join("media")
+            .join("Movies")
+            .join("Paprika (2006)");
+        fs::rename(
+            dir.join("Paprika.2006.1080p.mkv"),
+            dir.join("PAPRIKA.2006.1080p.mkv"),
+        )
+        .unwrap();
+        assert_eq!(
+            scan(&e.c, &v, src.id),
+            report(src.id, true, [0, 0, 1, 0, 2])
+        );
+        assert_eq!(
+            item_of(&e.c, "Movies/Paprika (2006)/PAPRIKA.2006.1080p.mkv"),
+            item
+        );
+        assert_eq!(count(&e.c, "items"), 3);
+    }
+
+    /// Writes `bytes` zero bytes at `rel` with a fixed mtime.
+    fn write_at(root: &Path, rel: &str, bytes: usize) {
+        let p = write(root, rel, bytes);
+        let t = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
+    }
+
+    #[test]
+    fn rename_with_unique_size_and_mtime_keeps_item() {
+        let e = env();
+        let d = e.drive.path();
+        write_at(d, "media/a.mkv", 10);
+        write_at(d, "media/twin1.mkv", 20);
+        write_at(d, "media/twin2.mkv", 20);
+        let v = vols(d);
+        let src = add_source(&e.c, &v, &d.join("media")).unwrap();
+        scan(&e.c, &v, src.id);
+        let item = item_of(&e.c, "a.mkv");
+        let media = d.join("media");
+        fs::create_dir_all(media.join("Films")).unwrap();
+        fs::rename(
+            media.join("a.mkv"),
+            media.join("Films").join("Alpha (2001).mkv"),
+        )
+        .unwrap();
+        // Two files alike in size and mtime are not told apart: they are removed and added.
+        fs::rename(media.join("twin1.mkv"), media.join("Twin One.mkv")).unwrap();
+        fs::rename(media.join("twin2.mkv"), media.join("Twin Two.mkv")).unwrap();
+        assert_eq!(
+            scan(&e.c, &v, src.id),
+            report(src.id, true, [2, 0, 1, 2, 0])
+        );
+        assert_eq!(item_of(&e.c, "Films/Alpha (2001).mkv"), item);
     }
 
     #[test]
