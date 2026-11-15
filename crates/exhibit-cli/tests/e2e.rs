@@ -54,7 +54,9 @@ fn library_flow_through_the_binary() {
 
     let scan = cli.ok(&["scan", "--no-probe", "--no-identify"]);
     assert_eq!(scan["scanned"][0]["added"], 3, "{scan}");
-    assert!(scan["probed"].is_null() && scan["identified"].is_null());
+    for step in ["identified", "probed", "rescored"] {
+        assert!(scan[step].is_null(), "{step}: {scan}");
+    }
 
     let all = cli.ok(&["search"]);
     let all = all.as_array().unwrap();
@@ -98,4 +100,6 @@ fn scan_without_key_or_tools_skips_identification_quietly() {
     assert_eq!(scan["scanned"][0]["added"], 1);
     // Tools may exist on the dev machine (extra search dirs), so only identification is certain.
     assert!(scan["identified"].is_null(), "{scan}");
+    assert!(scan["rescored"].is_null(), "{scan}");
+    assert!(scan.as_object().unwrap().contains_key("rescored"), "{scan}");
 }

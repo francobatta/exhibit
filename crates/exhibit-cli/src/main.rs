@@ -29,7 +29,7 @@ enum Command {
     Status,
     #[command(subcommand)]
     Source(SourceCmd),
-    /// Scan sources, then probe files, then identify when a TMDB key is set
+    /// Scan sources, identify (when a TMDB key is set), probe, then retry items in review
     Scan {
         #[arg(long)]
         source: Option<Id>,

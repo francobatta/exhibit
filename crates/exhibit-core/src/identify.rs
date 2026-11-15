@@ -31,6 +31,8 @@ const BACKDROP_SIZE: &str = "original";
 
 pub enum IdentifyScope {
     Unmatched,
+    /// Only items waiting for review, for example once probing has given them a duration.
+    Review,
     UnmatchedAndReview,
     Item(Id),
 }
@@ -180,10 +182,11 @@ fn record(
 /// Provisional items in scope, each seen through its first file on an online source (or its
 /// first file, if all are offline). Matched and `Manual` items are never selected.
 fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec<Pending>> {
-    let (review, only) = match scope {
-        IdentifyScope::Unmatched => (false, None),
-        IdentifyScope::UnmatchedAndReview => (true, None),
-        IdentifyScope::Item(id) => (true, Some(*id)),
+    let (unmatched, review, only) = match scope {
+        IdentifyScope::Unmatched => (true, false, None),
+        IdentifyScope::Review => (false, true, None),
+        IdentifyScope::UnmatchedAndReview => (true, true, None),
+        IdentifyScope::Item(id) => (true, true, Some(*id)),
     };
     if let Some(id) = only {
         let exists = c
@@ -200,28 +203,19 @@ fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec
     let mut s = c.prepare_cached(
         "SELECT i.id, i.added_at, f.source_id, f.rel_path, f.tech \
          FROM items i JOIN files f ON f.item_id = i.id \
-         WHERE i.kind = ?1 AND (i.match_state = ?2 OR (?3 AND i.match_state = ?4)) \
-           AND (?5 IS NULL OR i.id = ?5) \
+         WHERE i.kind = 'other' AND (?3 IS NULL OR i.id = ?3) \
+           AND ((?1 AND i.match_state = 'unmatched') OR (?2 AND i.match_state = 'needsreview')) \
          ORDER BY i.id, f.id",
     )?;
-    let rows = s.query_map(
-        params![
-            enum_str(ItemKind::Other),
-            enum_str(MatchState::Unmatched),
-            review,
-            enum_str(MatchState::NeedsReview),
-            only
-        ],
-        |r| {
-            Ok((
-                r.get::<_, Id>(0)?,
-                r.get::<_, i64>(1)?,
-                r.get::<_, Id>(2)?,
-                r.get::<_, String>(3)?,
-                r.get::<_, Option<String>>(4)?,
-            ))
-        },
-    )?;
+    let rows = s.query_map(params![unmatched, review, only], |r| {
+        Ok((
+            r.get::<_, Id>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, Id>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, Option<String>>(4)?,
+        ))
+    })?;
     let mut out: Vec<Pending> = Vec::new();
     for row in rows {
         let (item_id, added_at, source_id, rel_path, tech) = row?;
@@ -1293,6 +1287,19 @@ mod tests {
             run(&e, &p, IdentifyScope::UnmatchedAndReview),
             report(0, 2, 0)
         );
+    }
+
+    #[test]
+    fn review_scope_retries_only_review_items() {
+        let e = env(&["Solaris.mkv"]);
+        let p = matrix();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(0, 1, 0));
+        write(&e.media(), "The Matrix (1999).mkv", "");
+        scan_source(&e.c, &e.v, e.src, &mut |_| {}).unwrap();
+        assert_eq!(run(&e, &p, IdentifyScope::Review), report(0, 1, 0));
+        let m = file_item(&e, "The Matrix (1999).mkv");
+        assert_eq!((m.kind, m.match_state), (Other, MatchState::Unmatched));
+        assert_eq!(p.count("search_movie The Matrix"), 0);
     }
 
     #[test]

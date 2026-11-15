@@ -85,8 +85,10 @@ fn source(lib: &Library, cmd: SourceCmd) -> Result<Value> {
     }
 }
 
-/// Scan, then probe, then identify. Missing tools or a missing TMDB key skip that step
-/// quietly: its field is `null`.
+/// Scan, identify, probe, then identify the items left for review again, now that probing
+/// may have given them a duration (names and artwork come before technical details).
+/// Missing tools or a missing TMDB key skip that step quietly: its field is `null`. The
+/// second identification runs only when the first ran and probing read at least one file.
 fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) -> Result<Value> {
     let scanned = lib.scan(source, &mut |event| match event {
         ScanEvent::Started { source_id } => progress(format!("scanning source {source_id}")),
@@ -95,19 +97,31 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
             progress(format!("scanned source {}: {} added", r.source_id, r.added))
         }
     })?;
+    let identify = !no_identify && lib.has_secret("tmdb")?;
+    let on = &mut |id| progress(format!("identified item {id}"));
+    let identified = if identify {
+        Some(to_json(lib.identify(IdentifyScope::Unmatched, on)?)?)
+    } else {
+        None
+    };
     let probed = if no_probe || !lib.can_probe()? {
         None
     } else {
-        let (ok, failed) = lib.probe_pending(&mut |id| progress(format!("probed file {id}")))?;
-        Some(json!({"ok": ok, "failed": failed}))
+        Some(lib.probe_pending(&mut |id| progress(format!("probed file {id}")))?)
     };
-    let identified = if no_identify || !lib.has_secret("tmdb")? {
-        None
-    } else {
-        let on = &mut |id| progress(format!("identified item {id}"));
-        Some(to_json(lib.identify(IdentifyScope::Unmatched, on)?)?)
+    let rescored = match probed {
+        Some((ok, _)) if identify && ok > 0 => {
+            Some(to_json(lib.identify(IdentifyScope::Review, on)?)?)
+        }
+        _ => None,
     };
-    Ok(json!({"scanned": scanned, "probed": probed, "identified": identified}))
+    let probed = probed.map(|(ok, failed)| json!({"ok": ok, "failed": failed}));
+    Ok(json!({
+        "scanned": scanned,
+        "identified": identified,
+        "probed": probed,
+        "rescored": rescored
+    }))
 }
 
 fn search_query(a: SearchArgs) -> SearchQuery {
