@@ -7,6 +7,11 @@ import { afterEach } from "bun:test";
 GlobalRegistrator.register({ url: "http://localhost:1420/" });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
+// happy-dom has no top layer; UI SDK's modal layers (FocusScope modal) need these to mount.
+HTMLElement.prototype.showPopover ??= function () {};
+HTMLElement.prototype.hidePopover ??= function () {};
+Element.prototype.getAnimations ??= () => [];
+
 const { mockIPC, mockConvertFileSrc } = await import("@tauri-apps/api/mocks");
 const { emit } = await import("@tauri-apps/api/event");
 

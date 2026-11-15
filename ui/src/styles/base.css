@@ -91,6 +91,12 @@
   :focus {
     outline: none;
   }
+
+  /* The pointer hides after 3 s still, and at once when a key or the gamepad takes over. */
+  html[data-cursor-hidden],
+  html[data-cursor-hidden] * {
+    cursor: none !important;
+  }
 }
 
 @layer components {

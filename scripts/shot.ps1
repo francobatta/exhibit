@@ -7,12 +7,14 @@ scripts/shot.ps1 -Out C:\temp\home.png -Keys "{RIGHT}{RIGHT}{ENTER}" -WaitMs 800
 
 The window is the visible top-level window titled exactly "Exhibit". Its pixels are read with
 PrintWindow (PW_RENDERFULLCONTENT), which works while the window is partly covered; when that
-yields nothing the window is brought forward and its area copied from the screen.
+yields nothing the window is brought forward and its area copied from the screen. A capture
+wider than -MaxWidth (default 1920) is scaled down to that width, keeping its proportions.
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$Keys = "",
-    [int]$WaitMs = 800
+    [int]$WaitMs = 800,
+    [int]$MaxWidth = 1920
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,6 +40,7 @@ public static class ExhibitShot {
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int cmd);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, UIntPtr extra);
     [DllImport("user32.dll")] public static extern bool GetClientRect(IntPtr hwnd, out RECT r);
     [DllImport("user32.dll")] public static extern bool ClientToScreen(IntPtr hwnd, ref POINT p);
@@ -58,7 +61,9 @@ public static class ExhibitShot {
 
     public static void Forward(IntPtr hwnd) {
         if (IsIconic(hwnd)) ShowWindow(hwnd, 9); // SW_RESTORE
-        // A tap of Alt lets a background process take the foreground.
+        if (GetForegroundWindow() == hwnd) return;
+        // A tap of Alt lets a background process take the foreground. Only when needed: in a window
+        // that is already in front, a lone Alt enters menu mode and the keys after it are lost.
         keybd_event(0x12, 0, 0, UIntPtr.Zero);
         keybd_event(0x12, 0, 2, UIntPtr.Zero);
         SetForegroundWindow(hwnd);
@@ -76,7 +81,8 @@ if ($hwnd -eq [IntPtr]::Zero) {
 }
 
 [ExhibitShot]::Forward($hwnd)
-Start-Sleep -Milliseconds 150
+# WebView2 takes keyboard focus a moment after the window comes forward; keys sent sooner are lost.
+Start-Sleep -Milliseconds 500
 if ($Keys -ne "") {
     [System.Windows.Forms.SendKeys]::SendWait($Keys)
 }
@@ -121,6 +127,16 @@ $g.Dispose()
 $Out = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Out)
 $dir = Split-Path -Parent $Out
 if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force $dir | Out-Null }
+if ($MaxWidth -gt 0 -and $bmp.Width -gt $MaxWidth) {
+    $sh = [int][Math]::Round($bmp.Height * $MaxWidth / $bmp.Width)
+    $small = New-Object System.Drawing.Bitmap $MaxWidth, $sh
+    $sg = [System.Drawing.Graphics]::FromImage($small)
+    $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $sg.DrawImage($bmp, 0, 0, $MaxWidth, $sh)
+    $sg.Dispose()
+    $bmp.Dispose()
+    $bmp = $small
+}
 $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output $Out

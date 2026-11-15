@@ -5,9 +5,27 @@
 import { AnimatePresence, motion } from "motion/react";
 import type { ReactNode } from "react";
 import { Empty } from "@/components/states";
+import { FocusScope } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
 import { Home } from "@/screens/Home";
 import { useNav, type Entry, type Route } from "./stack";
+
+/** The top-level sections `[` and `]` (LB and RB) cycle through. */
+const SECTIONS: Route[] = [
+  { screen: "home" },
+  { screen: "wall", kind: "movie" },
+  { screen: "wall", kind: "show" },
+  { screen: "wall", kind: "other" },
+];
+
+/** Replaces the root with the previous or next section, wrapping; from elsewhere it starts at Home. */
+export function cycleSection(delta: -1 | 1): void {
+  const { entries, replaceRoot } = useNav.getState();
+  const root = entries[0]!.route;
+  const at = SECTIONS.findIndex((s) => JSON.stringify(s) === JSON.stringify(root));
+  const next = at === -1 ? 0 : (at + delta + SECTIONS.length) % SECTIONS.length;
+  replaceRoot(SECTIONS[next]!);
+}
 
 function screenFor(route: Route): ReactNode {
   switch (route.screen) {
@@ -30,11 +48,12 @@ function screenFor(route: Route): ReactNode {
 }
 
 function Layer({ entry, top }: { entry: Entry; top: boolean }) {
+  const setFocusKey = useNav((s) => s.setFocusKey);
   const shift = length("--shift-screen");
   const transition = { duration: seconds("--dur-screen"), ease: easeOut() };
   return (
     <motion.div
-      className="absolute inset-0 overflow-x-hidden overflow-y-auto pt-bar"
+      className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar"
       inert={!top}
       aria-hidden={!top || undefined}
       style={{ pointerEvents: top ? "auto" : "none" }}
@@ -44,7 +63,14 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
       transition={transition}
       data-entry={entry.id}
     >
-      {screenFor(entry.route)}
+      <FocusScope
+        id={`entry-${entry.id}`}
+        restoreKey={entry.focusKey}
+        active={top}
+        onFocusKey={top ? setFocusKey : undefined}
+      >
+        {screenFor(entry.route)}
+      </FocusScope>
     </motion.div>
   );
 }

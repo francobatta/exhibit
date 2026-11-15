@@ -2,12 +2,15 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
 import { Backdrop } from "@/components/Backdrop";
+import { Hints } from "@/components/Hints";
 import { ErrorState, Loading } from "@/components/states";
 import { TopBar } from "@/components/TopBar";
 import { Toaster } from "@/components/ui/toast";
+import { focusItem } from "@/focus/bridge";
+import { FocusRoot } from "@/focus/react";
 import { plain } from "@/lib/api";
 import { LibrarySync, useBoot } from "@/lib/queries";
-import { Screens } from "@/nav/Screens";
+import { cycleSection, Screens } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
 
 function Shell() {
@@ -45,9 +48,15 @@ export default function App() {
   return (
     <QueryClientProvider client={client}>
       <MotionConfig reducedMotion="user">
+        <FocusRoot
+          onAsk={() => focusItem("ask")}
+          onSection={cycleSection}
+          onSettings={() => useNav.getState().push({ screen: "settings" })}
+        />
         <LibrarySync />
         <Backdrop />
         <Shell />
+        <Hints />
         <Toaster />
       </MotionConfig>
     </QueryClientProvider>

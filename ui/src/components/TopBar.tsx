@@ -1,9 +1,13 @@
 // The bar over every screen: the mark, the top-level sections, the ask field, settings, and a
 // quiet line saying what the library is doing.
 
+import { motion } from "motion/react";
+import type { ReactNode } from "react";
+import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
 import { count } from "@/lib/format";
+import { focusSpring } from "@/lib/motion";
 import { useJobStatus, useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useNav, type Route } from "@/nav/stack";
@@ -54,6 +58,55 @@ function SettingsIcon() {
   );
 }
 
+/**
+ * The light on a focused label: a short lamp-white line under it that glides from item to item.
+ * Every Lamp shares one `layoutId`, so the light travels between groups too.
+ */
+export function Lamp() {
+  return (
+    <motion.span
+      layoutId="lamp"
+      aria-hidden
+      transition={focusSpring()}
+      className="pointer-events-none absolute inset-x-0 bottom-1 mx-auto h-0.5 w-6 rounded-full bg-lamp"
+    />
+  );
+}
+
+function BarButton({
+  focusKey,
+  onSelect,
+  className,
+  children,
+  ...rest
+}: {
+  focusKey: string;
+  onSelect: () => void;
+  className?: string;
+  children: ReactNode;
+  "aria-label"?: string;
+  "aria-current"?: "page";
+  size?: "md" | "icon";
+}) {
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey, onSelect });
+  return (
+    <Button
+      ref={ref}
+      {...props}
+      {...rest}
+      className={cn("relative focus-visible:bg-transparent focus:text-label", className)}
+    >
+      {children}
+      {focused && <Lamp />}
+    </Button>
+  );
+}
+
+function AskField({ label }: { label: string }) {
+  const { ref, props } = useFocusItem<HTMLInputElement>({ key: "ask" });
+  return <Input ref={ref} {...props} aria-label={label} placeholder={label} className="w-[22rem]" />;
+}
+
 export function TopBar() {
   const root = useNav((s) => s.entries[0]!.route);
   const replaceRoot = useNav((s) => s.replaceRoot);
@@ -65,48 +118,52 @@ export function TopBar() {
     review > 0 ? [...SECTIONS, { label: "Needs review", route: { screen: "review" } as Route }] : SECTIONS;
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 flex h-bar items-center gap-12 px-edge">
-      <span className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]">
-        Exhibit
-      </span>
+    <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
+      <FocusGroup id="topbar" orientation="horizontal" className="flex h-full items-center gap-12">
+        <span className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]">
+          Exhibit
+        </span>
 
-      <nav aria-label="Sections" className="-ml-4 flex items-center gap-1">
-        {sections.map(({ label, route }) => {
-          const here = same(root, route);
-          return (
-            <Button
-              key={label}
-              aria-current={here ? "page" : undefined}
-              className={cn(here && "text-label")}
-              onClick={() => replaceRoot(route)}
+        <nav aria-label="Sections" className="-ml-4 flex items-center gap-1">
+          {sections.map(({ label, route }) => {
+            const here = same(root, route);
+            return (
+              <BarButton
+                key={label}
+                focusKey={`section:${label}`}
+                aria-current={here ? "page" : undefined}
+                className={cn(here && "text-label")}
+                onSelect={() => replaceRoot(route)}
+              >
+                {label}
+                {route.screen === "review" && (
+                  <span className="text-label-faint tabular-nums">{review}</span>
+                )}
+              </BarButton>
+            );
+          })}
+        </nav>
+
+        <div className="ml-auto flex items-center gap-6">
+          {job !== null && (
+            <p
+              role="status"
+              className="max-w-[24rem] truncate font-display text-caption text-label-faint"
             >
-              {label}
-              {route.screen === "review" && (
-                <span className="text-label-faint tabular-nums">{review}</span>
-              )}
-            </Button>
-          );
-        })}
-      </nav>
-
-      <div className="ml-auto flex items-center gap-6">
-        {job !== null && (
-          <p
-            role="status"
-            className="max-w-[24rem] truncate font-display text-caption text-label-faint"
+              {job}
+            </p>
+          )}
+          <AskField label={status?.agent_key ? "Ask for something" : "Search the library"} />
+          <BarButton
+            focusKey="settings"
+            size="icon"
+            aria-label="Settings"
+            onSelect={() => push({ screen: "settings" })}
           >
-            {job}
-          </p>
-        )}
-        <Input
-          aria-label={status?.agent_key ? "Ask for something" : "Search the library"}
-          placeholder={status?.agent_key ? "Ask for something" : "Search the library"}
-          className="w-[22rem]"
-        />
-        <Button size="icon" aria-label="Settings" onClick={() => push({ screen: "settings" })}>
-          <SettingsIcon />
-        </Button>
-      </div>
+            <SettingsIcon />
+          </BarButton>
+        </div>
+      </FocusGroup>
     </header>
   );
 }
