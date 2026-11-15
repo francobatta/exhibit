@@ -3,7 +3,10 @@ use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 /// Migrations in order; `PRAGMA user_version` holds how many have been applied.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_init.sql"),
+    include_str!("migrations/002_source_volume_paths.sql"),
+];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
 pub fn data_dir() -> PathBuf {
@@ -150,6 +153,38 @@ mod tests {
         assert_eq!(get_setting(&c, "k").unwrap(), Some("w".to_string()));
         set_setting(&c, "k", None).unwrap();
         assert_eq!(get_setting(&c, "k").unwrap(), None);
+    }
+
+    #[test]
+    fn source_paths_migration_keeps_files_and_cascade() {
+        let d = tempfile::tempdir().unwrap();
+        let c = Connection::open(d.path().join("exhibit.db")).unwrap();
+        c.pragma_update(None, "foreign_keys", "ON").unwrap();
+        c.execute_batch(MIGRATIONS[0]).unwrap();
+        c.pragma_update(None, "user_version", 1).unwrap();
+        c.execute_batch(
+            "INSERT INTO sources(id, path, volume_id) VALUES (1, 'E:\\Movies', 'V1');
+             INSERT INTO files(source_id, rel_path) VALUES (1, 'a.mkv');",
+        )
+        .unwrap();
+        migrate(&c).unwrap();
+        let last: String = c
+            .query_row("SELECT last_path FROM sources WHERE id=1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(last, "E:\\Movies");
+        let n = |c: &Connection| -> i64 {
+            c.query_row("SELECT count(*) FROM files", [], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(n(&c), 1);
+        // Same relative path on another volume is allowed now.
+        c.execute(
+            "INSERT INTO sources(path, volume_id) VALUES ('E:\\Movies', 'V2')",
+            [],
+        )
+        .unwrap();
+        c.execute("DELETE FROM sources WHERE id=1", []).unwrap();
+        assert_eq!(n(&c), 0);
     }
 
     fn fts_ids(c: &rusqlite::Connection, q: &str) -> Vec<i64> {
