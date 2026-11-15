@@ -8,6 +8,7 @@ pub mod mpv_ipc;
 pub mod nfo;
 pub mod parse;
 pub mod probe;
+pub mod query;
 mod rows;
 pub mod scan;
 pub mod secrets;
