@@ -162,14 +162,15 @@ pub fn probe_file(tools: &Tools, file: &Path) -> Result<TechInfo> {
 
 /// Probe every file with `probed = 0` on an online source. Each file still on disk is marked
 /// probed whether it worked or not, so a bad file is not retried on every run. `on` is called
-/// with the file id after each attempt. Returns (ok, failed). With neither ffprobe nor mpv
+/// after each attempt with the file id and, when it failed, why. Returns (ok, failed). With
+/// neither ffprobe nor mpv
 /// available it fails with `Error::Tool` before touching any row, so the files stay
 /// unprobed until a tool is installed.
 pub fn probe_pending(
     c: &Connection,
     v: &dyn Volumes,
     tools: &Tools,
-    on: &mut dyn FnMut(Id),
+    on: &mut dyn FnMut(Id, Option<&str>),
 ) -> Result<(u32, u32)> {
     if tools.ffprobe.is_none() && tools.mpv.is_none() {
         return Err(Error::Tool("neither ffprobe nor mpv is installed".into()));
@@ -188,18 +189,17 @@ pub fn probe_pending(
         for (id, rel) in files {
             let path = rel.split('/').fold(root.clone(), |p, s| p.join(s));
             let tech = probe_file(tools, &path)
-                .ok()
-                .and_then(|t| serde_json::to_string(&t).ok());
+                .and_then(|t| serde_json::to_string(&t).map_err(|e| Error::Tool(format!("{e}"))));
             match tech {
-                Some(_) => ok += 1,
-                None => failed += 1,
+                Ok(_) => ok += 1,
+                Err(_) => failed += 1,
             }
             // A file gone from disk is the scanner's business; it is not marked probed.
-            if tech.is_some() || path.exists() {
+            if tech.is_ok() || path.exists() {
                 c.prepare_cached("UPDATE files SET tech = ?1, probed = 1 WHERE id = ?2")?
-                    .execute(rusqlite::params![tech, id])?;
+                    .execute(rusqlite::params![tech.as_ref().ok(), id])?;
             }
-            on(id);
+            on(id, tech.err().map(|e| e.to_string()).as_deref());
         }
     }
     Ok((ok, failed))
@@ -532,13 +532,13 @@ mod tests {
             ..Tools::default()
         };
         let mut seen = Vec::new();
-        let r = probe_pending(&l.c, &l.v, &tools, &mut |id| seen.push(id)).unwrap();
+        let r = probe_pending(&l.c, &l.v, &tools, &mut |id, _| seen.push(id)).unwrap();
         assert_eq!(r, (0, 2));
         assert_eq!(state(&l.c), vec![(1, false), (1, false)]);
         assert_eq!(seen.len(), 2);
         // Nothing left to do.
         assert_eq!(
-            probe_pending(&l.c, &l.v, &tools, &mut |_| {}).unwrap(),
+            probe_pending(&l.c, &l.v, &tools, &mut |_, _| {}).unwrap(),
             (0, 0)
         );
     }
@@ -556,7 +556,7 @@ mod tests {
             ..Tools::default()
         };
         assert_eq!(
-            probe_pending(&l.c, &l.v, &tools, &mut |_| {}).unwrap(),
+            probe_pending(&l.c, &l.v, &tools, &mut |_, _| {}).unwrap(),
             (2, 0)
         );
         let tech: String =
@@ -576,7 +576,7 @@ mod tests {
             ..Tools::default()
         };
         assert_eq!(
-            probe_pending(&l.c, &none, &tools, &mut |_| {}).unwrap(),
+            probe_pending(&l.c, &none, &tools, &mut |_, _| {}).unwrap(),
             (0, 0)
         );
         assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
@@ -595,7 +595,7 @@ mod tests {
         let l = lib();
         std::fs::remove_dir_all(l.drive.path().join("media")).unwrap();
         assert_eq!(
-            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_| {}).unwrap(),
+            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_, _| {}).unwrap(),
             (0, 0)
         );
         assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
@@ -605,17 +605,25 @@ mod tests {
     fn vanished_file_stays_unprobed() {
         let l = lib();
         std::fs::remove_file(l.drive.path().join("media").join("a.mkv")).unwrap();
+        let mut reasons = Vec::new();
+        let on = &mut |id, why: Option<&str>| reasons.push((id, why.map(str::to_string)));
         assert_eq!(
-            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_| {}).unwrap(),
+            probe_pending(&l.c, &l.v, &broken_tool(&l), on).unwrap(),
             (0, 2)
         );
         assert_eq!(state(&l.c), vec![(0, false), (1, false)]);
+        // Each failure reaches `on` with its reason.
+        assert_eq!(reasons.len(), 2);
+        for (_, why) in &reasons {
+            let why = why.as_deref().unwrap_or_default();
+            assert!(why.contains("ffprobe failed"), "{why}");
+        }
     }
 
     #[test]
     fn no_tool_is_an_error_and_leaves_files_unprobed() {
         let l = lib();
-        let r = probe_pending(&l.c, &l.v, &Tools::default(), &mut |_| {});
+        let r = probe_pending(&l.c, &l.v, &Tools::default(), &mut |_, _| {});
         assert!(matches!(r, Err(Error::Tool(_))));
         assert_eq!(state(&l.c), vec![(0, false), (0, false)]);
     }

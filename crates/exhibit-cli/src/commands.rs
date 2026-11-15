@@ -124,7 +124,11 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
     let probed = if no_probe || !lib.can_probe()? {
         None
     } else {
-        Some(lib.probe_pending(&mut |id| progress(format!("probed file {id}")))?)
+        // A failure's reason is printed whether or not stderr is a terminal.
+        Some(lib.probe_pending(&mut |id, failure| match failure {
+            Some(why) => eprintln!("probing file {id} failed: {why}"),
+            None => progress(format!("probed file {id}")),
+        })?)
     };
     let rescored = match probed {
         Some((ok, _)) if identify && ok > 0 => {

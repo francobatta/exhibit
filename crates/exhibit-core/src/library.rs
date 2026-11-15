@@ -113,8 +113,9 @@ impl Library {
             .collect()
     }
 
-    /// Returns (ok, failed); `Error::Tool` when neither ffprobe nor mpv is installed.
-    pub fn probe_pending(&self, on: &mut dyn FnMut(Id)) -> Result<(u32, u32)> {
+    /// Returns (ok, failed); `Error::Tool` when neither ffprobe nor mpv is installed. `on`
+    /// gets each file id and, for a failure, its reason.
+    pub fn probe_pending(&self, on: &mut dyn FnMut(Id, Option<&str>)) -> Result<(u32, u32)> {
         let tools = tools::tools(&self.conn, &self.env)?;
         probe::probe_pending(&self.conn, &*self.volumes, &tools, on)
     }
