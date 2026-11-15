@@ -33,6 +33,8 @@ In priority order:
 - Accounts, subscriptions, telemetry.
 - Transcoding, live TV, downloading, podcast feed subscriptions.
 - Music, photos, books, games.
+- Importing viewing history from Kodi, Jellyfin, Plex or any other app (owner). Marking a whole show, or several selected films, as watched in one action covers the need.
+- Disc rips as folder structures or ISO images.
 - A plugin system or theming system.
 - Bundling or managing an AI model.
 - Linux and macOS in the first version. Nothing should be built in a way that blocks them later.
@@ -96,6 +98,14 @@ The project has failed, even if it works, when:
 
 **(call)** The CLI and MCP server are one extra small binary (`exhibit`, with `exhibit mcp` starting the MCP server). They work whether or not the window is open, by opening the same database. SQLite runs in write-ahead mode so several processes can share it. How the open window learns of changes made by another process is left to the builder.
 
+**(call) Where model calls run.** All calls to the AI model happen in the window, through the AI SDK. The core never calls a model. Consequences, all intended:
+
+- Agent matching and agent shelves only run while the window is open, started by the UI. A rescan from the CLI or MCP runs name parsing and TMDB lookup only.
+- An outside agent using the MCP server is itself the agent: it can list needs review and apply matches with the same tools.
+- The key lives in the Windows credential store and is handed to the window by the core on request.
+
+**(call) Play from the CLI or MCP.** If the window is open, the request is passed to it and behaves exactly like a play started in the UI. If not, the calling process launches mpv and tracks it: `exhibit play` stays running until mpv exits, then records position and watched state. If an MCP client disconnects mid-playback, that session's position is lost; this is accepted in exchange for having no background helper.
+
 Nothing runs in the background when the app is closed. There is no service and no tray icon.
 
 ## 9. Data
@@ -117,7 +127,11 @@ SQLite, stored with an image cache under the user's application data folder. The
 
 **Disconnected drives.** When a source's drive is absent, its items stay in the library with all metadata and history, shown dimmed and marked offline. They are never deleted automatically. Play is disabled with a plain message naming the drive.
 
-**Identification** runs in three layers:
+**What is on disk (owner).** Single video files, named inconsistently, sometimes with a `.nfo` file beside them. Disc folder structures, ISO images and films split across files are out of scope.
+
+**`.nfo` files.** When a `.nfo` beside a file or in its folder carries a TMDB, IMDb or TVDB ID, that ID is used directly and the item counts as matched without scoring. A `.nfo` without an ID contributes its title and year to name parsing. Exhibit only reads these files and never writes them.
+
+**Identification** otherwise runs in three layers:
 
 1. **Name parsing.** Extract title, year, season and episode numbers from file and folder names, discarding release tags (resolution, codec, group names, and so on). Folder context counts: a folder of similarly named numbered files is probably one show.
 2. **Online lookup with a confidence score.** Search TMDB for the parsed title. Score candidates on title similarity, year, runtime against the file's actual duration, and episode-count fit for shows. Above a threshold, accept. Below it, mark as needs review.
@@ -127,7 +141,7 @@ SQLite, stored with an image cache under the user's application data folder. The
 
 **Other.** Anything not confidently a movie or show. Shown with a thumbnail, a cleaned-up name and duration, grouped by folder. **(call)** Anime that TMDB identifies as a show or movie will appear under Shows or Movies, since telling it apart reliably is not possible; any item can be moved to Other by hand and will stay there.
 
-**Metadata source.** **(call)** TMDB for movies and shows, using a free API key the owner enters once at first run. Artwork is downloaded to the local cache at sizes suited to a 4K TV.
+**Metadata source.** **(call)** TMDB for movies and shows, using a free API key the owner enters once at first run. The key can be skipped: without it, every file appears under its cleaned-up name with a thumbnail and no artwork, and nothing is sent to needs review. Identification can be run over the whole library at any later time, so adding the key afterwards fills everything in. Artwork is downloaded to the local cache at sizes suited to a 4K TV.
 
 **Technical details and thumbnails.** **(call)** Read resolution, HDR and track information directly from the file containers in Rust, and generate thumbnails for Other by asking mpv to render a single frame. This avoids shipping ffmpeg. If native parsing proves unreliable, the builder may propose an alternative, but must not add a large bundled dependency without asking.
 
