@@ -41,8 +41,8 @@ const SAMPLE_MAX_BYTES: u64 = 150 * 1024 * 1024;
 
 /// A `sources` row: `path` is relative to the volume root (forward slashes, no leading
 /// slash, `""` for the root itself); `last_path` is the last known absolute path.
-struct SourceRow {
-    id: Id,
+pub(crate) struct SourceRow {
+    pub(crate) id: Id,
     path: String,
     volume_id: String,
     last_path: String,
@@ -76,7 +76,7 @@ fn file_row(r: &Row) -> rusqlite::Result<FileRow> {
     })
 }
 
-fn source_rows(c: &Connection) -> Result<Vec<SourceRow>> {
+pub(crate) fn source_rows(c: &Connection) -> Result<Vec<SourceRow>> {
     let mut s = c.prepare_cached(&format!("SELECT {SOURCE_COLS} FROM sources ORDER BY id"))?;
     let rows = s
         .query_map([], source_row)?
@@ -311,7 +311,7 @@ fn is_video(p: &Path) -> bool {
 }
 
 /// Absolute path of a source through its volume's current root, if the volume is mounted.
-fn resolve(v: &dyn Volumes, row: &SourceRow) -> Option<PathBuf> {
+pub(crate) fn resolve(v: &dyn Volumes, row: &SourceRow) -> Option<PathBuf> {
     let root = v.find(&row.volume_id)?;
     Some(
         row.path

@@ -182,20 +182,46 @@ fn version_of(tool: Tool, path: &Path) -> Option<String> {
         return None;
     }
     let mut cmd = Command::new(path);
-    cmd.arg(tool.version_flag())
-        .stdin(Stdio::null())
+    cmd.arg(tool.version_flag());
+    let out = run_with_timeout(&mut cmd, VERSION_TIMEOUT, 64 * 1024)?;
+    if !out.success {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .next()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+}
+
+pub(crate) struct Captured {
+    pub success: bool,
+    pub stdout: Vec<u8>,
+}
+
+/// Run `cmd` with no stdin, no console window and stderr discarded; capture at most
+/// `limit` bytes of stdout. `None` if it cannot start or outlives `timeout` (the child is
+/// killed).
+pub(crate) fn run_with_timeout(
+    cmd: &mut Command,
+    timeout: Duration,
+    limit: u64,
+) -> Option<Captured> {
+    cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
     #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // CREATE_NO_WINDOW
+    std::os::windows::process::CommandExt::creation_flags(cmd, 0x0800_0000); // CREATE_NO_WINDOW
     let mut child = cmd.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
-        let mut out = String::new();
-        let _ = (&mut stdout).take(64 * 1024).read_to_string(&mut out);
+        let mut out = Vec::new();
+        let _ = (&mut stdout).take(limit).read_to_end(&mut out);
+        // Keep draining so a chatty child never blocks on a full pipe.
+        let _ = std::io::copy(&mut stdout, &mut std::io::sink());
         out
     });
-    let deadline = Instant::now() + VERSION_TIMEOUT;
+    let deadline = Instant::now() + timeout;
     let status = loop {
         match child.try_wait() {
             Ok(Some(s)) => break Some(s),
@@ -207,14 +233,11 @@ fn version_of(tool: Tool, path: &Path) -> Option<String> {
             }
         }
     };
-    let out = reader.join().ok()?;
-    if !status?.success() {
-        return None;
-    }
-    out.lines()
-        .next()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
+    let stdout = reader.join().ok()?;
+    Some(Captured {
+        success: status?.success(),
+        stdout,
+    })
 }
 
 #[cfg(test)]

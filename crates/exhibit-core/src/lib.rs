@@ -1,8 +1,10 @@
 pub mod db;
 pub mod error;
 pub mod model;
+pub mod mpv_ipc;
 pub mod nfo;
 pub mod parse;
+pub mod probe;
 pub mod scan;
 pub mod secrets;
 pub mod tools;
