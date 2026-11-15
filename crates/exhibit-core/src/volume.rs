@@ -11,9 +11,20 @@ pub trait Volumes {
 }
 
 /// The machine's real volumes. On Windows a drive is identified by its volume serial
-/// number (`GetVolumeInformationW`), found again by trying every drive letter; a network
-/// share (`\\server\share`) is identified by its UNC root.
-pub struct SystemVolumes;
+/// number (`GetVolumeInformationW`), found again among the drive letters; a network share
+/// (`\\server\share`) is identified by its UNC root.
+#[derive(Default)]
+pub struct SystemVolumes {
+    /// Drive letters and their serials, read at most once every few seconds.
+    #[cfg(windows)]
+    drives: std::sync::Mutex<Option<win::Drives>>,
+}
+
+impl SystemVolumes {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
 
 #[cfg(windows)]
 impl Volumes for SystemVolumes {
@@ -42,21 +53,70 @@ impl Volumes for SystemVolumes {
         if let Some(root) = volume_id.strip_prefix("unc:") {
             return win::serial(root).map(|_| PathBuf::from(root));
         }
-        let drives = win::logical_drives();
-        (0..26u8)
-            .filter(|i| drives & (1 << i) != 0)
-            .map(|i| format!("{}:\\", (b'A' + i) as char))
-            .find(|root| {
-                win::serial(root).map(|s| format!("{s:08X}")).as_deref() == Some(volume_id)
-            })
-            .map(PathBuf::from)
+        let serial = u32::from_str_radix(volume_id, 16).ok()?;
+        let mut cache = self.drives.lock().unwrap_or_else(|e| e.into_inner());
+        if cache
+            .as_ref()
+            .is_none_or(|d| d.read_at.elapsed() >= win::FRESH)
+        {
+            *cache = Some(win::Drives::read());
+        }
+        let d = cache.as_mut()?;
+        // Network drives can hang when their server is gone: asked only when no local one matches.
+        let letter = pick_letter(&d.local, serial).or_else(|| {
+            let remote = d.remote.get_or_insert_with(|| win::Drives::letters(true));
+            pick_letter(remote, serial)
+        })?;
+        Some(PathBuf::from(format!("{letter}:\\")))
     }
 }
 
 #[cfg(windows)]
 mod win {
+    use super::DRIVE_REMOTE;
     use std::ptr::null_mut;
-    use windows_sys::Win32::Storage::FileSystem::{GetLogicalDrives, GetVolumeInformationW};
+    use std::time::{Duration, Instant};
+    use windows_sys::Win32::Storage::FileSystem::{
+        GetDriveTypeW, GetLogicalDrives, GetVolumeInformationW,
+    };
+
+    /// How long a read of the drive letters is reused.
+    pub const FRESH: Duration = Duration::from_secs(3);
+
+    /// `(letter, serial, drive type)` of the mounted drives; network drives read lazily.
+    pub struct Drives {
+        pub read_at: Instant,
+        pub local: Vec<(char, u32, u32)>,
+        pub remote: Option<Vec<(char, u32, u32)>>,
+    }
+
+    impl Drives {
+        pub fn read() -> Drives {
+            Drives {
+                read_at: Instant::now(),
+                local: Drives::letters(false),
+                remote: None,
+            }
+        }
+
+        /// The network drives when `remote`, else every other drive with a readable serial.
+        pub fn letters(remote: bool) -> Vec<(char, u32, u32)> {
+            // SAFETY: no arguments; returns a bitmask.
+            let mask = unsafe { GetLogicalDrives() };
+            (0..26u8)
+                .filter(|i| mask & (1 << i) != 0)
+                .filter_map(|i| {
+                    let letter = (b'A' + i) as char;
+                    let root = format!("{letter}:\\");
+                    let wide: Vec<u16> = root.encode_utf16().chain(Some(0)).collect();
+                    // SAFETY: `wide` is NUL-terminated and outlives the call.
+                    let kind = unsafe { GetDriveTypeW(wide.as_ptr()) };
+                    ((kind == DRIVE_REMOTE) == remote).then_some(())?;
+                    Some((letter, serial(&root)?, kind))
+                })
+                .collect()
+        }
+    }
 
     /// Volume serial number of the volume whose root is `root` (ends with a backslash).
     pub fn serial(root: &str) -> Option<u32> {
@@ -77,11 +137,6 @@ mod win {
             )
         };
         (ok != 0).then_some(serial)
-    }
-
-    pub fn logical_drives() -> u32 {
-        // SAFETY: no arguments; returns a bitmask.
-        unsafe { GetLogicalDrives() }
     }
 }
 
@@ -123,14 +178,52 @@ impl Volumes for FakeVolumes {
     }
 }
 
+/// `GetDriveTypeW` results.
+const DRIVE_REMOVABLE: u32 = 2;
+const DRIVE_FIXED: u32 = 3;
+const DRIVE_REMOTE: u32 = 4;
+
+/// The letter of volume `serial` among `(letter, serial, drive type)`: a fixed or removable
+/// drive before any other, a network drive last, then the earliest letter.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn pick_letter(drives: &[(char, u32, u32)], serial: u32) -> Option<char> {
+    let rank = |kind: u32| match kind {
+        DRIVE_FIXED | DRIVE_REMOVABLE => 0,
+        DRIVE_REMOTE => 2,
+        _ => 1,
+    };
+    drives
+        .iter()
+        .filter(|d| d.1 == serial)
+        .min_by_key(|&&(letter, _, kind)| (rank(kind), letter))
+        .map(|d| d.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
+    fn letter_choice_prefers_local_drives() {
+        const CDROM: u32 = 5;
+        let drives = [
+            ('D', 7, DRIVE_REMOTE),
+            ('E', 7, CDROM),
+            ('F', 7, DRIVE_FIXED),
+            ('G', 9, DRIVE_REMOVABLE),
+        ];
+        assert_eq!(pick_letter(&drives, 7), Some('F'));
+        assert_eq!(pick_letter(&drives[..2], 7), Some('E'));
+        // A source added on a network drive still resolves to it.
+        assert_eq!(pick_letter(&drives[..1], 7), Some('D'));
+        assert_eq!(pick_letter(&drives, 9), Some('G'));
+        assert_eq!(pick_letter(&drives, 1), None);
+    }
+
+    #[test]
     fn system_volumes_round_trip_the_temp_dir() {
         let d = tempfile::tempdir().unwrap();
-        let v = SystemVolumes;
+        let v = SystemVolumes::new();
         let id = v.id_of(d.path()).expect("temp dir has a volume");
         let root = v.find(&id).expect("volume is mounted");
         assert!(d.path().starts_with(&root), "{root:?}");
@@ -138,6 +231,6 @@ mod tests {
 
     #[test]
     fn system_volumes_unknown_id_is_none() {
-        assert_eq!(SystemVolumes.find("not-a-volume"), None);
+        assert_eq!(SystemVolumes::new().find("not-a-volume"), None);
     }
 }

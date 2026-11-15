@@ -48,7 +48,7 @@ impl Library {
     pub fn open_default() -> Result<Library> {
         Library::open(
             db::data_dir(),
-            Box::new(SystemVolumes),
+            Box::new(SystemVolumes::new()),
             Box::new(OsSecrets::new()),
             Env::system(),
         )
