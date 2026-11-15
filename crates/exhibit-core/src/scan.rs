@@ -827,6 +827,7 @@ mod tests {
             "Amélie (2001)/Amélie.2001.mkv".to_string(),
             "千と千尋の神隠し (2001)/千と千尋の神隠し.mkv".to_string(),
             format!("{long_dir}/Long Movie (2010).mkv"),
+            "🎬 Movie Night (2019).mkv".to_string(),
         ];
         for r in &rels {
             write(e.drive.path(), &format!("media/{r}"), 1000);
@@ -840,7 +841,7 @@ mod tests {
 
         assert_eq!(
             scan(&e.c, &v, src.id),
-            report(src.id, true, [3, 0, 0, 0, 0])
+            report(src.id, true, [4, 0, 0, 0, 0])
         );
         let mut stored: Vec<String> = file_rows(&e.c).into_iter().map(|r| r.0).collect();
         stored.sort();
@@ -849,7 +850,7 @@ mod tests {
         assert_eq!(stored, expected);
         assert_eq!(
             scan(&e.c, &v, src.id),
-            report(src.id, true, [0, 0, 0, 0, 3])
+            report(src.id, true, [0, 0, 0, 0, 4])
         );
     }
 
