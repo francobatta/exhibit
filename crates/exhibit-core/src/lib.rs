@@ -7,6 +7,7 @@ pub mod model;
 pub mod mpv_ipc;
 pub mod nfo;
 pub mod parse;
+pub mod player;
 pub mod probe;
 pub mod query;
 mod rows;

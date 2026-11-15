@@ -30,7 +30,7 @@ impl Tool {
         }
     }
 
-    fn setting_key(self) -> String {
+    pub(crate) fn setting_key(self) -> String {
         format!("tool.{}", self.name())
     }
 
