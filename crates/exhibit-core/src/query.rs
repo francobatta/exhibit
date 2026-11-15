@@ -95,9 +95,9 @@ const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
      UNION ALL SELECT tree.root_id, i.id FROM tree JOIN items i ON i.parent_id = tree.id)";
 
 /// `lib(item_id, avail)`: items with at least one file in their subtree; `avail` is 1 when
-/// one of those files is present on a source whose id is in the JSON array bound as `?1`.
+/// one of those files is on a source whose id is in the JSON array bound as `?1`.
 const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
-     max(f.present = 1 AND f.source_id IN (SELECT value FROM json_each(?1))) \
+     max(f.source_id IN (SELECT value FROM json_each(?1))) \
      FROM tree t JOIN files f ON f.item_id = t.id GROUP BY t.root_id)";
 
 /// Bound parameters of one statement; `bind` returns the `?N` placeholder for a value.
@@ -309,8 +309,7 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         .prepare_cached(
             "WITH RECURSIVE d(id) AS (SELECT ?2 UNION ALL \
                  SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
-             SELECT coalesce(max(f.present = 1 AND f.source_id IN \
-                 (SELECT value FROM json_each(?1))), 0) \
+             SELECT coalesce(max(f.source_id IN (SELECT value FROM json_each(?1))), 0) \
              FROM d JOIN files f ON f.item_id = d.id",
         )?
         .query_row(params![json_ids(online), id], |r| r.get(0))?;
@@ -451,7 +450,9 @@ pub fn library_counts(c: &Connection, v: &dyn Volumes) -> Result<LibraryCounts> 
     let of_kind = |kind: ItemKind| -> Result<u32> {
         Ok(c.query_row(
             &format!(
-                "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r                  JOIN tree t ON t.root_id = r.id                  JOIN files f ON f.item_id = t.id AND f.present = 1 WHERE r.kind = ?1"
+                "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r \
+                 JOIN tree t ON t.root_id = r.id \
+                 JOIN files f ON f.item_id = t.id WHERE r.kind = ?1"
             ),
             [enum_str(kind)],
             |r| r.get(0),
@@ -462,11 +463,9 @@ pub fn library_counts(c: &Connection, v: &dyn Volumes) -> Result<LibraryCounts> 
         shows: of_kind(ItemKind::Show)?,
         other: of_kind(ItemKind::Other)?,
         needs_review: needs_review(c, v)?.len() as u32,
-        unprobed: c.query_row(
-            "SELECT count(*) FROM files WHERE probed = 0 AND present = 1",
-            [],
-            |r| r.get(0),
-        )?,
+        unprobed: c.query_row("SELECT count(*) FROM files WHERE probed = 0", [], |r| {
+            r.get(0)
+        })?,
     })
 }
 

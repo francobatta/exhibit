@@ -3,11 +3,16 @@ CREATE TABLE settings (
     value TEXT
 );
 
+-- `path` is relative to the volume root (`''` for the root itself), so the same relative
+-- path can exist on two volumes; `last_path` is the last known absolute path, shown while
+-- the volume is offline.
 CREATE TABLE sources (
     id        INTEGER PRIMARY KEY,
-    path      TEXT NOT NULL UNIQUE,
+    path      TEXT NOT NULL,
     volume_id TEXT NOT NULL,
-    added_at  INTEGER NOT NULL DEFAULT 0
+    added_at  INTEGER NOT NULL DEFAULT 0,
+    last_path TEXT NOT NULL DEFAULT '',
+    UNIQUE (volume_id, path)
 );
 
 CREATE TABLE items (
@@ -45,7 +50,6 @@ CREATE TABLE files (
     item_id   INTEGER REFERENCES items(id) ON DELETE SET NULL,
     tech      TEXT,
     probed    INTEGER NOT NULL DEFAULT 0,
-    present   INTEGER NOT NULL DEFAULT 1,
     UNIQUE (source_id, rel_path)
 );
 CREATE INDEX files_item ON files(item_id);
@@ -84,7 +88,7 @@ CREATE TRIGGER items_fts_ad AFTER DELETE ON items BEGIN
     DELETE FROM items_fts WHERE rowid = old.id;
 END;
 
-CREATE TRIGGER items_fts_au AFTER UPDATE ON items BEGIN
+CREATE TRIGGER items_fts_au AFTER UPDATE OF title, people, genres, overview ON items BEGIN
     DELETE FROM items_fts WHERE rowid = old.id;
     INSERT INTO items_fts(rowid, title, people, genres, overview) VALUES (
         new.id,

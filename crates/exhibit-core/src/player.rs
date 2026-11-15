@@ -237,7 +237,6 @@ fn choose_file(c: &Connection, v: &dyn Volumes, id: Id) -> Result<PathBuf> {
     let source_of = |f: &MediaFile| sources.iter().find(|s| s.id == f.source_id);
     let best = files
         .iter()
-        .filter(|f| f.present)
         .filter_map(|f| Some((f, source_of(f).filter(|s| s.online)?)))
         .max_by_key(|(f, _)| {
             (

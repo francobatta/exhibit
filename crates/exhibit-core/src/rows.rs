@@ -42,8 +42,7 @@ pub(crate) fn item_from_row(r: &Row) -> rusqlite::Result<Item> {
     })
 }
 
-pub(crate) const FILE_COLUMNS: &str =
-    "id, source_id, rel_path, size, mtime, item_id, tech, present";
+pub(crate) const FILE_COLUMNS: &str = "id, source_id, rel_path, size, mtime, item_id, tech";
 
 pub(crate) fn media_file_from_row(r: &Row) -> rusqlite::Result<MediaFile> {
     Ok(MediaFile {
@@ -59,7 +58,6 @@ pub(crate) fn media_file_from_row(r: &Row) -> rusqlite::Result<MediaFile> {
             })?),
             None => None,
         },
-        present: r.get(7)?,
     })
 }
 

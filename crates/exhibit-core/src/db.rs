@@ -3,10 +3,7 @@ use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
 
 /// Migrations in order; `PRAGMA user_version` holds how many have been applied.
-const MIGRATIONS: &[&str] = &[
-    include_str!("migrations/001_init.sql"),
-    include_str!("migrations/002_source_volume_paths.sql"),
-];
+const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
 pub fn data_dir() -> PathBuf {
@@ -156,35 +153,27 @@ mod tests {
     }
 
     #[test]
-    fn source_paths_migration_keeps_files_and_cascade() {
+    fn sources_are_unique_per_volume_and_cascade_to_files() {
         let d = tempfile::tempdir().unwrap();
-        let c = Connection::open(d.path().join("exhibit.db")).unwrap();
-        c.pragma_update(None, "foreign_keys", "ON").unwrap();
-        c.execute_batch(MIGRATIONS[0]).unwrap();
-        c.pragma_update(None, "user_version", 1).unwrap();
+        let c = open(d.path()).unwrap();
         c.execute_batch(
-            "INSERT INTO sources(id, path, volume_id) VALUES (1, 'E:\\Movies', 'V1');
+            "INSERT INTO sources(id, path, volume_id) VALUES (1, 'Movies', 'V1');
+             INSERT INTO sources(id, path, volume_id) VALUES (2, 'Movies', 'V2');
              INSERT INTO files(source_id, rel_path) VALUES (1, 'a.mkv');",
         )
         .unwrap();
-        migrate(&c).unwrap();
-        let last: String = c
-            .query_row("SELECT last_path FROM sources WHERE id=1", [], |r| r.get(0))
-            .unwrap();
-        assert_eq!(last, "E:\\Movies");
-        let n = |c: &Connection| -> i64 {
-            c.query_row("SELECT count(*) FROM files", [], |r| r.get(0))
-                .unwrap()
-        };
-        assert_eq!(n(&c), 1);
-        // Same relative path on another volume is allowed now.
-        c.execute(
-            "INSERT INTO sources(path, volume_id) VALUES ('E:\\Movies', 'V2')",
-            [],
-        )
-        .unwrap();
+        assert!(
+            c.execute(
+                "INSERT INTO sources(path, volume_id) VALUES ('Movies', 'V1')",
+                []
+            )
+            .is_err()
+        );
         c.execute("DELETE FROM sources WHERE id=1", []).unwrap();
-        assert_eq!(n(&c), 0);
+        let n: i64 = c
+            .query_row("SELECT count(*) FROM files", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(n, 0);
     }
 
     fn fts_ids(c: &rusqlite::Connection, q: &str) -> Vec<i64> {

@@ -181,7 +181,7 @@ pub fn probe_pending(
         };
         let files: Vec<(Id, String)> = c
             .prepare_cached(
-                "SELECT id, rel_path FROM files WHERE source_id = ?1 AND probed = 0 AND present = 1 ORDER BY id",
+                "SELECT id, rel_path FROM files WHERE source_id = ?1 AND probed = 0 ORDER BY id",
             )?
             .query_map([source.id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;

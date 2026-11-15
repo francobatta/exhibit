@@ -76,7 +76,6 @@ pub struct MediaFile {
     pub mtime: i64,
     pub item_id: Option<Id>,
     pub tech: Option<TechInfo>,
-    pub present: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
