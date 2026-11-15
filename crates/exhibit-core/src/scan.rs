@@ -1,6 +1,7 @@
 //! Sources and the scanner: walks a source folder, records video files and creates one
 //! provisional library item per new file. Only reads inside media folders.
 
+use crate::db;
 use crate::error::{Error, Result};
 use crate::model::{Id, Source};
 use crate::parse::parse_path;
@@ -223,7 +224,7 @@ pub fn scan_source(
 
     let scanned_at = now();
     let mut added = Vec::new();
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     for (file_id, size, mtime) in &changed {
         tx.prepare_cached("UPDATE files SET size=?2, mtime=?3, probed=0 WHERE id=?1")?
             .execute(params![file_id, size, mtime])?;

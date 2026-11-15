@@ -141,7 +141,7 @@ pub fn record(
     }
     let finished = duration_s > 0.0 && position_s / duration_s >= WATCHED_FRACTION;
     let now = scan::now();
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     let (stored, watched) = tx
         .prepare_cached(
             "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \

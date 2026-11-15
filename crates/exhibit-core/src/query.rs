@@ -517,7 +517,7 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     } else {
         vec![id]
     };
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     for t in targets {
         if watched {
             tx.prepare_cached(

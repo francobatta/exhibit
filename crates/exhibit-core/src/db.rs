@@ -1,5 +1,5 @@
 use crate::error::Result;
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 
 /// Migrations in order; `PRAGMA user_version` holds how many have been applied.
@@ -43,23 +43,22 @@ fn migrate(c: &Connection) -> Result<()> {
         return Ok(());
     }
     // Take the write lock first so concurrent processes migrate one at a time.
-    c.execute_batch("BEGIN IMMEDIATE")?;
-    let result = (|| -> Result<()> {
-        let current = version(c)?;
-        for (i, sql) in MIGRATIONS.iter().enumerate().skip(current) {
-            c.execute_batch(sql)?;
-            c.pragma_update(None, "user_version", (i + 1) as i64)?;
-        }
-        Ok(())
-    })();
-    match result {
-        Ok(()) => c.execute_batch("COMMIT")?,
-        Err(e) => {
-            let _ = c.execute_batch("ROLLBACK");
-            return Err(e);
-        }
+    let tx = write_tx(c)?;
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version(&tx)?) {
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", (i + 1) as i64)?;
     }
+    tx.commit()?;
     Ok(())
+}
+
+/// A write transaction that takes the write lock up front (`BEGIN IMMEDIATE`), so it waits
+/// out another process's write under the busy timeout instead of failing part-way through.
+pub(crate) fn write_tx(c: &Connection) -> Result<Transaction<'_>> {
+    Ok(Transaction::new_unchecked(
+        c,
+        TransactionBehavior::Immediate,
+    )?)
 }
 
 pub fn get_setting(c: &Connection, key: &str) -> Result<Option<String>> {
@@ -174,6 +173,28 @@ mod tests {
             .query_row("SELECT count(*) FROM files", [], |r| r.get(0))
             .unwrap();
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn write_tx_waits_for_another_writer() {
+        let d = tempfile::tempdir().unwrap();
+        let a = open(d.path()).unwrap();
+        let tx = write_tx(&a).unwrap();
+        tx.execute("INSERT INTO settings(key, value) VALUES ('a', '1')", [])
+            .unwrap();
+        let path = d.path().to_path_buf();
+        let other = std::thread::spawn(move || -> Result<i64> {
+            let b = open(&path)?;
+            let tx = write_tx(&b)?;
+            // Read, then write: a deferred transaction fails here once A commits.
+            let n: i64 = tx.query_row("SELECT count(*) FROM settings", [], |r| r.get(0))?;
+            tx.execute("INSERT INTO settings(key, value) VALUES ('b', '2')", [])?;
+            tx.commit()?;
+            Ok(n)
+        });
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        tx.commit().unwrap();
+        assert_eq!(other.join().unwrap().unwrap(), 1);
     }
 
     fn fts_ids(c: &rusqlite::Connection, q: &str) -> Vec<i64> {

@@ -4,6 +4,7 @@
 //! `Episode` items for episodes with local files. Files are relinked to their episode and the
 //! provisional items deleted.
 
+use crate::db;
 use crate::error::{Error, Result};
 use crate::identify::{
     Counts, Fill, How, MAX_HITS, Pending, absorb, artwork, candidate, confirm, find_item,
@@ -128,7 +129,7 @@ pub(crate) fn identify_group(
             match matcher::decide(&scored) {
                 Some(best) => (best.tmdb_id, How::lookup(best.score)),
                 None => {
-                    let tx = c.unchecked_transaction()?;
+                    let tx = db::write_tx(c)?;
                     for m in &g.members {
                         set_review(&tx, m.pending.item_id, &scored)?;
                     }
@@ -142,7 +143,7 @@ pub(crate) fn identify_group(
     let art = show_artwork(c, p, cache_dir, &show)?;
     let added_at = g.members.iter().map(|m| m.pending.added_at).min();
 
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     let show_item = ensure_show(&tx, &show, art, how, added_at.unwrap_or(0))?;
     let (mut matched, mut review) = (0, 0);
     for m in &g.members {
@@ -220,7 +221,7 @@ pub(crate) fn apply(
         )));
     };
     let art = show_artwork(c, p, cache_dir, &show)?;
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     let show_item = ensure_show(&tx, &show, art, how, added_at)?;
     place(&tx, show_item, season, ep, how, added_at, item_id)?;
     tx.commit()?;

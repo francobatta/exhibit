@@ -6,6 +6,7 @@
 //! changes is written in a single transaction, so a provider error or a crash leaves that
 //! item exactly as it was. The show path lives in `identify_show`.
 
+use crate::db;
 use crate::error::{Error, Result};
 use crate::identify_show::{self, Member};
 use crate::matcher::{self, Evidence};
@@ -460,7 +461,7 @@ fn save_movie(
             m.backdrop.as_deref(),
         ),
     };
-    let tx = c.unchecked_transaction()?;
+    let tx = db::write_tx(c)?;
     let target = match existing {
         Some(id) => {
             confirm(&tx, id, how)?;
