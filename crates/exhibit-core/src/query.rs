@@ -31,6 +31,7 @@ pub struct ItemSummary {
     pub poster: Option<String>,
     pub backdrop: Option<String>,
     pub runtime_min: Option<i32>,
+    pub width: Option<u32>,
     pub height: Option<u32>,
     pub hdr: Option<String>,
     pub watched: bool,
@@ -47,9 +48,12 @@ pub struct ItemDetail {
     pub play: Option<PlayState>,
     pub children: Vec<ItemSummary>,
     pub available: bool,
+    /// For a show, the episode to play next; `None` for other kinds or when all are watched.
+    pub next_episode: Option<ItemSummary>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Sort {
     Title,
     Added,
@@ -57,7 +61,8 @@ pub enum Sort {
     Runtime,
 }
 
-#[derive(Default)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct SearchQuery {
     pub text: Option<String>,
     pub kind: Option<ItemKind>,
@@ -67,6 +72,7 @@ pub struct SearchQuery {
     pub runtime_max_min: Option<i32>,
     pub watched: Option<bool>,
     pub loved: Option<bool>,
+    pub min_width: Option<u32>,
     pub min_height: Option<u32>,
     pub available: Option<bool>,
     pub sort: Option<Sort>,
@@ -74,7 +80,8 @@ pub struct SearchQuery {
     pub offset: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Shelf {
     ContinueWatching,
     RecentlyAdded,
@@ -169,7 +176,7 @@ fn list(
            SELECT i.id, i.kind, i.parent_id, i.title, i.year, i.season, i.episode, \
              (SELECT s.title FROM tree t JOIN items s ON s.id = t.root_id \
                 WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = 'show') AS show_title, \
-             i.poster, i.backdrop, i.runtime_min, {height} AS height, {hdr} AS hdr, \
+             i.poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
              CASE WHEN {container} THEN {total} > 0 AND {seen} = {total} \
                   ELSE coalesce(p.watched, 0) END AS watched, \
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
@@ -179,6 +186,7 @@ fn list(
            FROM items i JOIN lib ON lib.item_id = i.id \
            LEFT JOIN play_state p ON p.item_id = i.id) b \
          WHERE {where_sql} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
+        width = tech("width"),
         height = tech("height"),
         hdr = tech("hdr"),
     );
@@ -256,6 +264,9 @@ pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<It
     if let Some(x) = q.loved {
         w.push(format!("b.loved = {}", p.bind(x)));
     }
+    if let Some(width) = q.min_width {
+        w.push(format!("b.width >= {}", p.bind(width)));
+    }
     if let Some(h) = q.min_height {
         w.push(format!("b.height >= {}", p.bind(h)));
     }
@@ -320,12 +331,20 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
     } else {
         Vec::new()
     };
+    let next_episode = match item.kind {
+        ItemKind::Show => match next_episode(c, id)? {
+            Some(next) => summaries_by_ids(c, online, &[next])?.pop(),
+            None => None,
+        },
+        _ => None,
+    };
     Ok(ItemDetail {
         item,
         files,
         play,
         children,
         available,
+        next_episode,
     })
 }
 
@@ -937,6 +956,91 @@ mod tests {
             set_watched(&e.c, 9999, true),
             Err(Error::NotFound(_))
         ));
+    }
+
+    #[test]
+    fn set_watched_on_season_marks_its_episodes_only() {
+        let e = env();
+        let (show, season, eps) = e.show("S", 2);
+        let s2 = e.add(ItemKind::Season, "Season 2", Some(show));
+        let other = e.episode(s2, 2, 1, "S ep 2x1");
+        set_watched(&e.c, season, true).unwrap();
+        for &id in &eps {
+            assert!(item(&e.c, &e.v, id).unwrap().play.unwrap().watched);
+        }
+        assert!(item(&e.c, &e.v, other).unwrap().play.is_none());
+    }
+
+    #[test]
+    fn item_detail_carries_next_episode_for_shows() {
+        let e = env();
+        let (show, season, eps) = e.show("S", 2);
+        let next = |id| item(&e.c, &e.v, id).unwrap().next_episode.map(|s| s.id);
+        assert_eq!(next(show), Some(eps[0]));
+        e.play(eps[0], 0.0, 0.0, true, 1);
+        assert_eq!(next(show), Some(eps[1]));
+        let d = item(&e.c, &e.v, show).unwrap();
+        assert_eq!(d.next_episode.unwrap().title, "S ep 2");
+        // Only shows carry one.
+        assert_eq!(next(season), None);
+        assert_eq!(next(eps[1]), None);
+        e.play(eps[1], 0.0, 0.0, true, 1);
+        assert_eq!(next(show), None);
+    }
+
+    #[test]
+    fn cropped_widescreen_found_by_width() {
+        let e = env();
+        let m = e.with_file(ItemKind::Movie, "Wide", None);
+        let tech = serde_json::to_string(&TechInfo {
+            duration_s: 100.0,
+            width: 3840,
+            height: 1604,
+            video_codec: "hevc".into(),
+            hdr: None,
+            audio: vec![],
+            subtitles: vec![],
+        })
+        .unwrap();
+        e.c.execute(
+            "UPDATE files SET tech = ?1 WHERE item_id = ?2",
+            params![tech, m],
+        )
+        .unwrap();
+        assert_eq!(
+            (e.summary(m).width, e.summary(m).height),
+            (Some(3840), Some(1604))
+        );
+        let q = |min_width, min_height| {
+            e.search(&SearchQuery {
+                min_width,
+                min_height,
+                ..Default::default()
+            })
+        };
+        assert_eq!(q(Some(3800), None), ["Wide"]);
+        assert!(q(None, Some(2160)).is_empty());
+        assert!(q(Some(3841), None).is_empty());
+    }
+
+    #[test]
+    fn search_query_deserialises_from_partial_json() {
+        let q: SearchQuery = serde_json::from_str(r#"{"kind":"movie","sort":"year"}"#).unwrap();
+        assert_eq!(q.kind, Some(ItemKind::Movie));
+        assert_eq!(q.sort, Some(Sort::Year));
+        assert_eq!((q.text, q.limit, q.min_width), (None, None, None));
+        let q: SearchQuery = serde_json::from_str("{}").unwrap();
+        assert_eq!(q.sort, None);
+        let shelf: Shelf = serde_json::from_str(r#""continue_watching""#).unwrap();
+        assert_eq!(shelf, Shelf::ContinueWatching);
+        assert_eq!(
+            serde_json::to_string(&Shelf::RecentlyAdded).unwrap(),
+            r#""recently_added""#
+        );
+        assert_eq!(
+            serde_json::to_string(&Sort::Runtime).unwrap(),
+            r#""runtime""#
+        );
     }
 
     #[test]

@@ -80,6 +80,12 @@ pub trait Http {
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)>;
 }
 
+impl<H: Http + ?Sized> Http for &H {
+    fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
+        (**self).get(url, bearer)
+    }
+}
+
 /// The error for HTTP 401 or 403: retrying with the same key cannot succeed.
 pub const KEY_REJECTED: &str = "TMDB rejected the key; set a valid one with `exhibit key set tmdb`";
 

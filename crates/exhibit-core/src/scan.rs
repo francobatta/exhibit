@@ -18,7 +18,7 @@ pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mkv", "mp4", "m4v", "avi", "mov", "wmv", "ts", "m2ts", "webm", "mpg", "mpeg", "flv",
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ScanReport {
     pub source_id: Id,
     pub online: bool,
@@ -29,7 +29,8 @@ pub struct ScanReport {
     pub unchanged: u32,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ScanEvent {
     Started { source_id: Id },
     FileAdded { file_id: Id, rel_path: String },
@@ -46,6 +47,29 @@ fn is_sample(rel: &str, size: u64) -> bool {
     let name = parts.next().unwrap_or(rel);
     size < SAMPLE_MAX_BYTES
         && (SAMPLE.is_match(name) || parts.any(|dir| dir.eq_ignore_ascii_case("sample")))
+}
+
+/// Folders of bonus material (making-ofs, interviews, trailers): never library items.
+const EXTRAS_FOLDERS: &[&str] = &[
+    "featurettes",
+    "extras",
+    "bonus",
+    "bonus features",
+    "special features",
+    "behind the scenes",
+    "deleted scenes",
+    "interviews",
+    "trailers",
+];
+
+/// A file below a folder (inside the source) named, in any case, as in `EXTRAS_FOLDERS`.
+fn is_extra(rel: &str) -> bool {
+    let mut dirs = rel.split('/').rev().skip(1);
+    dirs.any(|dir| {
+        EXTRAS_FOLDERS
+            .iter()
+            .any(|name| dir.eq_ignore_ascii_case(name))
+    })
 }
 
 /// A `sources` row: `path` is relative to the volume root (forward slashes, no leading
@@ -338,7 +362,7 @@ fn walk(root: &Path) -> Walked {
             unreadable.push(rel);
             continue;
         };
-        if is_sample(&rel, md.len()) {
+        if is_sample(&rel, md.len()) || is_extra(&rel) {
             continue;
         }
         let mtime = match md.modified().map(|t| t.duration_since(UNIX_EPOCH)) {
@@ -851,6 +875,48 @@ mod tests {
         assert_eq!(
             scan(&e.c, &v, src.id),
             report(src.id, true, [0, 0, 0, 0, 4])
+        );
+    }
+
+    #[test]
+    fn extras_folders_skipped_and_their_rows_removed() {
+        let e = env();
+        let kept = [
+            "media/Movie (2001)/Movie.mkv",
+            "media/The Extras (2005)/The.Extras.S01E01.mkv",
+            "media/Trailers of the Lost Ark.mkv",
+        ];
+        for f in kept {
+            write(e.drive.path(), f, 1000);
+        }
+        let v = vols(e.drive.path());
+        let src = add_source(&e.c, &v, &e.drive.path().join("media")).unwrap();
+        // A row stored before extras were skipped goes as an ordinary removed file.
+        e.c.execute(
+            "INSERT INTO files(source_id, rel_path, size, mtime) VALUES (?1, ?2, 1000, 0)",
+            params![src.id, "Movie (2001)/Featurettes/Making of.mkv"],
+        )
+        .unwrap();
+        for f in [
+            "media/Movie (2001)/Featurettes/Making of.mkv",
+            "media/Movie/Extras/Interviews/A.mkv",
+            "media/Movie/BONUS FEATURES/b.mkv",
+            "media/Movie/behind the scenes/c.mkv",
+        ] {
+            write(e.drive.path(), f, 1000);
+        }
+        assert_eq!(
+            scan(&e.c, &v, src.id),
+            report(src.id, true, [3, 0, 0, 1, 0])
+        );
+        let stored: Vec<String> = file_rows(&e.c).into_iter().map(|r| r.0).collect();
+        assert_eq!(
+            stored,
+            vec![
+                "Movie (2001)/Movie.mkv",
+                "The Extras (2005)/The.Extras.S01E01.mkv",
+                "Trailers of the Lost Ark.mkv"
+            ]
         );
     }
 

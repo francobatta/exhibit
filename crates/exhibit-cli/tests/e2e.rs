@@ -124,5 +124,57 @@ fn scan_without_key_or_tools_skips_identification_quietly() {
     // Tools may exist on the dev machine (extra search dirs), so only identification is certain.
     assert!(scan["identified"].is_null(), "{scan}");
     assert!(scan["rescored"].is_null(), "{scan}");
-    assert!(scan.as_object().unwrap().contains_key("rescored"), "{scan}");
+    for key in ["rescored", "thumbnails", "identify_error"] {
+        assert!(scan.as_object().unwrap().contains_key(key), "{key}: {scan}");
+    }
+    assert!(scan["identify_error"].is_null(), "{scan}");
+}
+
+#[test]
+fn review_search_without_key_names_the_key() {
+    let data = tempfile::tempdir().unwrap();
+    let cli = Cli { data: data.path() };
+    let (code, err) = cli.run(&[
+        "review", "search", "Heat", "--kind", "movie", "--year", "1995",
+    ]);
+    assert_eq!(code, 1, "{err}");
+    let message = err["error"]["message"].as_str().unwrap();
+    assert!(message.contains("TMDB key"), "{message}");
+}
+
+/// The player writes to its stdout and stderr; `exhibit play` still prints one JSON document.
+#[cfg(windows)]
+#[test]
+fn play_prints_only_its_own_json() {
+    let data = tempfile::tempdir().unwrap();
+    let media = tempfile::tempdir().unwrap();
+    std::fs::write(media.path().join("Heat.1995.mkv"), b"").unwrap();
+    let cli = Cli { data: data.path() };
+    cli.ok(&["source", "add", media.path().to_str().unwrap()]);
+    cli.ok(&["scan", "--no-probe", "--no-identify"]);
+    let id = cli.ok(&["search"])[0]["id"].as_i64().unwrap().to_string();
+    let tools = tempfile::tempdir().unwrap();
+    // Tracked (named mpv) and untracked players alike.
+    for name in ["mpv.bat", "vlc.bat"] {
+        let player = tools.path().join(name);
+        std::fs::write(
+            &player,
+            "@echo player noise on stdout\r\n@echo player noise on stderr 1>&2\r\n",
+        )
+        .unwrap();
+        cli.ok(&["tools", "set", "mpv", player.to_str().unwrap()]);
+        let out = Command::new(env!("CARGO_BIN_EXE_exhibit"))
+            .args(["play", &id])
+            .env("EXHIBIT_DATA_DIR", data.path())
+            .env("EXHIBIT_KEYRING_SERVICE", "exhibit-test-never-written")
+            .output()
+            .expect("run exhibit");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out.status.code(), Some(0), "{name}: {stdout}");
+        assert_eq!(stdout.lines().count(), 1, "{name}: {stdout}");
+        let json: Value = serde_json::from_str(&stdout).unwrap();
+        assert_eq!(json["item_id"].to_string(), id, "{name}: {json}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(!stderr.contains("player noise"), "{name}: {stderr}");
+    }
 }

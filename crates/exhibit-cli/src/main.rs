@@ -29,7 +29,8 @@ enum Command {
     Status,
     #[command(subcommand)]
     Source(SourceCmd),
-    /// Scan sources, identify (when a TMDB key is set), probe, then retry items in review
+    /// Scan sources, identify (when a TMDB key is set), probe, retry items in review, then
+    /// make thumbnails for other items
     Scan {
         #[arg(long)]
         source: Option<Id>,
@@ -106,6 +107,14 @@ enum ReviewCmd {
     Other {
         item_id: Id,
     },
+    /// Search TMDB by hand for a match; candidates are scored, best first
+    Search {
+        text: String,
+        #[arg(long)]
+        kind: MatchKind,
+        #[arg(long)]
+        year: Option<i32>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -152,6 +161,8 @@ struct SearchArgs {
     unwatched: bool,
     #[arg(long)]
     loved: bool,
+    #[arg(long)]
+    min_width: Option<u32>,
     #[arg(long)]
     min_height: Option<u32>,
     #[arg(long)]

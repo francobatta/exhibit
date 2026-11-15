@@ -5,7 +5,7 @@
 use std::cmp::Reverse;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -70,9 +70,10 @@ pub fn track<S: Read + Write>(mut stream: S) -> (f64, f64) {
 }
 
 /// mpv with the owner's own configuration (never `--no-config`), full screen, its control
-/// channel on `pipe`, starting at `start_s` when that is past five seconds.
+/// channel on `pipe`, starting at `start_s` when that is past five seconds. Its standard
+/// streams are null, so it never writes into our output.
 pub fn build_command(mpv: &Path, file: &Path, start_s: Option<f64>, pipe: &str) -> Command {
-    let mut cmd = Command::new(mpv);
+    let mut cmd = silent(mpv);
     cmd.arg("--fs").arg(format!("--input-ipc-server={pipe}"));
     if let Some(s) = start_s.filter(|s| *s > RESUME_MIN_S) {
         cmd.arg(format!("--start={s}"));
@@ -103,10 +104,7 @@ pub fn play(
         .file_name()
         .is_some_and(|n| n.to_string_lossy().to_lowercase().starts_with("mpv"));
     if !is_mpv {
-        Command::new(player)
-            .arg(&file)
-            .status()
-            .map_err(cannot_start)?;
+        silent(player).arg(&file).status().map_err(cannot_start)?;
         return Ok(previous);
     }
     let pipe = pipe_name();
@@ -172,6 +170,16 @@ pub fn record(
         duration_s,
         watched,
     })
+}
+
+/// A player process with null standard streams. It keeps its window: playback is the one
+/// tool process that is not started quiet.
+fn silent(player: &Path) -> Command {
+    let mut cmd = Command::new(player);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    cmd
 }
 
 /// Unique per launch, so two players never share a control channel.

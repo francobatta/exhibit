@@ -1,6 +1,7 @@
 //! Technical details of a video file (size, codec, HDR, tracks) read with ffprobe when it
 //! is installed, otherwise with mpv. Every external process gets a 30 second timeout.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -205,6 +206,74 @@ pub fn probe_pending(
     Ok((ok, failed))
 }
 
+/// Share of the duration at which an item's thumbnail frame is taken.
+const THUMBNAIL_AT: f64 = 0.10;
+
+/// A thumbnail for every `other` item that has no backdrop, taken from its first file that
+/// is on an online source and has a probed duration: one frame at 10% of the duration,
+/// saved in `cache_dir` as `thumb-<item id>.jpg` and stored as the item's backdrop. `on`
+/// gets each item tried. A failure leaves the backdrop empty, so a later call tries again.
+/// Returns (made, failed); `Error::Tool` with neither ffmpeg nor mpv.
+pub fn thumbnails_pending(
+    c: &Connection,
+    v: &dyn Volumes,
+    tools: &Tools,
+    cache_dir: &Path,
+    on: &mut dyn FnMut(Id),
+) -> Result<(u32, u32)> {
+    if tools.ffmpeg.is_none() && tools.mpv.is_none() {
+        return Err(Error::Tool("neither ffmpeg nor mpv is installed".into()));
+    }
+    let roots: HashMap<Id, PathBuf> = source_rows(c)?
+        .iter()
+        .filter_map(|s| Some((s.id, resolve(v, s).filter(|p| p.is_dir())?)))
+        .collect();
+    let files: Vec<(Id, Id, String, String)> = c
+        .prepare_cached(
+            "SELECT i.id, f.source_id, f.rel_path, f.tech FROM items i \
+             JOIN files f ON f.item_id = i.id \
+             WHERE i.kind = 'other' AND i.backdrop IS NULL AND f.tech IS NOT NULL \
+             ORDER BY i.id, f.id",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    let (mut made, mut failed) = (0, 0);
+    let mut last = None;
+    for (item, source, rel, tech) in files {
+        if last == Some(item) {
+            continue;
+        }
+        let Some(root) = roots.get(&source) else {
+            continue;
+        };
+        let Some(duration) = serde_json::from_str::<TechInfo>(&tech)
+            .ok()
+            .map(|t| t.duration_s)
+            .filter(|d| *d > 0.0)
+        else {
+            continue;
+        };
+        last = Some(item);
+        let name = format!("thumb-{item}.jpg");
+        let file = join_rel(root, &rel);
+        match thumbnail(
+            tools,
+            &file,
+            duration * THUMBNAIL_AT,
+            &cache_dir.join(&name),
+        ) {
+            Ok(()) => {
+                c.prepare_cached("UPDATE items SET backdrop = ?2 WHERE id = ?1")?
+                    .execute(rusqlite::params![item, name])?;
+                made += 1;
+            }
+            Err(_) => failed += 1,
+        }
+        on(item);
+    }
+    Ok((made, failed))
+}
+
 /// One frame at `at_s` seconds, scaled to 640 pixels wide, written to `dest` (jpg or png).
 /// ffmpeg if installed, else mpv.
 pub fn thumbnail(tools: &Tools, file: &Path, at_s: f64, dest: &Path) -> Result<()> {
@@ -308,7 +377,7 @@ mod mpv_probe {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000);
+        crate::tools::quiet(&mut cmd);
         let mut child = cmd.spawn()?;
         let (tx, rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -618,6 +687,141 @@ mod tests {
             let why = why.as_deref().unwrap_or_default();
             assert!(why.contains("ffprobe failed"), "{why}");
         }
+    }
+
+    /// Gives `file` (by name) an `other` item, and a probed duration when `duration` is set.
+    fn other_item(c: &Connection, file: &str, duration: Option<f64>) -> Id {
+        c.execute(
+            "INSERT INTO items(kind, title, match_state, added_at) VALUES ('other', ?1, 'unmatched', 0)",
+            [file],
+        )
+        .unwrap();
+        let id = c.last_insert_rowid();
+        let tech = duration.map(|d| {
+            serde_json::to_string(&TechInfo {
+                duration_s: d,
+                width: 1920,
+                height: 1080,
+                video_codec: "h264".into(),
+                hdr: None,
+                audio: vec![],
+                subtitles: vec![],
+            })
+            .unwrap()
+        });
+        c.execute(
+            "UPDATE files SET item_id = ?1, tech = ?2, probed = 1 WHERE rel_path = ?3",
+            rusqlite::params![id, tech, file],
+        )
+        .unwrap();
+        id
+    }
+
+    fn backdrop(c: &Connection, id: Id) -> Option<String> {
+        c.query_row("SELECT backdrop FROM items WHERE id = ?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn thumbnails_fill_backdrop_for_other_items() {
+        let l = lib();
+        let media = l.drive.path().join("media");
+        std::fs::write(media.join("bad.mkv"), b"x").unwrap();
+        let src: Id =
+            l.c.query_row("SELECT id FROM sources", [], |r| r.get(0))
+                .unwrap();
+        l.c.execute(
+            "INSERT INTO files (source_id, rel_path) VALUES (?1, 'bad.mkv')",
+            [src],
+        )
+        .unwrap();
+        let a = other_item(&l.c, "a.mkv", Some(1000.0));
+        let bad = other_item(&l.c, "bad.mkv", Some(50.0));
+        // A movie, and an item that already has a backdrop, are left alone.
+        let b = other_item(&l.c, "b.mkv", Some(10.0));
+        l.c.execute("UPDATE items SET kind = 'movie' WHERE id = ?1", [b])
+            .unwrap();
+        // A fake ffmpeg: fails on bad.mkv, otherwise writes its last argument and logs the
+        // seek position.
+        let bat = l.drive.path().join("ffmpeg.bat");
+        let log = l.drive.path().join("seeks.txt");
+        std::fs::write(
+            &bat,
+            format!(
+                "@echo off\r\n\
+                 for %%a in (%*) do if /i \"%%~nxa\"==\"bad.mkv\" exit /b 1\r\n\
+                 >> \"{}\" echo %5\r\n\
+                 for %%a in (%*) do set \"last=%%~a\"\r\n\
+                 echo jpg> \"%last%\"\r\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        let tools = Tools {
+            ffmpeg: Some(bat),
+            ..Tools::default()
+        };
+        let cache = l.drive.path().join("cache");
+        let mut seen = Vec::new();
+        let r = thumbnails_pending(&l.c, &l.v, &tools, &cache, &mut |id| seen.push(id)).unwrap();
+        assert_eq!(r, (1, 1));
+        let name = format!("thumb-{a}.jpg");
+        assert_eq!(backdrop(&l.c, a), Some(name.clone()));
+        assert!(cache.join(&name).is_file());
+        assert_eq!(backdrop(&l.c, bad), None);
+        assert_eq!(backdrop(&l.c, b), None);
+        assert_eq!(seen, vec![a, bad]);
+        // One frame at 10% of the duration.
+        assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "100");
+        // Done items are not redone; the failure is tried again on the next call.
+        let r = thumbnails_pending(&l.c, &l.v, &tools, &cache, &mut |_| {}).unwrap();
+        assert_eq!(r, (0, 1));
+    }
+
+    #[test]
+    fn thumbnails_skip_offline_and_unprobed() {
+        let l = lib();
+        let unprobed = other_item(&l.c, "a.mkv", None);
+        let zero = other_item(&l.c, "b.mkv", Some(0.0));
+        let tools = Tools {
+            ffmpeg: Some(l.drive.path().join("never-run.exe")),
+            ..Tools::default()
+        };
+        let cache = l.drive.path().join("cache");
+        let none = &mut |_| panic!("nothing is attempted");
+        assert_eq!(
+            thumbnails_pending(&l.c, &l.v, &tools, &cache, none).unwrap(),
+            (0, 0)
+        );
+        // Probed, but its drive is gone.
+        let offline = FakeVolumes(vec![]);
+        let tech = serde_json::to_string(&TechInfo {
+            duration_s: 60.0,
+            width: 1,
+            height: 1,
+            video_codec: String::new(),
+            hdr: None,
+            audio: vec![],
+            subtitles: vec![],
+        })
+        .unwrap();
+        l.c.execute("UPDATE files SET tech = ?1", [tech]).unwrap();
+        assert_eq!(
+            thumbnails_pending(&l.c, &offline, &tools, &cache, none).unwrap(),
+            (0, 0)
+        );
+        assert_eq!(
+            (backdrop(&l.c, unprobed), backdrop(&l.c, zero)),
+            (None, None)
+        );
+        // No tool at all is an error.
+        assert!(matches!(
+            thumbnails_pending(&l.c, &l.v, &Tools::default(), &cache, &mut |_| {}),
+            Err(Error::Tool(_))
+        ));
     }
 
     #[test]

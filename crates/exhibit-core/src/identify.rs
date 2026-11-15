@@ -27,8 +27,12 @@ pub(crate) const MAX_HITS: usize = 5;
 /// Of those, how many get a `movie()` call for their runtime.
 const RUNTIME_LOOKUPS: usize = 3;
 const POSTER_SIZE: &str = "w780";
+/// The small poster, for walls of many works; stored beside the large one with `-s`.
+const POSTER_SMALL_SIZE: &str = "w342";
 const BACKDROP_SIZE: &str = "original";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum IdentifyScope {
     Unmatched,
     /// Only items waiting for review, for example once probing has given them a duration.
@@ -135,6 +139,7 @@ pub fn identify(
     on: &mut dyn FnMut(Id),
 ) -> Result<IdentifyReport> {
     let mut report = IdentifyReport::default();
+    small_posters(c, p, cache_dir, &mut report)?;
     let mut episodes: Vec<Member> = Vec::new();
     for item in pending(c, v, &scope)? {
         let outcome = match route(p, &item) {
@@ -647,8 +652,9 @@ fn json<T: Serialize + ?Sized>(v: &T) -> String {
 }
 
 /// Downloads poster and backdrop into `cache_dir` as `<kind>-<id>-poster.jpg` and
-/// `<kind>-<id>-backdrop.jpg` and returns the file names. A file already cached is reused;
-/// a failed download gives `None` and never fails the match.
+/// `<kind>-<id>-backdrop.jpg` and returns the file names; the poster is also saved small,
+/// as `<kind>-<id>-poster-s.jpg`. A file already cached is reused; a failed download gives
+/// `None` and never fails the match.
 pub(crate) fn artwork(
     p: &dyn MetadataProvider,
     cache_dir: &Path,
@@ -658,21 +664,123 @@ pub(crate) fn artwork(
     backdrop: Option<&str>,
 ) -> (Option<String>, Option<String>) {
     let get = |path: Option<&str>, size: &str, name: String| -> Option<String> {
-        let dest = cache_dir.join(&name);
-        if !dest.is_file() {
-            let bytes = p.image(path?, size).ok()?;
-            std::fs::create_dir_all(cache_dir).ok()?;
-            // Written aside and renamed, so a cut-off download is never taken as cached.
-            let part = cache_dir.join(format!("{name}.part"));
-            std::fs::write(&part, bytes).ok()?;
-            std::fs::rename(&part, &dest).ok()?;
-        }
+        download(p, cache_dir, path?, size, &name).ok()?;
         Some(name)
     };
+    let large = get(poster, POSTER_SIZE, format!("{kind}-{id}-poster.jpg"));
+    if let Some(name) = &large {
+        get(poster, POSTER_SMALL_SIZE, small_poster(name));
+    }
     (
-        get(poster, POSTER_SIZE, format!("{kind}-{id}-poster.jpg")),
+        large,
         get(backdrop, BACKDROP_SIZE, format!("{kind}-{id}-backdrop.jpg")),
     )
+}
+
+/// The small poster's file name for a large poster's: `-s` before the extension.
+fn small_poster(large: &str) -> String {
+    match large.rsplit_once('.') {
+        Some((stem, ext)) => format!("{stem}-s.{ext}"),
+        None => format!("{large}-s"),
+    }
+}
+
+/// Saves TMDB image `path` at `size` as `cache_dir/name`, unless that file exists.
+fn download(
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    path: &str,
+    size: &str,
+    name: &str,
+) -> Result<()> {
+    let dest = cache_dir.join(name);
+    if !dest.is_file() {
+        let bytes = p.image(path, size)?;
+        std::fs::create_dir_all(cache_dir)?;
+        // Written aside and renamed, so a cut-off download is never taken as cached.
+        let part = cache_dir.join(format!("{name}.part"));
+        std::fs::write(&part, bytes)?;
+        std::fs::rename(&part, &dest)?;
+    }
+    Ok(())
+}
+
+/// Downloads the small poster of every movie and show that has a large one but no small
+/// file yet (items identified before small posters existed). A failure is added to the
+/// report's errors and the run goes on; a rejected key ends it.
+fn small_posters(
+    c: &Connection,
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    report: &mut IdentifyReport,
+) -> Result<()> {
+    let missing: Vec<_> = c
+        .prepare_cached(
+            "SELECT kind, tmdb_id, poster FROM items \
+             WHERE kind IN ('movie', 'show') AND tmdb_id IS NOT NULL AND poster IS NOT NULL \
+             ORDER BY id",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<rusqlite::Result<Vec<(String, i64, String)>>>()?
+        .into_iter()
+        .filter(|(_, _, poster)| !cache_dir.join(small_poster(poster)).is_file())
+        .collect();
+    for (kind, tmdb_id, poster) in missing {
+        let path = if kind == "movie" {
+            p.movie(tmdb_id).map(|m| m.poster)
+        } else {
+            p.show(tmdb_id).map(|s| s.poster)
+        };
+        let saved = path.and_then(|path| match path {
+            Some(path) => download(
+                p,
+                cache_dir,
+                &path,
+                POSTER_SMALL_SIZE,
+                &small_poster(&poster),
+            ),
+            None => Ok(()),
+        });
+        match saved {
+            Ok(()) => {}
+            Err(e @ Error::Invalid(_)) => return Err(e),
+            Err(e) => report
+                .errors
+                .push(format!("small poster for {poster}: {e}")),
+        }
+    }
+    Ok(())
+}
+
+/// TMDB search for a match picked by hand: every hit scored as the matcher scores it
+/// (title, and year when given), best first. `kind` must be `Movie` or `Show`.
+pub fn lookup(
+    p: &dyn MetadataProvider,
+    text: &str,
+    kind: ItemKind,
+    year: Option<i32>,
+) -> Result<Vec<Candidate>> {
+    let hits = match kind {
+        ItemKind::Movie => p.search_movie(text, year)?,
+        ItemKind::Show => p.search_show(text, year)?,
+        other => {
+            return Err(Error::Invalid(format!(
+                "cannot search for a {}; use movie or show",
+                enum_str(other)
+            )));
+        }
+    };
+    let ev = Evidence {
+        title: text,
+        year,
+        duration_min: None,
+    };
+    let mut scored: Vec<Candidate> = hits
+        .iter()
+        .map(|hit| candidate(hit, matcher::score(&ev, hit, None)))
+        .collect();
+    sort_candidates(&mut scored);
+    Ok(scored)
 }
 
 /// Matches `item_id` to TMDB `tmdb_id` as a movie or a show; for a show, the item's file
@@ -786,7 +894,7 @@ mod tests {
         }
     }
 
-    fn lookup(table: &[(&str, Vec<SearchHit>)], title: &str) -> Vec<SearchHit> {
+    fn hits_for(table: &[(&str, Vec<SearchHit>)], title: &str) -> Vec<SearchHit> {
         table
             .iter()
             .find(|(k, _)| normalize_title(k) == normalize_title(title))
@@ -802,12 +910,12 @@ mod tests {
     impl MetadataProvider for Fake {
         fn search_movie(&self, title: &str, _year: Option<i32>) -> Result<Vec<SearchHit>> {
             self.log(format!("search_movie {title}"))?;
-            Ok(lookup(&self.movie_hits, title))
+            Ok(hits_for(&self.movie_hits, title))
         }
 
         fn search_show(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>> {
             self.log(format!("search_show {title} {year:?}"))?;
-            Ok(lookup(&self.show_hits, title))
+            Ok(hits_for(&self.show_hits, title))
         }
 
         fn find_external(&self, id: &ExternalId) -> Result<Option<SearchHit>> {
@@ -1107,6 +1215,7 @@ mod tests {
                 "search_movie The Matrix",
                 "movie 603",
                 "image w780/p603.jpg",
+                "image w342/p603.jpg",
                 "image original/b603.jpg"
             ]
         );
@@ -1376,7 +1485,7 @@ mod tests {
             e.c.query_row("SELECT count(*) FROM items", [], |r| r.get(0))
                 .unwrap();
         assert_eq!(n, 1);
-        assert_eq!(p.count("image"), 2);
+        assert_eq!(p.count("image"), 3);
     }
 
     /// `--item` on a matched or manual item says so and how to change it.
@@ -1533,11 +1642,11 @@ mod tests {
     #[test]
     fn stale_nfo_show_id_falls_back_to_the_name() {
         let ep = "Severance/Season 02/Severance.S02E01.mkv";
-        let extra = "Extras/The Matrix (1999).mkv";
+        let extra = "Odds/The Matrix (1999).mkv";
         let e = env(&[ep, extra]);
         write(&e.media(), "Severance/tvshow.nfo", &office_nfo(1));
         // A show nfo beside a file without an episode number.
-        write(&e.media(), "Extras/tvshow.nfo", &office_nfo(2));
+        write(&e.media(), "Odds/tvshow.nfo", &office_nfo(2));
         let mut p = severance();
         p.movies = matrix().movies;
         p.movie_hits = matrix().movie_hits;
@@ -1600,6 +1709,80 @@ mod tests {
             (MatchState::Matched, Some(603))
         );
         assert_eq!((it.poster, it.backdrop), (None, None));
+    }
+
+    #[test]
+    fn small_poster_saved_beside_large() {
+        let rel = "The Matrix (1999).mkv";
+        let e = env(&[rel]);
+        let p = matrix();
+        run(&e, &p, IdentifyScope::Unmatched);
+        assert_eq!(
+            file_item(&e, rel).poster.as_deref(),
+            Some("movie-603-poster.jpg")
+        );
+        let small = e.cache().join("movie-603-poster-s.jpg");
+        assert_eq!(fs::read(&small).unwrap(), b"w342/p603.jpg");
+
+        // An item identified before small posters existed gets one on the next identify of
+        // any scope, even with nothing pending.
+        fs::remove_file(&small).unwrap();
+        let movie_calls = p.count("movie 603");
+        assert_eq!(run(&e, &p, IdentifyScope::Review), report(0, 0, 0));
+        assert_eq!(fs::read(&small).unwrap(), b"w342/p603.jpg");
+        assert_eq!(p.count("movie 603"), movie_calls + 1);
+        // Nothing missing: no call at all.
+        run(&e, &p, IdentifyScope::Review);
+        assert_eq!(p.count("movie 603"), movie_calls + 1);
+
+        // A failed download is reported and does not fail the run.
+        fs::remove_file(&small).unwrap();
+        p.fail.borrow_mut().push("w342".into());
+        let r = run(&e, &p, IdentifyScope::Review);
+        assert_eq!((r.matched, r.failed, r.errors.len()), (0, 0, 1));
+        assert!(!small.exists());
+    }
+
+    #[test]
+    fn lookup_returns_scored_candidates() {
+        let mut p = matrix();
+        p.movie_hits = vec![(
+            "Matrix",
+            vec![
+                hit(1, Movie, "Matrix Reloaded", Some(2003)),
+                hit(603, Movie, "The Matrix", Some(1999)),
+            ],
+        )];
+        let found = lookup(&p, "Matrix", Movie, Some(1999)).unwrap();
+        assert_eq!(
+            found.iter().map(|c| c.tmdb_id).collect::<Vec<_>>(),
+            [603, 1]
+        );
+        let ev = Evidence {
+            title: "Matrix",
+            year: Some(1999),
+            duration_min: None,
+        };
+        let expected = matcher::score(&ev, &hit(603, Movie, "The Matrix", Some(1999)), None);
+        assert_eq!(found[0].score, expected);
+        assert_eq!(found[0].kind, Movie);
+        // Shows are searched as shows.
+        let s = severance();
+        let found = lookup(&s, "Severance", Show, None).unwrap();
+        assert_eq!((found.len(), found[0].kind), (1, Show));
+        assert_eq!(s.count("search_show"), 1);
+    }
+
+    #[test]
+    fn lookup_rejects_other_kind() {
+        let p = matrix();
+        for kind in [Other, Episode, ItemKind::Season] {
+            assert!(matches!(
+                lookup(&p, "The Matrix", kind, None),
+                Err(Error::Invalid(_))
+            ));
+        }
+        assert!(p.calls.borrow().is_empty());
     }
 
     #[test]

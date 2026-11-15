@@ -108,3 +108,17 @@ Movies/01.mkv	01					unknown
 TV Shows/Breaking Bad/Season 1/01 - Pilot.mkv	Breaking Bad		1	1		episode
 Anime/Cowboy Bebop/05.mkv	Cowboy Bebop			5		episode
 Downloads/Season 2/03.mkv	03		2	3		episode
+# Owner library names (regression guard; folder-form rows repeat the folder as the file name)
+Apocalypse now. Redux (1979) 2160p HDR.mkv	Apocalypse now Redux	1979				movie
+Blow Out (1981) Criterion (1080p BluRay x265 HEVC 10bit AAC 2.0 Tigole)/Blow Out (1981) Criterion (1080p BluRay x265 HEVC 10bit AAC 2.0 Tigole).mkv	Blow Out	1981				movie
+Dr. Strangelove (1964) Criterion (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)/Dr. Strangelove (1964) Criterion (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole).mkv	Dr Strangelove	1964				movie
+Easy.Rider.1969.COMPLETE.UHD.BLURAY COASTER.mkv	Easy Rider	1969				movie
+Medianeras.2011.1080p.AMZN.WEBRip.DDP5.1.x264-ETHiCS/Medianeras.2011.1080p.AMZN.WEBRip.DDP5.1.x264-ETHiCS.mkv	Medianeras	2011				movie
+Mulholland Drive (2001) Criterion (2160p BluRay x265 HEVC 10bit HDR AAC 5.1 Tigole)/Mulholland Drive (2001) Criterion (2160p BluRay x265 HEVC 10bit HDR AAC 5.1 Tigole).mkv	Mulholland Drive	2001				movie
+Nocturnal.Animals.2016.REMUX.mkv	Nocturnal Animals	2016				movie
+Nomadland (2021) (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)/Nomadland (2021) (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole).mkv	Nomadland	2021				movie
+One.Battle.After.Another.2025.2160p.MA.WEB-DL.DDP5.1.Atmos.DV.HDR-DVT.mkv	One Battle After Another	2025				movie
+Scarface.1983.BluRay.UHD.HEVC.HDR.REMUX.2160p.mkv	Scarface	1983				movie
+Taxi Driver (1976) 40th Anniv (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole)/Taxi Driver (1976) 40th Anniv (1080p BluRay x265 HEVC 10bit AAC 5.1 Tigole).mkv	Taxi Driver	1976				movie
+The.Last.Movie.1971.BDRemux.1080p.mkv	The Last Movie	1971				movie
+Y Tu Mama Tambien 2001 Criterion (1080p Bluray x265 HEVC 10bit AAC 5.1 Spanish Tigole)/Y Tu Mama Tambien 2001 Criterion (1080p Bluray x265 HEVC 10bit AAC 5.1 Spanish Tigole).mkv	Y Tu Mama Tambien	2001				movie

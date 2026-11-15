@@ -187,11 +187,25 @@ fn version_of(tool: Tool, path: &Path) -> Option<String> {
     if !out.success {
         return None;
     }
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()
-        .map(|l| l.trim().to_string())
-        .filter(|l| !l.is_empty())
+    short_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// The first line of version output, cut before ` Copyright` and trimmed; `None` if empty.
+fn short_version(output: &str) -> Option<String> {
+    let line = output.lines().next()?;
+    let line = line.split(" Copyright").next().unwrap_or(line).trim();
+    (!line.is_empty()).then(|| line.to_string())
+}
+
+/// Starts `cmd` without a console window on Windows, so a windowed app never flashes one.
+/// Every tool process goes through it except mpv for playback, which must show its window.
+pub fn quiet(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        std::os::windows::process::CommandExt::creation_flags(cmd, CREATE_NO_WINDOW);
+    }
+    cmd
 }
 
 pub(crate) struct Captured {
@@ -207,11 +221,10 @@ pub(crate) fn run_with_timeout(
     timeout: Duration,
     limit: u64,
 ) -> Option<Captured> {
-    cmd.stdin(Stdio::null())
+    quiet(cmd)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(cmd, 0x0800_0000); // CREATE_NO_WINDOW
     let mut child = cmd.spawn().ok()?;
     let mut stdout = child.stdout.take()?;
     let reader = std::thread::spawn(move || {
@@ -342,6 +355,42 @@ mod tests {
         assert!(s[0].manual);
         assert_eq!(s[0].version, None);
         assert_eq!(tools(&c, &e).unwrap().mpv, None);
+    }
+
+    #[test]
+    fn versions_are_cut_before_copyright() {
+        assert_eq!(
+            short_version(
+                "mpv v0.42.0-93-g3d73d07e6 Copyright © 2000-2025 mpv/MPlayer/mplayer2 projects\n built on ..."
+            )
+            .as_deref(),
+            Some("mpv v0.42.0-93-g3d73d07e6")
+        );
+        assert_eq!(
+            short_version("ffmpeg version N-128915-g3d16b774d Copyright (c) 2000-2025 the FFmpeg developers\r\nbuilt with gcc")
+                .as_deref(),
+            Some("ffmpeg version N-128915-g3d16b774d")
+        );
+        assert_eq!(short_version("  tool 1.0  \n").as_deref(), Some("tool 1.0"));
+        assert_eq!(short_version(" Copyright nobody"), None);
+        assert_eq!(short_version(""), None);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detected_version_is_short() {
+        let (_d, c) = conn();
+        let dir = TempDir::new().unwrap();
+        let bat = dir.path().join("mpv.bat");
+        std::fs::write(
+            &bat,
+            "@echo mpv v0.42.0-93-g3d73d07e6 Copyright (C) 2000-2025 mpv/MPlayer/mplayer2 projects\r\n\
+             @echo  built on Nov 1 2025\r\n",
+        )
+        .unwrap();
+        set_tool_path(&c, Tool::Mpv, Some(&bat)).unwrap();
+        let s = detect(&c, &Env::default()).unwrap();
+        assert_eq!(s[0].version.as_deref(), Some("mpv v0.42.0-93-g3d73d07e6"));
     }
 
     #[test]

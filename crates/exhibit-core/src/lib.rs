@@ -19,4 +19,6 @@ pub mod tools;
 pub mod volume;
 
 pub use error::{Error, Result};
-pub use library::{Library, LibraryStatus};
+pub use library::{
+    Library, LibraryStatus, RefreshEvent, RefreshOptions, RefreshPhase, RefreshReport,
+};

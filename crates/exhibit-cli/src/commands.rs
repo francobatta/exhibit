@@ -5,7 +5,7 @@ use exhibit_core::model::{Id, ItemKind};
 use exhibit_core::query::{SearchQuery, Shelf, Sort};
 use exhibit_core::scan::ScanEvent;
 use exhibit_core::tools::Tool;
-use exhibit_core::{Error, Library, Result};
+use exhibit_core::{Error, Library, RefreshEvent, RefreshOptions, RefreshPhase, Result};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::io::{BufRead, IsTerminal};
@@ -102,46 +102,51 @@ fn source(lib: &Library, cmd: SourceCmd) -> Result<Value> {
     }
 }
 
-/// Scan, identify, probe, then identify the items left for review again, now that probing
-/// may have given them a duration (names and artwork come before technical details).
-/// Missing tools or a missing TMDB key skip that step quietly: its field is `null`. The
-/// second identification runs only when the first ran and probing read at least one file.
+/// The library's refresh: scan, identify, probe, identify the items left for review again,
+/// thumbnails. Missing tools or a missing TMDB key skip that step quietly: its field is
+/// `null`. A failed identification (a rejected key, no network) is `identify_error`; the
+/// other steps still run and the command succeeds.
 fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) -> Result<Value> {
-    let scanned = lib.scan(source, &mut |event| match event {
-        ScanEvent::Started { source_id } => progress(format!("scanning source {source_id}")),
-        ScanEvent::FileAdded { rel_path, .. } => progress(format!("added {rel_path}")),
-        ScanEvent::Finished(r) => {
-            progress(format!("scanned source {}: {} added", r.source_id, r.added))
-        }
-    })?;
-    let identify = !no_identify && lib.has_secret("tmdb")?;
-    let on = &mut |id| progress(format!("identified item {id}"));
-    let identified = if identify {
-        Some(to_json(lib.identify(IdentifyScope::Unmatched, on)?)?)
-    } else {
-        None
+    let opts = RefreshOptions {
+        identify: !no_identify,
+        probe: !no_probe,
     };
-    let probed = if no_probe || !lib.can_probe()? {
-        None
-    } else {
-        // A failure's reason is printed whether or not stderr is a terminal.
-        Some(lib.probe_pending(&mut |id, failure| match failure {
-            Some(why) => eprintln!("probing file {id} failed: {why}"),
-            None => progress(format!("probed file {id}")),
-        })?)
-    };
-    let rescored = match probed {
-        Some((ok, _)) if identify && ok > 0 => {
-            Some(to_json(lib.identify(IdentifyScope::Review, on)?)?)
-        }
-        _ => None,
-    };
-    let probed = probed.map(|(ok, failed)| json!({"ok": ok, "failed": failed}));
+    let mut phase = RefreshPhase::Scanning;
+    let r = lib.refresh(
+        source,
+        &mut |event| match event {
+            RefreshEvent::Phase(p) => phase = p,
+            RefreshEvent::Scan(ScanEvent::Started { source_id }) => {
+                progress(format!("scanning source {source_id}"))
+            }
+            RefreshEvent::Scan(ScanEvent::FileAdded { rel_path, .. }) => {
+                progress(format!("added {rel_path}"))
+            }
+            RefreshEvent::Scan(ScanEvent::Finished(r)) => {
+                progress(format!("scanned source {}: {} added", r.source_id, r.added))
+            }
+            RefreshEvent::Item(id) if phase == RefreshPhase::Thumbnails => {
+                progress(format!("thumbnail for item {id}"))
+            }
+            RefreshEvent::Item(id) => progress(format!("identified item {id}")),
+            // A failure's reason is printed whether or not stderr is a terminal.
+            RefreshEvent::File {
+                id,
+                error: Some(why),
+            } => {
+                eprintln!("probing file {id} failed: {why}")
+            }
+            RefreshEvent::File { id, error: None } => progress(format!("probed file {id}")),
+        },
+        opts,
+    )?;
     Ok(json!({
-        "scanned": scanned,
-        "identified": identified,
-        "probed": probed,
-        "rescored": rescored
+        "scanned": r.scanned,
+        "identified": r.identified,
+        "identify_error": r.identify_error,
+        "probed": r.probed.map(|(ok, failed)| json!({"ok": ok, "failed": failed})),
+        "rescored": r.rescored,
+        "thumbnails": r.thumbnails.map(|(made, failed)| json!({"made": made, "failed": failed})),
     }))
 }
 
@@ -160,6 +165,7 @@ fn search_query(a: SearchArgs) -> SearchQuery {
         runtime_max_min: a.runtime_max,
         watched: (a.watched || a.unwatched).then_some(a.watched),
         loved: a.loved.then_some(true),
+        min_width: a.min_width,
         min_height: a.min_height,
         available: a.available.then_some(true),
         sort: a.sort.map(|s| match s {
@@ -180,14 +186,20 @@ fn review(lib: &Library, cmd: ReviewCmd) -> Result<Value> {
             item_id,
             tmdb_id,
             kind,
-        } => {
-            let kind = match kind {
-                MatchKind::Movie => ItemKind::Movie,
-                MatchKind::Show => ItemKind::Show,
-            };
-            lib.apply_match(item_id, tmdb_id, kind).and_then(|_| ok())
-        }
+        } => lib
+            .apply_match(item_id, tmdb_id, item_kind(kind))
+            .and_then(|_| ok()),
         ReviewCmd::Other { item_id } => lib.move_to_other(item_id).and_then(|_| ok()),
+        ReviewCmd::Search { text, kind, year } => {
+            to_json(lib.lookup(&text, item_kind(kind), year)?)
+        }
+    }
+}
+
+fn item_kind(kind: MatchKind) -> ItemKind {
+    match kind {
+        MatchKind::Movie => ItemKind::Movie,
+        MatchKind::Show => ItemKind::Show,
     }
 }
 
