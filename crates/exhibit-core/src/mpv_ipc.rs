@@ -202,7 +202,10 @@ mod tests {
     fn get_when_ready_retries_until_available() {
         let mut s = late(2);
         let deadline = Instant::now() + Duration::from_secs(10);
-        assert_eq!(get_when_ready(&mut s, "video-params", deadline).unwrap(), 42);
+        assert_eq!(
+            get_when_ready(&mut s, "video-params", deadline).unwrap(),
+            42
+        );
     }
 
     #[test]
