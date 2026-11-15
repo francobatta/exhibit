@@ -15,7 +15,10 @@ pub fn data_dir() -> PathBuf {
     }
     // Non-Windows fallback.
     if let Some(h) = std::env::var_os("HOME") {
-        return PathBuf::from(h).join(".local").join("share").join("exhibit");
+        return PathBuf::from(h)
+            .join(".local")
+            .join("share")
+            .join("exhibit");
     }
     PathBuf::from("exhibit-data")
 }
@@ -33,7 +36,8 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
 
 fn migrate(c: &Connection) -> Result<()> {
     let version = |c: &Connection| -> rusqlite::Result<usize> {
-        c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0)).map(|v| v as usize)
+        c.query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .map(|v| v as usize)
     };
     if version(c)? >= MIGRATIONS.len() {
         return Ok(());
@@ -60,7 +64,9 @@ fn migrate(c: &Connection) -> Result<()> {
 
 pub fn get_setting(c: &Connection, key: &str) -> Result<Option<String>> {
     let v: Option<Option<String>> = c
-        .query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get(0))
+        .query_row("SELECT value FROM settings WHERE key=?1", [key], |r| {
+            r.get(0)
+        })
         .optional()?;
     Ok(v.flatten())
 }
@@ -85,11 +91,25 @@ mod tests {
     fn open_creates_schema_and_wal() {
         let d = tempfile::tempdir().unwrap();
         let c = open(d.path()).unwrap();
-        let mode: String = c.query_row("PRAGMA journal_mode", [], |r| r.get(0)).unwrap();
+        let mode: String = c
+            .query_row("PRAGMA journal_mode", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(mode, "wal");
-        for t in ["settings", "sources", "items", "files", "play_state", "play_log", "items_fts"] {
+        for t in [
+            "settings",
+            "sources",
+            "items",
+            "files",
+            "play_state",
+            "play_log",
+            "items_fts",
+        ] {
             let n: i64 = c
-                .query_row("SELECT count(*) FROM sqlite_master WHERE name=?1", [t], |r| r.get(0))
+                .query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name=?1",
+                    [t],
+                    |r| r.get(0),
+                )
                 .unwrap();
             assert_eq!(n, 1, "{t}");
         }
@@ -100,11 +120,14 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let v1: i64 = {
             let c = open(d.path()).unwrap();
-            c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+            c.query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap()
         };
         assert!(v1 >= 1);
         let c = open(d.path()).unwrap();
-        let v2: i64 = c.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v2: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v1, v2);
     }
 
@@ -130,8 +153,13 @@ mod tests {
     }
 
     fn fts_ids(c: &rusqlite::Connection, q: &str) -> Vec<i64> {
-        let mut s = c.prepare("SELECT rowid FROM items_fts WHERE items_fts MATCH ?1").unwrap();
-        s.query_map([q], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect()
+        let mut s = c
+            .prepare("SELECT rowid FROM items_fts WHERE items_fts MATCH ?1")
+            .unwrap();
+        s.query_map([q], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect()
     }
 
     #[test]
@@ -145,7 +173,8 @@ mod tests {
         .unwrap();
         let id = c.last_insert_rowid();
         assert_eq!(fts_ids(&c, "paprika"), vec![id]);
-        c.execute("UPDATE items SET title='Perfect Blue' WHERE id=?1", [id]).unwrap();
+        c.execute("UPDATE items SET title='Perfect Blue' WHERE id=?1", [id])
+            .unwrap();
         assert!(fts_ids(&c, "paprika").is_empty());
         assert_eq!(fts_ids(&c, "perfect"), vec![id]);
         c.execute("DELETE FROM items WHERE id=?1", [id]).unwrap();
@@ -169,4 +198,3 @@ mod tests {
         assert!(fts_ids(&c, "director").is_empty());
     }
 }
-
