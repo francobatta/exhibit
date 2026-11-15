@@ -160,6 +160,21 @@ pub fn scan_source(
     id: Id,
     on: &mut dyn FnMut(ScanEvent),
 ) -> Result<ScanReport> {
+    scan_with(c, v, id, on, walk)
+}
+
+/// What a walk of a source found: video files (relative path to size and mtime) and the
+/// relative paths of folders or files that could not be read.
+type Walked = (HashMap<String, (i64, i64)>, Vec<String>);
+
+/// `scan_source` with the walk passed in, so a test can stand in for unreadable folders.
+fn scan_with(
+    c: &Connection,
+    v: &dyn Volumes,
+    id: Id,
+    on: &mut dyn FnMut(ScanEvent),
+    walk: fn(&Path) -> Walked,
+) -> Result<ScanReport> {
     let row = c
         .prepare_cached(&format!("SELECT {SOURCE_COLS} FROM sources WHERE id=?1"))?
         .query_row([id], source_row)
@@ -266,9 +281,8 @@ pub fn scan_source(
     Ok(report)
 }
 
-/// Walks `root` and returns the video files found (relative path to size and mtime) and
-/// the relative paths that could not be read. Unreadable entries are skipped.
-fn walk(root: &Path) -> (HashMap<String, (i64, i64)>, Vec<String>) {
+/// Walks `root`; unreadable entries are skipped and listed.
+fn walk(root: &Path) -> Walked {
     let walk_root = long_path(root);
     let rel_of = |p: &Path| p.strip_prefix(&walk_root).ok().and_then(rel_string);
     let mut seen = HashMap::new();
@@ -590,6 +604,26 @@ mod tests {
         assert_eq!(item_of(&e.c, "Archive/Perfect Blue (1997).mp4"), item);
         assert_eq!(count(&e.c, "files"), 3);
         assert_eq!(count(&e.c, "items"), 3);
+    }
+
+    #[test]
+    fn rows_under_an_unreadable_folder_are_kept() {
+        let e = env();
+        media_tree(e.drive.path());
+        let v = vols(e.drive.path());
+        let src = add_source(&e.c, &v, &e.drive.path().join("media")).unwrap();
+        scan(&e.c, &v, src.id);
+        let before = file_rows(&e.c);
+        // `Movies` cannot be read: its files are not seen, and the folder is listed.
+        fn denied(root: &Path) -> Walked {
+            let (mut seen, mut unreadable) = walk(root);
+            seen.retain(|rel, _| !rel.starts_with("Movies/"));
+            unreadable.push("Movies".into());
+            (seen, unreadable)
+        }
+        let r = scan_with(&e.c, &v, src.id, &mut |_| {}, denied).unwrap();
+        assert_eq!(r, report(src.id, true, [0, 0, 0, 0, 1]));
+        assert_eq!(file_rows(&e.c), before);
     }
 
     #[test]
