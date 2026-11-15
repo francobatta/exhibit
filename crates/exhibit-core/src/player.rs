@@ -30,7 +30,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 static LAUNCHES: AtomicU64 = AtomicU64::new(0);
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct PlayOutcome {
     pub item_id: Id,
     pub position_s: f64,

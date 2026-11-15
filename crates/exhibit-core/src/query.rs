@@ -19,7 +19,7 @@ const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 500;
 const TASTE_KEY: &str = "taste_profile";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ItemSummary {
     pub id: Id,
     pub kind: ItemKind,
@@ -40,7 +40,7 @@ pub struct ItemSummary {
     pub match_state: MatchState,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct ItemDetail {
     pub item: Item,
     pub files: Vec<MediaFile>,
@@ -82,7 +82,7 @@ pub enum Shelf {
     Loved,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
 pub struct HistoryEntry {
     pub item: ItemSummary,
     pub started_at: i64,

@@ -17,7 +17,7 @@ pub const VIDEO_EXTENSIONS: &[&str] = &[
     "mkv", "mp4", "m4v", "avi", "mov", "wmv", "ts", "m2ts", "webm", "mpg", "mpeg", "flv",
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct ScanReport {
     pub source_id: Id,
     pub online: bool,

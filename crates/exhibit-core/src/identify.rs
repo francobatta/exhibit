@@ -34,7 +34,7 @@ pub enum IdentifyScope {
     Item(Id),
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
 pub struct IdentifyReport {
     pub matched: u32,
     pub needs_review: u32,

@@ -2,6 +2,7 @@ pub mod db;
 pub mod error;
 pub mod identify;
 mod identify_show;
+pub mod library;
 pub mod matcher;
 pub mod model;
 pub mod mpv_ipc;
@@ -16,3 +17,6 @@ pub mod secrets;
 pub mod tmdb;
 pub mod tools;
 pub mod volume;
+
+pub use error::{Error, Result};
+pub use library::{Library, LibraryStatus};
