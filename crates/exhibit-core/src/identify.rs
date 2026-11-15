@@ -7,7 +7,7 @@
 //! item exactly as it was. The show path lives in `identify_show`.
 
 use crate::error::{Error, Result};
-use crate::identify_show::{self, Group};
+use crate::identify_show::{self, Member};
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, TechInfo};
 use crate::nfo::{self, ExternalId, NfoInfo};
@@ -75,7 +75,7 @@ enum Route {
 pub(crate) struct How {
     pub(crate) state: MatchState,
     pub(crate) source: MatchSource,
-    pub(crate) confidence: f32,
+    pub(crate) confidence: Option<f32>,
 }
 
 impl How {
@@ -88,7 +88,7 @@ impl How {
         How {
             state,
             source,
-            confidence: 1.0,
+            confidence: Some(1.0),
         }
     }
 
@@ -96,7 +96,17 @@ impl How {
         How {
             state: MatchState::Matched,
             source: MatchSource::Lookup,
-            confidence: score,
+            confidence: Some(score),
+        }
+    }
+
+    /// Matched by lookup without a score of its own: an episode file that joined the group of
+    /// an nfo show id.
+    pub(crate) fn joined() -> How {
+        How {
+            state: MatchState::Matched,
+            source: MatchSource::Lookup,
+            confidence: None,
         }
     }
 }
@@ -113,7 +123,7 @@ pub fn identify(
     on: &mut dyn FnMut(Id),
 ) -> Result<IdentifyReport> {
     let mut report = IdentifyReport::default();
-    let mut groups: Vec<Group> = Vec::new();
+    let mut episodes: Vec<Member> = Vec::new();
     for item in pending(c, v, &scope)? {
         let outcome = match route(p, &item) {
             Ok(Route::Episode {
@@ -123,7 +133,9 @@ pub fn identify(
                 season,
                 episode,
             }) => {
-                identify_show::add(&mut groups, item, title, year, show_id, season, episode);
+                episodes.push(identify_show::member(
+                    item, title, year, show_id, season, episode,
+                ));
                 continue;
             }
             Ok(route) => identify_single(c, p, cache_dir, &item, route),
@@ -132,7 +144,7 @@ pub fn identify(
         record(&mut report, &item.rel_path, outcome, 1)?;
         on(item.item_id);
     }
-    for g in &groups {
+    for g in &identify_show::groups(episodes) {
         let outcome = identify_show::identify_group(c, p, cache_dir, g);
         record(&mut report, &g.title, outcome, g.members.len() as u32)?;
         for m in &g.members {
@@ -301,22 +313,32 @@ fn sidecar(file: &Path) -> Option<Sidecar> {
     })
 }
 
-/// The first id in the nfo that resolves, as (TMDB id, Movie or Show). When the nfo speaks
-/// for a show, a TMDB id is the show's id and only show results are taken.
+/// The first id in the nfo that resolves in this context, as (TMDB id, Movie or Show). A
+/// TMDB id is never tried as the other kind: in a show context (a show nfo, or an episode
+/// file) it is the show's id; in a movie context it is the movie's id, checked by `movie()`
+/// later, and a TV id is ignored. IMDb and TVDB results of the wrong kind are ignored too.
 fn nfo_target(
     p: &dyn MetadataProvider,
     info: &NfoInfo,
     as_show: bool,
 ) -> Result<Option<(i64, ItemKind)>> {
+    let wanted = if as_show {
+        ItemKind::Show
+    } else {
+        ItemKind::Movie
+    };
     for id in &info.ids {
-        if let (ExternalId::Tmdb(n), true) = (id, as_show) {
-            return Ok(Some((*n, ItemKind::Show)));
-        }
-        match p.find_external(id)? {
-            Some(hit) if !as_show || hit.kind == ItemKind::Show => {
-                return Ok(Some((hit.tmdb_id, hit.kind)));
-            }
-            _ => {}
+        let target = match (id, as_show) {
+            (ExternalId::Tmdb(n) | ExternalId::TmdbTv(n), true) => Some((*n, wanted)),
+            (ExternalId::Tmdb(n), false) => Some((*n, wanted)),
+            (ExternalId::TmdbTv(_), false) => None,
+            _ => p
+                .find_external(id)?
+                .filter(|hit| hit.kind == wanted)
+                .map(|hit| (hit.tmdb_id, hit.kind)),
+        };
+        if target.is_some() {
+            return Ok(target);
         }
     }
     Ok(None)
@@ -440,7 +462,10 @@ fn save_movie(
     };
     let tx = c.unchecked_transaction()?;
     let target = match existing {
-        Some(id) => id,
+        Some(id) => {
+            confirm(&tx, id, how)?;
+            id
+        }
         None => {
             let fill = Fill {
                 year: m.year,
@@ -480,11 +505,18 @@ pub(crate) fn find_item(c: &Connection, kind: ItemKind, tmdb_id: i64) -> Result<
     )
 }
 
-/// Moves every file of `from` to `into` and deletes `from`.
+/// Moves every file of `from` to `into` and deletes `from`, keeping what the owner did with
+/// it: play history moves over, the newer resume state wins and `loved` carries over.
 pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
     if from != into {
-        c.prepare_cached("UPDATE files SET item_id=?2 WHERE item_id=?1")?
-            .execute([from, into])?;
+        for sql in [
+            "UPDATE files SET item_id=?2 WHERE item_id=?1",
+            "UPDATE play_log SET item_id=?2 WHERE item_id=?1",
+            "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at)              SELECT ?2, position_s, duration_s, watched, last_played_at FROM play_state              WHERE item_id=?1              ON CONFLICT(item_id) DO UPDATE SET position_s=excluded.position_s,              duration_s=excluded.duration_s, watched=excluded.watched,              last_played_at=excluded.last_played_at              WHERE excluded.last_played_at > play_state.last_played_at",
+            "UPDATE items SET loved = 1 WHERE id=?2 AND (SELECT loved FROM items WHERE id=?1)",
+        ] {
+            c.prepare_cached(sql)?.execute([from, into])?;
+        }
         c.prepare_cached("DELETE FROM items WHERE id=?1")?
             .execute([from])?;
     }
@@ -499,6 +531,16 @@ pub(crate) fn set_review(c: &Connection, item_id: Id, scored: &[Candidate]) -> R
             json(scored),
             scored.first().map(|c| f64::from(c.score))
         ])?;
+    Ok(())
+}
+
+/// When the owner's choice lands on an item that already exists, that item becomes
+/// `Manual` too, so the choice is permanent.
+pub(crate) fn confirm(c: &Connection, id: Id, how: How) -> Result<()> {
+    if how.state == MatchState::Manual {
+        c.prepare_cached("UPDATE items SET match_state=?2, match_source=?3 WHERE id=?1")?
+            .execute(params![id, enum_str(how.state), enum_str(how.source)])?;
+    }
     Ok(())
 }
 
@@ -572,7 +614,7 @@ fn fill_item(c: &Connection, id: Id, f: &Fill, how: How) -> Result<()> {
         f.tmdb_id,
         enum_str(how.state),
         enum_str(how.source),
-        f64::from(how.confidence),
+        how.confidence.map(f64::from),
     ])?;
     Ok(())
 }
@@ -746,8 +788,8 @@ mod tests {
             Ok(lookup(&self.movie_hits, title))
         }
 
-        fn search_show(&self, title: &str, _year: Option<i32>) -> Result<Vec<SearchHit>> {
-            self.log(format!("search_show {title}"))?;
+        fn search_show(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>> {
+            self.log(format!("search_show {title} {year:?}"))?;
             Ok(lookup(&self.show_hits, title))
         }
 
@@ -1508,5 +1550,205 @@ mod tests {
             move_to_other(&e.c, 99999),
             Err(Error::NotFound(_))
         ));
+    }
+
+    fn office() -> Fake {
+        Fake {
+            shows: vec![
+                show(2316, "The Office", 2005, &[(1, 6)]),
+                show(2996, "The Office", 2001, &[(1, 6)]),
+            ],
+            seasons: vec![(2316, season(1, 6)), (2996, season(1, 6))],
+            ..Default::default()
+        }
+    }
+
+    fn office_nfo(id: i64) -> String {
+        format!(r#"<tvshow><uniqueid type="tmdb">{id}</uniqueid></tvshow>"#)
+    }
+
+    fn show_of(e: &Env, rel: &str) -> Item {
+        let ep = file_item(e, rel);
+        let season = item(&e.c, ep.parent_id.unwrap());
+        item(&e.c, season.parent_id.unwrap())
+    }
+
+    #[test]
+    fn different_nfo_show_ids_under_one_title_stay_apart() {
+        let us = "The Office (US)/Season 01/The.Office.S01E01.mkv";
+        let uk = "The Office (UK)/Season 01/The.Office.S01E01.mkv";
+        let e = env(&[us, uk]);
+        write(&e.media(), "The Office (US)/tvshow.nfo", &office_nfo(2316));
+        write(&e.media(), "The Office (UK)/tvshow.nfo", &office_nfo(2996));
+        let p = office();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 0, 0));
+        assert_eq!(show_of(&e, us).tmdb_id, Some(2316));
+        assert_eq!(show_of(&e, uk).tmdb_id, Some(2996));
+        assert_eq!(items_of(&e.c, "show").len(), 2);
+        assert_eq!(p.count("search"), 0);
+    }
+
+    #[test]
+    fn file_without_nfo_joins_only_one_nfo_group_as_lookup() {
+        let us = "The Office (US)/Season 01/The.Office.S01E01.mkv";
+        let loose = "Loose/The.Office.S01E02.mkv";
+        let e = env(&[us, loose]);
+        write(&e.media(), "The Office (US)/tvshow.nfo", &office_nfo(2316));
+        let p = office();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 0, 0));
+        assert_eq!(show_of(&e, loose).tmdb_id, Some(2316));
+        let joined = file_item(&e, loose);
+        assert_eq!(
+            (joined.match_source, joined.confidence),
+            (Some(MatchSource::Lookup), None)
+        );
+        let own = file_item(&e, us);
+        assert_eq!(
+            (own.match_source, own.confidence),
+            (Some(MatchSource::Nfo), Some(1.0))
+        );
+        assert_eq!(p.count("search"), 0);
+    }
+
+    #[test]
+    fn file_without_nfo_beside_two_nfo_groups_is_searched() {
+        let us = "The Office (US)/Season 01/The.Office.S01E01.mkv";
+        let uk = "The Office (UK)/Season 01/The.Office.S01E01.mkv";
+        let loose = "Loose/The.Office.S01E03.mkv";
+        let e = env(&[us, uk, loose]);
+        write(&e.media(), "The Office (US)/tvshow.nfo", &office_nfo(2316));
+        write(&e.media(), "The Office (UK)/tvshow.nfo", &office_nfo(2996));
+        let mut p = office();
+        p.show_hits = vec![(
+            "The Office",
+            vec![
+                hit(2316, Show, "The Office", Some(2005)),
+                hit(2996, Show, "The Office", Some(2001)),
+            ],
+        )];
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 1, 0));
+        assert_eq!(p.count("search"), 1);
+        assert_eq!(p.count("search_show The Office None"), 1);
+        let it = file_item(&e, loose);
+        assert_eq!((it.kind, it.match_state), (Other, MatchState::NeedsReview));
+        assert_eq!(it.candidates.len(), 2);
+    }
+
+    #[test]
+    fn same_title_shows_with_different_years_are_searched_apart() {
+        let old = "Doctor Who (1963)/Season 01/Doctor.Who.S01E01.mkv";
+        let new = "Doctor Who (2005)/Season 01/Doctor.Who.S01E01.mkv";
+        let e = env(&[old, new]);
+        let p = Fake {
+            shows: vec![
+                show(121, "Doctor Who", 1963, &[(1, 42)]),
+                show(57243, "Doctor Who", 2005, &[(1, 13)]),
+            ],
+            seasons: vec![(121, season(1, 42)), (57243, season(1, 13))],
+            show_hits: vec![(
+                "Doctor Who",
+                vec![
+                    hit(121, Show, "Doctor Who", Some(1963)),
+                    hit(57243, Show, "Doctor Who", Some(2005)),
+                ],
+            )],
+            ..Default::default()
+        };
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 0, 0));
+        assert_eq!(p.count("search_show Doctor Who Some(1963)"), 1);
+        assert_eq!(p.count("search_show Doctor Who Some(2005)"), 1);
+        assert_eq!(p.count("search"), 2);
+        assert_eq!(show_of(&e, old).tmdb_id, Some(121));
+        assert_eq!(show_of(&e, new).tmdb_id, Some(57243));
+    }
+
+    #[test]
+    fn tv_url_beside_a_movie_file_never_matches_a_movie() {
+        let rel = "Stuff/xq7_final.mkv";
+        let e = env(&[rel]);
+        write(
+            &e.media(),
+            "Stuff/xq7_final.nfo",
+            "Info: https://www.themoviedb.org/tv/603\n",
+        );
+        let p = matrix();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(0, 1, 0));
+        let it = file_item(&e, rel);
+        assert_eq!((it.kind, it.tmdb_id), (Other, None));
+        assert_eq!(p.count("movie 603"), 0);
+        assert_eq!(p.count("find"), 0);
+    }
+
+    #[test]
+    fn show_nfo_tmdb_id_is_never_tried_as_a_movie() {
+        let rel = "Severance/Season 02/Severance.S02E01.mkv";
+        let e = env(&[rel]);
+        write(&e.media(), "Severance/tvshow.nfo", &office_nfo(95396));
+        let mut p = severance();
+        p.movies
+            .push(movie(95396, "A Movie With That Id", 2000, 90));
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
+        assert_eq!(show_of(&e, rel).tmdb_id, Some(95396));
+        assert_eq!(p.count("movie "), 0);
+        assert_eq!(p.count("find"), 0);
+        assert_eq!(p.count("show 95396"), 1);
+    }
+
+    #[test]
+    fn absorbed_item_keeps_play_data() {
+        let a = "The Matrix (1999)/The.Matrix.1999.1080p.mkv";
+        let b = "The Matrix (1999)/The.Matrix.1999.2160p.mkv";
+        let e = env(&[a, b]);
+        let (ia, ib) = (file_item(&e, a).id, file_item(&e, b).id);
+        e.c.execute_batch(&format!(
+            "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
+             VALUES ({ia}, 5, 8160, 0, 10), ({ib}, 100, 8160, 0, 50); \
+             INSERT INTO play_log(item_id, started_at, ended_at, position_s) \
+             VALUES ({ib}, 40, 50, 100); \
+             UPDATE items SET loved=1 WHERE id={ib};"
+        ))
+        .unwrap();
+        assert_eq!(
+            run(&e, &matrix(), IdentifyScope::Unmatched),
+            report(2, 0, 0)
+        );
+        let target = file_item(&e, b);
+        assert_eq!(target.id, ia);
+        assert!(target.loved);
+        let (pos, last): (f64, i64) =
+            e.c.query_row(
+                "SELECT position_s, last_played_at FROM play_state WHERE item_id=?1",
+                [ia],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((pos, last), (100.0, 50));
+        let logs: i64 =
+            e.c.query_row(
+                "SELECT count(*) FROM play_log WHERE item_id=?1",
+                [ia],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(logs, 1);
+    }
+
+    #[test]
+    fn manual_choice_on_existing_movie_makes_it_manual() {
+        let matched = "The Matrix (1999)/The.Matrix.1999.mkv";
+        let other = "Misc/zz capture.mkv";
+        let e = env(&[matched, other]);
+        let p = matrix();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 1, 0));
+        let target = file_item(&e, matched).id;
+        assert_eq!(item(&e.c, target).match_state, MatchState::Matched);
+        let id = file_item(&e, other).id;
+        apply_match(&e.c, &p, &e.cache(), id, 603, Movie, MatchSource::Manual).unwrap();
+        let it = file_item(&e, other);
+        assert_eq!(it.id, target);
+        assert_eq!(
+            (it.match_state, it.match_source),
+            (MatchState::Manual, Some(MatchSource::Manual))
+        );
     }
 }

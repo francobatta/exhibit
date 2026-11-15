@@ -166,6 +166,17 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
                 };
                 return Ok(Some(hit));
             }
+            ExternalId::TmdbTv(n) => {
+                let s = self.show(*n)?;
+                return Ok(Some(SearchHit {
+                    tmdb_id: s.tmdb_id,
+                    kind: ItemKind::Show,
+                    original_title: s.title.clone(),
+                    title: s.title,
+                    year: s.year,
+                    popularity: 0.0,
+                }));
+            }
             ExternalId::Imdb(s) => (s.clone(), "imdb_id"),
             ExternalId::Tvdb(n) => (n.to_string(), "tvdb_id"),
         };
@@ -613,6 +624,30 @@ mod tests {
             t.find_external(&ExternalId::Tmdb(7)),
             Err(Error::Provider(_))
         ));
+    }
+
+    #[test]
+    fn find_tmdb_tv_id_asks_for_the_show_only() {
+        let f = fake(&[
+            ("/tv/95396", "tv_95396.json"),
+            ("/movie/603", "movie_603.json"),
+        ]);
+        let t = Tmdb::new("k".into(), &f);
+        let hit = t
+            .find_external(&ExternalId::TmdbTv(95396))
+            .unwrap()
+            .unwrap();
+        assert_eq!((hit.tmdb_id, hit.kind), (95396, ItemKind::Show));
+        assert!(matches!(
+            t.find_external(&ExternalId::TmdbTv(603)),
+            Err(Error::Provider(_))
+        ));
+        assert!(
+            f.log
+                .borrow()
+                .iter()
+                .all(|(url, _)| !url.contains("/movie/"))
+        );
     }
 
     #[test]

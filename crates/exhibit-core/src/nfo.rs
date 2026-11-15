@@ -7,7 +7,10 @@ use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExternalId {
+    /// A TMDB id whose kind is unknown or a movie (XML tags, `themoviedb.org/movie/<n>`).
     Tmdb(i64),
+    /// A TMDB TV show id (`themoviedb.org/tv/<n>`).
+    TmdbTv(i64),
     Imdb(String),
     Tvdb(i64),
 }
@@ -70,8 +73,12 @@ pub fn read_nfo(text: &str) -> NfoInfo {
         push(ExternalId::Imdb(c[1].to_string()));
     }
     for c in re.tmdb_url.captures_iter(text) {
-        if let Ok(n) = c[1].parse() {
-            push(ExternalId::Tmdb(n));
+        if let Ok(n) = c[2].parse() {
+            if c[1].eq_ignore_ascii_case("tv") {
+                push(ExternalId::TmdbTv(n));
+            } else {
+                push(ExternalId::Tmdb(n));
+            }
         }
     }
     for c in re.imdb_url.captures_iter(text) {
@@ -149,7 +156,7 @@ impl Res {
             imdbid: r(r"(?i)<imdbid\s*>\s*(tt\d+)\s*</imdbid\s*>"),
             id_tag: r(r"(?i)<id\s*>\s*(tt\d+)\s*</id\s*>"),
             imdb_id: r(r"^tt\d+$"),
-            tmdb_url: r(r"(?i)themoviedb\.org/(?:movie|tv)/(\d+)"),
+            tmdb_url: r(r"(?i)themoviedb\.org/(movie|tv)/(\d+)"),
             imdb_url: r(r"(?i)imdb\.com/title/(tt\d+)"),
             title: r(r"(?is)<title\s*>([^<]*)</title\s*>"),
             year: r(r"(?i)<year\s*>\s*(\d{4})\s*</year\s*>"),
@@ -228,7 +235,9 @@ mod tests {
     #[test]
     fn tmdb_tv_url() {
         let n = read_nfo("https://www.themoviedb.org/tv/1396");
-        assert_eq!(n.ids, vec![ExternalId::Tmdb(1396)]);
+        assert_eq!(n.ids, vec![ExternalId::TmdbTv(1396)]);
+        let n = read_nfo("https://www.themoviedb.org/movie/603");
+        assert_eq!(n.ids, vec![ExternalId::Tmdb(603)]);
     }
 
     #[test]

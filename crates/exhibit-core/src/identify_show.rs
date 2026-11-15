@@ -6,8 +6,8 @@
 
 use crate::error::{Error, Result};
 use crate::identify::{
-    Counts, Fill, How, MAX_HITS, Pending, absorb, artwork, candidate, find_item, insert_item,
-    set_review, sort_candidates,
+    Counts, Fill, How, MAX_HITS, Pending, absorb, artwork, candidate, confirm, find_item,
+    insert_item, set_review, sort_candidates,
 };
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
@@ -16,6 +16,38 @@ use crate::rows::enum_str;
 use crate::tmdb::{EpisodeMeta, MetadataProvider, SeasonMeta, ShowMeta};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::Path;
+
+/// An episode file waiting for its show.
+pub(crate) struct Member {
+    pub(crate) pending: Pending,
+    title: String,
+    year: Option<i32>,
+    /// From an `.nfo`.
+    show_id: Option<i64>,
+    season: i32,
+    episode: Option<i32>,
+    /// Joined an nfo group without an nfo of its own: matched by lookup, not by the nfo.
+    joined: bool,
+}
+
+pub(crate) fn member(
+    pending: Pending,
+    title: String,
+    year: Option<i32>,
+    show_id: Option<i64>,
+    season: i32,
+    episode: Option<i32>,
+) -> Member {
+    Member {
+        pending,
+        title,
+        year,
+        show_id,
+        season,
+        episode,
+        joined: false,
+    }
+}
 
 /// Episode files that name the same show.
 pub(crate) struct Group {
@@ -27,43 +59,49 @@ pub(crate) struct Group {
     pub(crate) members: Vec<Member>,
 }
 
-pub(crate) struct Member {
-    pub(crate) pending: Pending,
-    season: i32,
-    episode: Option<i32>,
+/// Groups episode files by show. A file with an nfo show id groups by (title, id); a file
+/// with a year in its name by (title, year). A file with neither joins the only such group
+/// with its title, or, when there are none or several, a group of its own that is searched.
+pub(crate) fn groups(members: Vec<Member>) -> Vec<Group> {
+    let mut groups: Vec<Group> = Vec::new();
+    let mut loose = Vec::new();
+    for m in members {
+        let key = normalize_title(&m.title);
+        if m.show_id.is_none() && m.year.is_none() {
+            loose.push((key, m));
+            continue;
+        }
+        let i = groups.iter().position(|g| {
+            g.key == key && g.show_id == m.show_id && (m.show_id.is_some() || g.year == m.year)
+        });
+        push(&mut groups, i, key, m);
+    }
+    let anchored = groups.len();
+    for (key, mut m) in loose {
+        let same: Vec<usize> = (0..anchored).filter(|&i| groups[i].key == key).collect();
+        let i = match same[..] {
+            [i] => {
+                m.joined = groups[i].show_id.is_some();
+                Some(i)
+            }
+            _ => (anchored..groups.len()).find(|&i| groups[i].key == key),
+        };
+        push(&mut groups, i, key, m);
+    }
+    groups
 }
 
-pub(crate) fn add(
-    groups: &mut Vec<Group>,
-    pending: Pending,
-    title: String,
-    year: Option<i32>,
-    show_id: Option<i64>,
-    season: i32,
-    episode: Option<i32>,
-) {
-    let key = normalize_title(&title);
-    let i = match groups.iter().position(|g| g.key == key) {
-        Some(i) => i,
-        None => {
-            groups.push(Group {
-                key,
-                title,
-                year: None,
-                show_id: None,
-                members: Vec::new(),
-            });
-            groups.len() - 1
-        }
-    };
-    let g = &mut groups[i];
-    g.year = g.year.or(year);
-    g.show_id = g.show_id.or(show_id);
-    g.members.push(Member {
-        pending,
-        season,
-        episode,
-    });
+fn push(groups: &mut Vec<Group>, at: Option<usize>, key: String, m: Member) {
+    match at {
+        Some(i) => groups[i].members.push(m),
+        None => groups.push(Group {
+            key,
+            title: m.title.clone(),
+            year: m.year,
+            show_id: m.show_id,
+            members: vec![m],
+        }),
+    }
 }
 
 pub(crate) fn identify_group(
@@ -109,6 +147,7 @@ pub(crate) fn identify_group(
     let (mut matched, mut review) = (0, 0);
     for m in &g.members {
         let item_id = m.pending.item_id;
+        let m_how = if m.joined { How::joined() } else { how };
         match m.episode.and_then(|e| show.episode(m.season, e)) {
             Some(ep) => {
                 place(
@@ -116,7 +155,7 @@ pub(crate) fn identify_group(
                     show_item,
                     m.season,
                     ep,
-                    how,
+                    m_how,
                     m.pending.added_at,
                     item_id,
                 )?;
@@ -124,7 +163,8 @@ pub(crate) fn identify_group(
             }
             None => {
                 // The show is right but this episode is not in it: leave the file for review.
-                set_review(&tx, item_id, &[show.candidate(how.confidence)])?;
+                let score = how.confidence.unwrap_or(1.0);
+                set_review(&tx, item_id, &[show.candidate(score)])?;
                 review += 1;
             }
         }
@@ -303,7 +343,10 @@ fn place(
         }
     };
     let episode_id = match child(tx, season_id, ItemKind::Episode, ep.episode)? {
-        Some(id) => id,
+        Some(id) => {
+            confirm(tx, id, how)?;
+            id
+        }
         None => {
             let fallback = format!("Episode {}", ep.episode);
             let title = if ep.title.is_empty() {
