@@ -33,7 +33,7 @@ impl Default for OsSecrets {
 }
 
 fn keyring_err(e: keyring::Error) -> Error {
-    Error::Invalid(format!("credential store: {e}"))
+    Error::Io(std::io::Error::other(format!("credential store: {e}")))
 }
 
 impl Secrets for OsSecrets {
@@ -80,6 +80,13 @@ impl Secrets for MemorySecrets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn credential_store_errors_are_io_errors() {
+        let e = keyring_err(keyring::Error::TooLong("tmdb".into(), 1));
+        assert!(matches!(&e, Error::Io(_)), "{e}");
+        assert!(e.to_string().contains("credential store"), "{e}");
+    }
 
     #[test]
     fn memory_secrets_set_get_clear() {

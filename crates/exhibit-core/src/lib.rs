@@ -5,7 +5,7 @@ mod identify_show;
 pub mod library;
 pub mod matcher;
 pub mod model;
-pub mod mpv_ipc;
+pub(crate) mod mpv_ipc;
 pub mod nfo;
 pub mod parse;
 pub mod player;
