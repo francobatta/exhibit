@@ -1,26 +1,12 @@
-import { beforeAll, describe, expect, test } from "bun:test";
-
-const calls: Array<{ cmd: string; args: unknown }> = [];
+import { beforeEach, describe, expect, test } from "bun:test";
+import { tauri } from "../../test/setup";
 
 // A fresh copy of the module per test, so no test depends on another having called `boot`.
 let copies = 0;
 const fresh = () => import(`./api.ts?copy=${copies++}`) as Promise<typeof import("./api")>;
 
-beforeAll(() => {
-  // A stand-in for the Tauri page bridge: records commands, answers `boot`.
-  const g = globalThis as unknown as Record<string, unknown>;
-  g.window = globalThis;
-  g.__TAURI_INTERNALS__ = {
-    invoke: async (cmd: string, args: unknown) => {
-      calls.push({ cmd, args });
-      if (cmd === "boot") {
-        return { status: {}, imageDir: "C:\\Data\\cache\\images", firstRun: true };
-      }
-      return null;
-    },
-    convertFileSrc: (path: string, protocol = "asset") =>
-      `http://${protocol}.localhost/${encodeURIComponent(path)}`,
-  };
+beforeEach(() => {
+  tauri.handle("boot", () => ({ status: {}, imageDir: "C:\\Data\\cache\\images", firstRun: true }));
 });
 
 describe("imageUrl", () => {
@@ -49,13 +35,27 @@ describe("imageUrl", () => {
 
 test("commands send camelCase arguments under their snake_case names", async () => {
   const api = await fresh();
-  calls.length = 0;
+  for (const cmd of ["apply_match", "set_watched", "identify"]) tauri.handle(cmd, () => null);
   await api.applyMatch(4, 603, "movie");
   await api.setWatched(4, true);
   await api.identify({ item: 4 });
-  expect(calls).toEqual([
+  expect(tauri.calls()).toEqual([
     { cmd: "apply_match", args: { itemId: 4, tmdbId: 603, kind: "movie" } },
     { cmd: "set_watched", args: { id: 4, watched: true } },
     { cmd: "identify", args: { scope: { item: 4 } } },
   ]);
+});
+
+describe("plain", () => {
+  test("drops the core's kind prefix and starts with a capital", async () => {
+    const api = await fresh();
+    expect(api.plain({ kind: "invalid", message: "invalid: TMDB key not set" })).toBe(
+      "TMDB key not set",
+    );
+    expect(api.plain({ kind: "source_offline", message: "source_offline: D:\\ is not connected" })).toBe(
+      "D:\\ is not connected",
+    );
+    expect(api.plain("io: the folder could not be read")).toBe("The folder could not be read");
+    expect(api.plain({ kind: "db", message: "" })).toBe("Something went wrong.");
+  });
 });

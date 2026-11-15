@@ -1,0 +1,176 @@
+/*
+ * Every colour, type, spacing, radius and motion value in the UI. A change after the owner has
+ * looked at the running app is a change to this file only. Components use the Tailwind names
+ * mapped in `@theme` below, or `var(--…)`; none hard-codes a colour or a duration.
+ */
+
+/* Registered so the tint can be interpolated when it changes. */
+@property --tint {
+  syntax: "<color>";
+  inherits: true;
+  initial-value: #15181b;
+}
+
+:root {
+  /* Walls. No accent colour exists: artwork is the only strong colour. */
+  --wall: #0f1113;
+  --wall-raised: #171a1d;
+  --line: rgb(236 232 223 / 0.1);
+  /* Set at runtime from the focused work: oklch(0.20 0.035 <hue>). */
+  --tint: #15181b;
+  /* The wall as it stands under the current tint. */
+  --wall-tinted: color-mix(in oklch, var(--wall) 55%, var(--tint));
+
+  /* Light. Focus is lamp light, never a coloured ring. */
+  --lamp: #ffe9c4;
+  --lamp-pool: color-mix(in oklch, var(--lamp) 14%, var(--tint));
+  --work-dim: brightness(0.62) saturate(0.85);
+  --work-focus-scale: 1.06;
+  --offline: grayscale(1) brightness(0.62);
+  --backdrop-dim: brightness(0.72) saturate(0.9);
+
+  /* Text: the paper of a wall label. */
+  --label: #ece8df;
+  --label-dim: #a09b90;
+  --label-faint: #6b675f;
+
+  /* Type. */
+  --type-display: "Archivo Variable", "Archivo", system-ui, sans-serif;
+  --type-reading: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
+  --size-caption: 0.875rem;
+  --size-body: 1rem;
+  --size-lead: 1.25rem;
+  --size-heading: 1.6rem;
+  --size-title: 2.4rem;
+  --size-display: 4rem;
+  --size-hero: 6.5rem;
+  --weight-text: 450;
+  --weight-ui: 600;
+  --weight-title: 680;
+  --weight-title-max: 750;
+  --weight-poster: 650;
+  --stretch-title-min: 62%;
+  --stretch-title-max: 125%;
+  --stretch-poster: 75%;
+  --stretch-mark: 112%;
+  --track-title: -0.02em;
+  --track-display: -0.035em;
+  --lead-reading: 1.5;
+  --lead-ui: 1.25;
+  --lead-title: 0.95;
+
+  /* Space and shape. */
+  --space-edge: 4.5rem;
+  --space-bar: 6rem;
+  --placard-measure: 46rem;
+  --round-work: 0.125rem;
+  --round-control: 0.375rem;
+  --hairline: 1px;
+
+  /* Motion. Durations in ms; the focus spring as Motion's stiffness and damping. */
+  --focus-stiffness: 520;
+  --focus-damping: 40;
+  --dur-backdrop: 450ms;
+  --delay-backdrop: 140ms;
+  --dur-open: 320ms;
+  --dur-screen: 200ms;
+  --dur-control: 120ms;
+  --dur-reduced: 120ms;
+  --curve-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --shift-screen: 1.5rem;
+
+  /* shadcn's variables, pointed at ours. */
+  --background: var(--wall);
+  --foreground: var(--label);
+  --card: var(--wall-raised);
+  --card-foreground: var(--label);
+  --popover: var(--wall-raised);
+  --popover-foreground: var(--label);
+  --primary: var(--label);
+  --primary-foreground: var(--wall);
+  --secondary: var(--wall-raised);
+  --secondary-foreground: var(--label);
+  --muted: var(--wall-raised);
+  --muted-foreground: var(--label-dim);
+  --accent: var(--wall-raised);
+  --accent-foreground: var(--label);
+  --destructive: var(--label);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--lamp);
+  --radius: var(--round-control);
+}
+
+/* Tailwind names. The default palette, fonts and type scale are cleared so only ours exist. */
+@theme inline {
+  --color-*: initial;
+  --color-wall: var(--wall);
+  --color-wall-raised: var(--wall-raised);
+  --color-wall-tinted: var(--wall-tinted);
+  --color-tint: var(--tint);
+  --color-line: var(--line);
+  --color-lamp: var(--lamp);
+  --color-label: var(--label);
+  --color-label-dim: var(--label-dim);
+  --color-label-faint: var(--label-faint);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-*: initial;
+  --font-display: var(--type-display);
+  --font-reading: var(--type-reading);
+  --font-weight-text: var(--weight-text);
+  --font-weight-ui: var(--weight-ui);
+  --font-weight-title: var(--weight-title);
+  --font-weight-poster: var(--weight-poster);
+
+  --text-*: initial;
+  --text-caption: var(--size-caption);
+  --text-caption--line-height: var(--lead-ui);
+  --text-body: var(--size-body);
+  --text-body--line-height: var(--lead-ui);
+  --text-lead: var(--size-lead);
+  --text-lead--line-height: var(--lead-ui);
+  --text-heading: var(--size-heading);
+  --text-heading--line-height: 1.1;
+  --text-title: var(--size-title);
+  --text-title--line-height: var(--lead-title);
+  --text-display: var(--size-display);
+  --text-display--line-height: var(--lead-title);
+  --text-hero: var(--size-hero);
+  --text-hero--line-height: var(--lead-title);
+
+  --tracking-title: var(--track-title);
+  --tracking-display: var(--track-display);
+  --leading-reading: var(--lead-reading);
+
+  --radius-work: var(--round-work);
+  --radius-control: var(--round-control);
+
+  --spacing-edge: var(--space-edge);
+  --spacing-bar: var(--space-bar);
+  --spacing-measure: var(--placard-measure);
+
+  --ease-out: var(--curve-out);
+  --default-transition-duration: var(--dur-control);
+  --default-transition-timing-function: var(--curve-out);
+}

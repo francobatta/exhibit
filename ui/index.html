@@ -3,9 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- No nonce: UI SDK then adds its CSS as constructed style sheets, which the CSP allows. -->
+    <meta property="csp-nonce" />
     <title>Exhibit</title>
+    <!-- The wall colour (tokens.css --wall) before the stylesheet arrives, so nothing flashes white. -->
     <style>
-      html, body { margin: 0; background: #0f1113; color: #ece8df; }
+      html { background: #0f1113; }
     </style>
   </head>
   <body>

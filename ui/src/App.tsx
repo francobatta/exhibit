@@ -1,32 +1,55 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MotionConfig } from "motion/react";
 import { useEffect, useState } from "react";
-import { boot, jobStatus, onJobStatus, onLibraryChanged, status } from "./lib/api";
-import type { JobStatus, LibraryStatus } from "./lib/api";
+import { Backdrop } from "@/components/Backdrop";
+import { ErrorState, Loading } from "@/components/states";
+import { TopBar } from "@/components/TopBar";
+import { Toaster } from "@/components/ui/toast";
+import { plain } from "@/lib/api";
+import { LibrarySync, useBoot } from "@/lib/queries";
+import { Screens } from "@/nav/Screens";
+import { useNav } from "@/nav/stack";
 
-// Placeholder until the real screens exist: the library status as JSON.
-export default function App() {
-  const [lib, setLib] = useState<LibraryStatus | null>(null);
-  const [job, setJob] = useState<JobStatus | null>(null);
-  const [error, setError] = useState<string | null>(null);
+function Shell() {
+  const boot = useBoot();
+  const firstRun = boot.data?.firstRun;
 
   useEffect(() => {
-    const fail = (e: unknown) => setError(JSON.stringify(e));
-    boot()
-      .then((b) => setLib(b.status))
-      .catch(fail);
-    jobStatus().then(setJob).catch(fail);
-    const off = [
-      onLibraryChanged(() => status().then(setLib).catch(fail)),
-      onJobStatus(setJob),
-    ];
-    off.forEach((p) => p.catch(fail));
-    return () => off.forEach((p) => p.then((f) => f()).catch(fail));
-  }, []);
+    if (firstRun === true) useNav.getState().replaceRoot({ screen: "firstRun" });
+  }, [firstRun]);
 
+  if (boot.isPending) return <Loading label="Opening the library" />;
+  if (boot.isError) {
+    return (
+      <div className="pt-bar">
+        <ErrorState
+          message={plain(boot.error)}
+          hint="Exhibit could not open its library. Check that its data folder is reachable, then try again."
+          action={{ label: "Try again", onAction: () => boot.refetch() }}
+        />
+      </div>
+    );
+  }
   return (
-    <main style={{ padding: "2rem", fontFamily: "Consolas, monospace", fontSize: "1rem" }}>
-      <h1 style={{ fontFamily: "system-ui", fontWeight: 650 }}>Exhibit</h1>
-      {error !== null && <pre style={{ color: "#e8a598" }}>{error}</pre>}
-      <pre>{JSON.stringify({ job, status: lib }, null, 2)}</pre>
-    </main>
+    <>
+      <Screens />
+      <TopBar />
+    </>
+  );
+}
+
+export default function App() {
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000 } } }),
+  );
+  return (
+    <QueryClientProvider client={client}>
+      <MotionConfig reducedMotion="user">
+        <LibrarySync />
+        <Backdrop />
+        <Shell />
+        <Toaster />
+      </MotionConfig>
+    </QueryClientProvider>
   );
 }

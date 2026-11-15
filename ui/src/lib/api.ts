@@ -234,6 +234,23 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
+/**
+ * The message of an error as the owner should read it: the core's `<kind>: ` prefix removed.
+ * Also takes a bare message (such as `JobStatus.last_error`) or anything a promise rejected with.
+ */
+export function plain(e: unknown): string {
+  const text = isApiError(e)
+    ? e.message
+    : typeof e === "string"
+      ? e
+      : e instanceof Error
+        ? e.message
+        : "";
+  const stripped = text.trim().replace(/^[a-z_]+: /, "");
+  if (stripped === "") return "Something went wrong.";
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}
+
 // Commands. Each rejects with an `ApiError`.
 
 let imageDir: string | null = null;
