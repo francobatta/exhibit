@@ -90,6 +90,29 @@ fn library_flow_through_the_binary() {
 }
 
 #[test]
+fn key_set_reads_the_value_from_stdin_never_from_arguments() {
+    let data = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_exhibit"))
+            .args(args)
+            .env("EXHIBIT_DATA_DIR", data.path())
+            .env("EXHIBIT_KEYRING_SERVICE", "exhibit-test-never-written")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .expect("run exhibit")
+    };
+    // A value argument is refused by the parser, before anything is stored.
+    let out = run(&["key", "set", "tmdb", "sekrit"]);
+    assert!(!out.status.success());
+    assert!(out.stdout.is_empty());
+    // Empty standard input is an error; nothing is stored.
+    let out = run(&["key", "set", "tmdb"]);
+    assert_eq!(out.status.code(), Some(1));
+    let json: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(json["error"]["kind"], "invalid", "{json}");
+}
+
+#[test]
 fn scan_without_key_or_tools_skips_identification_quietly() {
     let data = tempfile::tempdir().unwrap();
     let media = tempfile::tempdir().unwrap();

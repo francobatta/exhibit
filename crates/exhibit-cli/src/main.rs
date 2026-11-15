@@ -123,10 +123,10 @@ enum ToolsCmd {
 
 #[derive(Subcommand)]
 enum KeyCmd {
-    /// The value is never echoed back
+    /// Reads the value from standard input (one line), so it stays out of shell history;
+    /// it is never echoed back
     Set {
         name: KeyName,
-        value: String,
     },
     Clear {
         name: KeyName,

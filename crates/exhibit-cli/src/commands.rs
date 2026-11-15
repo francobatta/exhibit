@@ -8,7 +8,7 @@ use exhibit_core::tools::Tool;
 use exhibit_core::{Error, Library, Result};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::io::IsTerminal;
+use std::io::{BufRead, IsTerminal};
 
 use crate::{
     Command, KeyCmd, KindArg, MatchKind, ReviewCmd, SearchArgs, ShelfArg, SortArg, SourceCmd,
@@ -66,7 +66,12 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
         Command::Taste(TasteCmd::Get) => to_json(lib.taste_profile()?),
         Command::Taste(TasteCmd::Set { text }) => lib.set_taste_profile(&text).and_then(|_| ok()),
         Command::Tools(c) => tools(lib, c),
-        Command::Key(KeyCmd::Set { name, value }) => {
+        Command::Key(KeyCmd::Set { name }) => {
+            let stdin = std::io::stdin();
+            if stdin.is_terminal() {
+                eprintln!("Paste the {} key, then press Enter:", name.secret());
+            }
+            let value = read_secret(stdin.lock())?;
             lib.set_secret(name.secret(), Some(&value))?;
             ok()
         }
@@ -74,6 +79,18 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
             lib.set_secret(name.secret(), None)?;
             ok()
         }
+    }
+}
+
+/// The first line of `input`, trimmed; empty is `Error::Invalid`.
+fn read_secret(mut input: impl BufRead) -> Result<String> {
+    let mut line = String::new();
+    input.read_line(&mut line)?;
+    match line.trim() {
+        "" => Err(Error::Invalid(
+            "no key given: pipe or paste it on standard input".into(),
+        )),
+        value => Ok(value.to_string()),
     }
 }
 
@@ -182,5 +199,19 @@ fn tools(lib: &Library, cmd: ToolsCmd) -> Result<Value> {
             lib.set_tool_path(tool(t), Some(&path)).and_then(|_| ok())
         }
         ToolsCmd::Clear { tool: t } => lib.set_tool_path(tool(t), None).and_then(|_| ok()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_secret_takes_one_trimmed_line() {
+        let key = read_secret(&b"  abc123 \r\nsecond line\n"[..]).unwrap();
+        assert_eq!(key, "abc123");
+        for empty in [&b""[..], b"\n", b"   \r\n"] {
+            assert!(matches!(read_secret(empty), Err(Error::Invalid(_))));
+        }
     }
 }
