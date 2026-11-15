@@ -190,7 +190,8 @@ fn record(
 }
 
 /// Provisional items in scope, each seen through its first file on an online source (or its
-/// first file, if all are offline). Matched and `Manual` items are never selected.
+/// first file, if all are offline). Matched and `Manual` items are never selected;
+/// naming one with `IdentifyScope::Item` is `Error::Invalid`.
 fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec<Pending>> {
     let (unmatched, review, only) = match scope {
         IdentifyScope::Unmatched => (true, false, None),
@@ -199,11 +200,17 @@ fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec
         IdentifyScope::Item(id) => (true, true, Some(*id)),
     };
     if let Some(id) = only {
-        let exists = c
-            .prepare_cached("SELECT 1 FROM items WHERE id=?1")?
-            .exists([id])?;
-        if !exists {
-            return Err(Error::NotFound(format!("item {id}")));
+        let state: String = c
+            .prepare_cached("SELECT match_state FROM items WHERE id=?1")?
+            .query_row([id], |r| r.get(0))
+            .optional()?
+            .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        if state == "matched" || state == "manual" {
+            return Err(Error::Invalid(format!(
+                "item {id} is already identified; change it with \
+                 `exhibit review match {id} <tmdb-id> --kind movie|show` \
+                 or `exhibit review other {id}`"
+            )));
         }
     }
     let roots: HashMap<Id, PathBuf> = source_rows(c)?
@@ -1372,6 +1379,36 @@ mod tests {
         assert_eq!(p.count("image"), 2);
     }
 
+    /// `--item` on a matched or manual item says so and how to change it.
+    fn assert_already_identified(e: &Env, p: &Fake, id: Id) {
+        let r = identify(
+            &e.c,
+            &e.v,
+            p,
+            &e.cache(),
+            IdentifyScope::Item(id),
+            &mut |_| {},
+        );
+        assert!(
+            matches!(&r, Err(Error::Invalid(m)) if m.contains("already identified")
+                && m.contains("exhibit review match")),
+            "{r:?}"
+        );
+    }
+
+    #[test]
+    fn item_scope_refuses_a_matched_item() {
+        let rel = "The Matrix (1999).mkv";
+        let e = env(&[rel]);
+        let p = matrix();
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
+        let it = file_item(&e, rel);
+        p.calls.borrow_mut().clear();
+        assert_already_identified(&e, &p, it.id);
+        assert_eq!(file_item(&e, rel), it);
+        assert!(p.calls.borrow().is_empty());
+    }
+
     #[test]
     fn manual_items_are_never_rematched() {
         let rel = "The Matrix (1999).mkv";
@@ -1388,7 +1425,7 @@ mod tests {
             run(&e, &p, IdentifyScope::UnmatchedAndReview),
             report(0, 0, 0)
         );
-        assert_eq!(run(&e, &p, IdentifyScope::Item(id)), report(0, 0, 0));
+        assert_already_identified(&e, &p, id);
         assert_eq!(item(&e.c, id), before);
         assert!(p.calls.borrow().is_empty());
     }
@@ -1592,7 +1629,7 @@ mod tests {
             run(&e, &p, IdentifyScope::UnmatchedAndReview),
             report(0, 0, 0)
         );
-        assert_eq!(run(&e, &p, IdentifyScope::Item(id)), report(0, 0, 0));
+        assert_already_identified(&e, &p, id);
         assert_eq!(item(&e.c, id), it);
         assert!(p.calls.borrow().is_empty());
     }
