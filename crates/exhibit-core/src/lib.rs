@@ -7,5 +7,6 @@ pub mod parse;
 pub mod probe;
 pub mod scan;
 pub mod secrets;
+pub mod tmdb;
 pub mod tools;
 pub mod volume;
