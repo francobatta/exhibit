@@ -26,6 +26,8 @@
   --lamp-pool: color-mix(in oklch, var(--lamp) 14%, var(--tint));
   --work-dim: brightness(0.62) saturate(0.85);
   --work-focus-scale: 1.06;
+  /* How far the keyline sits outside a work's box, so it frames the work at its focused scale. */
+  --work-focus-inset: calc((1 - var(--work-focus-scale)) / 2 * 100%);
   --offline: grayscale(1) brightness(0.62);
   --backdrop-dim: brightness(0.72) saturate(0.9);
 
@@ -50,7 +52,7 @@
   --weight-title-max: 750;
   --weight-poster: 650;
   --stretch-title-min: 62%;
-  --stretch-title-max: 125%;
+  --stretch-title-max: 100%;
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -66,6 +68,10 @@
   /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
   --space-work-gap: 1.75rem;
   --space-light: 4rem;
+  /* A work's width on a shelf: a poster, and a wide (16:9) work. */
+  --work-poster: 11rem;
+  --work-wide: 21rem;
+  --menu-width: 22rem;
   --round-work: 0.125rem;
   --round-control: 0.375rem;
   --hairline: 1px;
@@ -174,6 +180,7 @@
   --spacing-measure: var(--placard-measure);
   --spacing-work-gap: var(--space-work-gap);
   --spacing-light: var(--space-light);
+  --spacing-menu: var(--menu-width);
 
   --ease-out: var(--curve-out);
   --default-transition-duration: var(--dur-control);

@@ -11,7 +11,7 @@ import type { ItemSummary } from "@/lib/api";
 import { remPx, rems, scrollBehavior } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openItemMenu, useMenuOpenOn } from "./ItemMenu";
-import { Work, workLabel, type WorkShape } from "./Work";
+import { ASPECT, Work, workLabel, type WorkShape } from "./Work";
 
 export interface ShelfProps {
   /** Unique among live focus groups; also the shelf's light. */
@@ -23,7 +23,7 @@ export interface ShelfProps {
   /** Every work that takes focus, from any device. */
   onFocusItem?: (item: ItemSummary) => void;
   shape?: WorkShape;
-  /** A work's width in rem. Default 11 for posters, 21 for wide works. */
+  /** A work's width in rem. Default `--work-poster` or `--work-wide` from tokens.css. */
   size?: number;
   /** The light's shared id. Default "work-light": one light for the screen. */
   light?: string;
@@ -87,7 +87,7 @@ export function Shelf({
   onOpen,
   onFocusItem,
   shape = "poster",
-  size = shape === "poster" ? 11 : 21,
+  size = rems(shape === "poster" ? "--work-poster" : "--work-wide"),
   light = "work-light",
   className,
 }: ShelfProps) {
@@ -135,6 +135,15 @@ export function Shelf({
     virtual.refresh();
   }, [items, size, virtual]);
 
+  // One slot in from the left edge; the bridge leaves scrolling to the shelf (`reveals`).
+  const slideTo = useCallback(
+    (index: number) => {
+      const slot = (latest.current.size + rems("--space-work-gap")) * remPx();
+      scroller()?.scrollTo({ left: Math.max(0, (index - 1) * slot), behavior: scrollBehavior() });
+    },
+    [scroller],
+  );
+
   const move = useCallback<GroupMove>(
     (event, { from }) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return undefined;
@@ -146,10 +155,12 @@ export function Shelf({
       if (to === null) return undefined;
       // At an end the press stays here, and the bridge may carry it to the next group.
       if (to < 0 || to >= list.length) return from.key;
-      if (!virtual.items().some((v) => v.index === to)) virtual.scrollToIndex(to, { align: "center" });
+      // The shelf slides the target to its slot now; a work not rendered yet renders as it nears,
+      // and focus follows when it binds. Its focus then asks for the same slot, so there is one scroll.
+      slideTo(to);
       return itemKey(list[to]!);
     },
-    [virtual],
+    [slideTo],
   );
 
   const open = useCallback((item: ItemSummary) => latest.current.onOpen(item), []);
@@ -161,15 +172,13 @@ export function Shelf({
       remembered.current = itemKey(item);
       latest.current.onFocusItem?.(item);
       if (useFocusState.getState().mode === "pointer") return;
-      // One slot in from the left edge; the bridge leaves scrolling to the shelf (`reveals`).
-      const slot = (latest.current.size + rems("--space-work-gap")) * remPx();
-      scroller()?.scrollTo({ left: Math.max(0, (index - 1) * slot), behavior: scrollBehavior() });
-      section.current?.scrollIntoView?.({ block: "nearest", behavior: scrollBehavior() });
+      slideTo(index);
+      section.current?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
     },
-    [scroller],
+    [slideTo],
   );
 
-  const height = size * (shape === "poster" ? 1.5 : 9 / 16);
+  const height = size * ASPECT[shape];
   const gap = rems("--space-work-gap");
   return (
     <section ref={section} aria-label={title} className={cn("flex flex-col", className)}>
@@ -180,7 +189,7 @@ export function Shelf({
         move={move}
         reveals
         aria-label={title}
-        className="-mt-light overflow-x-auto overflow-y-hidden px-edge pt-light pb-8 [scrollbar-width:none]"
+        className="-mt-light overflow-x-auto overflow-y-hidden px-edge pt-light pb-8"
       >
         <div
           className="relative"

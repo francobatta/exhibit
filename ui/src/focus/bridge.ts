@@ -7,6 +7,7 @@
 import { nearestInDirection, type SpatialRect } from "@ui-sdk/core";
 import { registerShortcut } from "@ui-sdk/core/shortcuts";
 import { create } from "zustand";
+import { scrollBehavior } from "@/lib/motion";
 import { useNav } from "@/nav/stack";
 import { fieldKeeps, isTextField } from "./input/keys";
 
@@ -337,8 +338,6 @@ function onKeyDown(event: KeyboardEvent) {
   }
 }
 
-const reducedMotion = () =>
-  typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 function onFocusIn(event: FocusEvent) {
   const el = itemAt(event.target);
@@ -351,11 +350,7 @@ function onFocusIn(event: FocusEvent) {
   useFocusState.setState({ key: item.key, item, canBack: computeCanBack() });
   scopeOf(el)?.onFocusKey?.(item.key);
   if (state.mode !== "pointer" && !groupOf(el)?.reveals) {
-    el.scrollIntoView?.({
-      block: "nearest",
-      inline: "nearest",
-      behavior: reducedMotion() ? "auto" : "smooth",
-    });
+    el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: scrollBehavior() });
   }
 }
 

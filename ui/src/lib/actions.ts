@@ -3,7 +3,7 @@
 // rule changes in one place.
 
 import { useMemo } from "react";
-import { confirm } from "@/components/Dialog";
+import { confirm, type ConfirmRequest } from "@/components/Dialog";
 import { toast } from "@/components/ui/toast";
 import { useNav } from "@/nav/stack";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
@@ -103,13 +103,6 @@ export function itemActions(item: ActionItem): Action[] {
   }
   if (f.kind === "movie" || f.kind === "show") list.push({ id: "other", label: "Send to Other" });
   return list;
-}
-
-export interface ConfirmRequest {
-  title: string;
-  body: string;
-  /** The label of the button that goes ahead. */
-  confirm: string;
 }
 
 /** What `runAction` needs from the app: the library mutations, navigation and two dialogs. */

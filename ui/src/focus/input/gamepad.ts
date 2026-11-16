@@ -118,7 +118,7 @@ function perform(action: PadAction, onSettings: () => void) {
 }
 
 function readPad(): PadSnapshot | null {
-  for (const g of navigator.getGamepads?.() ?? []) {
+  for (const g of navigator.getGamepads()) {
     if (g?.connected) return { buttons: g.buttons.map((b) => b.pressed), axes: g.axes };
   }
   return null;

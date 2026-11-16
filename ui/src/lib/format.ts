@@ -66,3 +66,12 @@ export function episodeLabel(s: number | null, e: number | null): string {
 export function count(n: number, one: string, many: string): string {
   return `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
 }
+
+/** How a placard and a work name the watched state and a missing drive. */
+export const WATCHED = "Watched";
+export const OFFLINE = "Offline";
+
+/** How far through a started, unwatched work is (0..1), or null: nothing to show as progress. */
+export function started(watched: boolean, progress: number | null): number | null {
+  return !watched && progress !== null && Number.isFinite(progress) && progress > 0 ? Math.min(1, progress) : null;
+}

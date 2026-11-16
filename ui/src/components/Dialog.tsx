@@ -8,7 +8,6 @@ import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle, dialogBackdrop, dialogPanel } from "@/components/ui/dialog";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
-import type { ConfirmRequest } from "@/lib/actions";
 
 export interface DialogAction {
   label: string;
@@ -74,6 +73,14 @@ export function Dialog({ id, open, title, body, actions, onBack, onClosed, initi
       </FocusGroup>
     </FocusScope>
   );
+}
+
+/** A yes-or-no question before something that moves a work. */
+export interface ConfirmRequest {
+  title: string;
+  body: string;
+  /** The label of the button that goes ahead. */
+  confirm: string;
 }
 
 interface ConfirmState {

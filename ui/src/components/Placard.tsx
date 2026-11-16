@@ -3,7 +3,7 @@
 // with `format.facts` so a missing fact leaves no trace. A line with nothing to say is left out.
 
 import type { Item, ItemDetail, ItemSummary } from "@/lib/api";
-import { episodeLabel, facts, resolution, runtime } from "@/lib/format";
+import { OFFLINE, WATCHED, episodeLabel, facts, resolution, runtime, started } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { FitTitle } from "./FitTitle";
 
@@ -43,8 +43,9 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   let left: number | null = null;
   if (!watched && play !== null && play.position_s > 0 && play.duration_s > play.position_s) {
     left = (play.duration_s - play.position_s) / 60;
-  } else if (!watched && summary?.progress && minutes) {
-    left = minutes * (1 - summary.progress);
+  } else {
+    const done = summary ? started(watched, summary.progress) : null;
+    if (done !== null && minutes) left = minutes * (1 - done);
   }
   const leftText = left === null ? null : runtime(Math.max(1, Math.round(left)));
   const available = detail?.available ?? summary?.available ?? true;
@@ -55,8 +56,8 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
     facts: facts([
       runtime(minutes),
       picture,
-      watched ? "Watched" : leftText === null ? null : `${leftText} left`,
-      available ? null : "Offline",
+      watched ? WATCHED : leftText === null ? null : `${leftText} left`,
+      available ? null : OFFLINE,
     ]),
     overview: full?.overview?.trim() || null,
   };

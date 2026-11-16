@@ -7,8 +7,8 @@
 import { motion } from "motion/react";
 import { memo, useState } from "react";
 import { imageUrl, type ItemSummary } from "@/lib/api";
-import { episodeLabel, facts } from "@/lib/format";
-import { focusSpring } from "@/lib/motion";
+import { OFFLINE, WATCHED, episodeLabel, facts, started } from "@/lib/format";
+import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
 export type WorkShape = "poster" | "wide";
@@ -33,14 +33,16 @@ export function workLabel(item: ItemSummary): string {
     item.title,
     place,
     item.year === null ? null : String(item.year),
-    item.watched ? "Watched" : null,
-    item.available ? null : "Offline",
+    item.watched ? WATCHED : null,
+    item.available ? null : OFFLINE,
   ]);
 }
 
+/** Height over width: posters are 2:3, wide works 16:9. Shelves and walls size rows from it. */
+export const ASPECT: Record<WorkShape, number> = { poster: 3 / 2, wide: 9 / 16 };
 const RATIO: Record<WorkShape, string> = { poster: "aspect-[2/3]", wide: "aspect-video" };
-// Intrinsic sizes for the <img>, so the browser reserves the box before it decodes.
-const PIXELS: Record<WorkShape, [number, number]> = { poster: [300, 450], wide: [480, 270] };
+/** The intrinsic size given to an <img>, so the browser reserves its box before it decodes. */
+const IMAGE_WIDTH = 300;
 
 function artwork(item: ItemSummary, shape: WorkShape): string | null {
   return shape === "poster" ? imageUrl(item.poster, "s") : imageUrl(item.backdrop);
@@ -48,10 +50,13 @@ function artwork(item: ItemSummary, shape: WorkShape): string | null {
 
 function Typographic({ item, shape }: { item: ItemSummary; shape: WorkShape }) {
   return (
-    <div data-typographic className="absolute inset-0 flex items-end bg-wall-raised p-[8cqi]">
+    <div
+      data-typographic
+      className="absolute inset-0 flex items-end rounded-work bg-wall-raised p-[8cqi] ring-1 ring-line ring-inset"
+    >
       <p
         className={cn(
-          "font-display font-poster text-label [font-stretch:var(--stretch-poster)] tracking-title",
+          "text-left font-display font-poster text-label [font-stretch:var(--stretch-poster)] tracking-title",
           "[overflow-wrap:anywhere] text-pretty",
           shape === "poster" ? "line-clamp-6 text-[12cqi] leading-[1.02]" : "line-clamp-3 text-[7cqi] leading-[1.05]",
         )}
@@ -74,9 +79,9 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
   const src = artwork(item, shape);
   const [failed, setFailed] = useState<string | null>(null);
   const showArt = src !== null && failed !== src;
-  const progress = !item.watched && item.progress !== null && item.progress > 0 ? Math.min(1, item.progress) : null;
+  const progress = started(item.watched, item.progress);
   const spring = focusSpring();
-  const [w, h] = PIXELS[shape];
+  const scale = numberToken("--work-focus-scale");
 
   return (
     <div
@@ -102,15 +107,15 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
           item.available ? (focused ? "" : "[filter:var(--work-dim)]") : focused ? "grayscale" : "[filter:var(--offline)]",
         )}
         initial={false}
-        animate={{ scale: focused ? 1.06 : 1 }}
+        animate={{ scale: focused ? scale : 1 }}
         transition={spring}
       >
         {showArt ? (
           <img
             src={src}
             alt=""
-            width={w}
-            height={h}
+            width={IMAGE_WIDTH}
+            height={Math.round(IMAGE_WIDTH * ASPECT[shape])}
             loading="lazy"
             decoding="async"
             draggable={false}
@@ -139,13 +144,13 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
         )}
       </motion.div>
       {focused && (
-        // Outside the poster so its clipping cannot hide the light on its way in; the insets match the 1.06 scale.
+        // Outside the poster so its clipping cannot hide the light on its way in; the inset frames the focused scale.
         <motion.div
           data-light
           layoutId={`${light}-key`}
           aria-hidden
           transition={spring}
-          className="pointer-events-none absolute -inset-[3%] rounded-work shadow-[inset_0_0_0_1px_var(--lamp)]"
+          className="pointer-events-none absolute inset-(--work-focus-inset) rounded-work shadow-[inset_0_0_0_var(--hairline)_var(--lamp)]"
         />
       )}
     </div>

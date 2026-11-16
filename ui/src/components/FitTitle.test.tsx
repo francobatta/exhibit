@@ -5,8 +5,8 @@ import { FitTitle, fitWidth } from "./FitTitle";
 afterEach(cleanup);
 
 describe("fitWidth", () => {
-  test("a short title stretches to the widest", () => {
-    expect(fitWidth(200, 736)).toBe(125);
+  test("a short title stays at the normal width; titles never expand", () => {
+    expect(fitWidth(200, 736)).toBe(100);
   });
   test("a title that fits once narrowed takes the ratio", () => {
     expect(fitWidth(800, 736)).toBeCloseTo(92, 5);

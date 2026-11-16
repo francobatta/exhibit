@@ -92,6 +92,14 @@
     outline: none;
   }
 
+  /* A TV gallery shows no scrollbars; wheel, keys and the pad still scroll. */
+  * {
+    scrollbar-width: none;
+  }
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
   /* The pointer hides after 3 s still, and at once when a key or the gamepad takes over. */
   html[data-cursor-hidden],
   html[data-cursor-hidden] * {

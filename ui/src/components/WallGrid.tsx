@@ -30,7 +30,7 @@ import type { Id, ItemSummary } from "@/lib/api";
 import { remPx, rems, scrollBehavior } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openItemMenu, useMenuOpenOn } from "./ItemMenu";
-import { Work, workLabel, type WorkShape } from "./Work";
+import { ASPECT, Work, workLabel, type WorkShape } from "./Work";
 
 export const cellOf = (index: number, columns: number): GridCell => ({
   row: Math.floor(index / columns),
@@ -84,7 +84,7 @@ const wallGrid = definePrimitive({
       key: "active",
       rows: () => context.options().rows,
       cols: () => context.options().cols,
-      pageSize: () => 3,
+      pageSize: () => PAGE_ROWS,
       disabled: (cell) => isPastEnd(cell, context.options().cols, context.options().count),
       reveal: (cell) => context.options().reveal?.(cell),
     });
@@ -111,7 +111,12 @@ interface WallContext {
 const Context = createContext<WallContext | null>(null);
 
 
+/** Rows rendered past each edge of the view. */
 const OVERSCAN = 2;
+/** The focused row is kept between these fractions of the view's height. */
+const BAND = { top: 0.22, bottom: 0.78 };
+/** Rows Page Up and Page Down move. */
+const PAGE_ROWS = 3;
 
 const ARROWS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 
@@ -237,12 +242,15 @@ export function WallGrid({
   const visited = useRef(false);
 
   const rowPx = useCallback(() => {
-    const el = root.current;
     const rem = remPx();
     const gap = rems("--space-work-gap") * rem;
-    const inner = (el?.clientWidth ?? 0) - 2 * rems("--space-edge") * rem;
-    const cell = inner > 0 ? (inner - (latest.current.columns - 1) * gap) / latest.current.columns : 11 * rem;
-    return cell * (shape === "poster" ? 1.5 : 9 / 16) + gap;
+    const el = root.current;
+    // The virtualiser is asked before the wall has mounted; it is reset once it connects and has a width.
+    const cell =
+      el === null
+        ? rems("--work-poster") * rem
+        : (el.clientWidth - 2 * rems("--space-edge") * rem - (latest.current.columns - 1) * gap) / latest.current.columns;
+    return cell * ASPECT[shape] + gap;
   }, [shape]);
 
   // The row holding focus stays rendered wherever the wall scrolls.
@@ -346,11 +354,11 @@ export function WallGrid({
       if (useFocusState.getState().mode === "pointer") return;
       const el = root.current;
       const v = virtual.items().find((r) => r.index === row);
-      if (el === null || v === undefined || el.clientHeight === 0) return;
+      if (el === null || v === undefined) return;
       const top = rems("--space-light") * remPx() + v.start;
       const bottom = top + v.size;
       const h = el.clientHeight;
-      const band = { top: h * 0.22, bottom: h * 0.78 };
+      const band = { top: h * BAND.top, bottom: h * BAND.bottom };
       let target = el.scrollTop;
       if (v.size > band.bottom - band.top) target = top - (h - v.size) / 2;
       else if (top - el.scrollTop < band.top) target = top - band.top;
@@ -362,6 +370,17 @@ export function WallGrid({
   );
 
   const open = useCallback((item: ItemSummary) => latest.current.onOpen(item), []);
+
+  // One stable ref per row index, so a row is measured when it mounts, not on every virtualiser update.
+  const rowRefs = useRef(new Map<number, (el: HTMLDivElement | null) => () => void>());
+  const rowRef = (index: number) => {
+    let ref = rowRefs.current.get(index);
+    if (ref === undefined) {
+      ref = (el) => virtual.measure(index, el);
+      rowRefs.current.set(index, ref);
+    }
+    return ref;
+  };
   const ctx = useMemo<WallContext>(
     () => ({ handle, cols: columns, count, shape, light, open, focused }),
     [handle, columns, count, shape, light, open, focused],
@@ -378,7 +397,7 @@ export function WallGrid({
       "aria-rowcount": rows,
       "aria-colcount": columns,
       "data-focus-group": id,
-      className: cn("relative h-full overflow-y-auto overflow-x-hidden px-edge [scrollbar-width:none]", className),
+      className: cn("relative h-full overflow-y-auto overflow-x-hidden px-edge", className),
       children: (
         <div className="relative" style={{ height: `calc(${virtual.size()}px + var(--space-light))` }}>
           {rendered.map((v) => {
@@ -386,7 +405,7 @@ export function WallGrid({
             return (
               <div
                 key={v.index}
-                ref={(el) => virtual.measure(v.index, el)}
+                ref={rowRef(v.index)}
                 role="row"
                 aria-rowindex={v.index + 1}
                 className="absolute inset-x-0 grid"

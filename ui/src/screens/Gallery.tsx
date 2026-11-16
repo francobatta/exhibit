@@ -66,7 +66,7 @@ export function Gallery() {
   // A scope settles its focus as it mounts, so it waits for the data its first group shows.
   if (recent.isPending || movies.isPending) return null;
   return (
-    <div className="absolute inset-0 overflow-x-hidden overflow-y-auto pt-bar">
+    <div className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar">
       <FocusScope id="gallery" restoreKey={real[0] ? `item:${real[0].id}` : null}>
         <div className="flex flex-col gap-14 pb-24">
           <div className="flex min-h-[26rem] items-end px-edge pt-10">

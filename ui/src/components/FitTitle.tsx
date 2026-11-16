@@ -1,12 +1,13 @@
-// A title that fills its measure: Archivo's width axis is set between 62 and 125 so the line
-// meets the right edge instead of wrapping or shrinking. A title too long even at 62 wraps to
-// `maxLines` and then ends with an ellipsis.
+// A title that fits its measure: Archivo's width axis condenses a long title, between 100 and 62,
+// so the line meets the right edge instead of wrapping or shrinking. It never expands: a short title
+// stays at width 100. A title too long even at 62 wraps to `maxLines` and ends with an ellipsis.
 
 import { useLayoutEffect, useRef, type ElementType } from "react";
 import { cn } from "@/lib/utils";
 
+// --stretch-title-min and --stretch-title-max in tokens.css.
 export const STRETCH_MIN = 62;
-export const STRETCH_MAX = 125;
+export const STRETCH_MAX = 100;
 
 /** The width (font-stretch %) at which text `textWidthAt100` wide at 100% fills `measure`. */
 export function fitWidth(textWidthAt100: number, measure: number): number {
@@ -54,7 +55,7 @@ export function FitTitle({ text, maxLines = 2, className, as: Tag = "h2" }: FitT
     fit();
     const observer = new ResizeObserver(fit);
     observer.observe(el);
-    void document.fonts?.ready.then(fit);
+    void document.fonts.ready.then(fit);
     return () => observer.disconnect();
   }, [text]);
 
