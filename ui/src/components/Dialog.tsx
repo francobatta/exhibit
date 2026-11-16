@@ -29,6 +29,8 @@ export interface DialogProps {
   onClosed?: () => void;
   /** The button focused when it opens. Default the first. */
   initial?: number;
+  /** An item among `children` to focus when it opens, instead of a button. */
+  restoreKey?: string;
   children?: ReactNode;
 }
 
@@ -50,7 +52,7 @@ function DialogButton({ id, index, action }: { id: string; index: number; action
   );
 }
 
-export function Dialog({ id, open, title, body, actions, onBack, onClosed, initial = 0, children }: DialogProps) {
+export function Dialog({ id, open, title, body, actions, onBack, onClosed, initial = 0, restoreKey, children }: DialogProps) {
   return (
     <FocusScope
       id={id}
@@ -59,7 +61,7 @@ export function Dialog({ id, open, title, body, actions, onBack, onClosed, initi
       label={title}
       onBack={onBack}
       onClosed={onClosed}
-      restoreKey={`${id}:${initial}`}
+      restoreKey={restoreKey ?? `${id}:${initial}`}
       className={dialogPanel}
       backdropClassName={dialogBackdrop}
     >

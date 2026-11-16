@@ -4,7 +4,7 @@ import { films } from "../../test/fixtures";
 import { installBridge } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
-import { WallGrid, cellOf, indexOf, isPastEnd, wallColumns } from "./WallGrid";
+import { WallGrid, cellOf, indexOf, wallColumns } from "./WallGrid";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -39,12 +39,6 @@ describe("cell math", () => {
     expect(cellOf(9, 7)).toEqual({ row: 1, col: 2 });
     expect(indexOf({ row: 1, col: 2 }, 7)).toBe(9);
     for (let i = 0; i < 40; i++) expect(indexOf(cellOf(i, 9), 9)).toBe(i);
-  });
-  test("cells past the end of a short last row", () => {
-    expect(isPastEnd({ row: 1, col: 2 }, 7, 10)).toBe(false);
-    expect(isPastEnd({ row: 1, col: 3 }, 7, 10)).toBe(true);
-    expect(isPastEnd({ row: 2, col: 0 }, 7, 10)).toBe(true);
-    expect(isPastEnd({ row: 0, col: 6 }, 7, 7)).toBe(false);
   });
   test("columns by window width", () => {
     expect(wallColumns(1280)).toBe(7);

@@ -19,7 +19,7 @@ import {
   type WallKind,
   type WallView,
 } from "@/components/WallControls";
-import { WallGrid, wallColumns } from "@/components/WallGrid";
+import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { mainAction, runMain, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemSummary } from "@/lib/api";
@@ -58,6 +58,21 @@ export function groupByFolder<T extends { title: string }>(
       title: folder.split(/[\\/]/).at(-1) ?? folder,
       items: list.sort((a, b) => byName(a.title, b.title)),
     }));
+}
+
+/**
+ * Other items as the wall hangs them: grouped by the folder their file is in, each group under a
+ * heading. Files at a source's root have no folder name; they come first, with no heading.
+ */
+function byFolder(items: ItemSummary[]): { items: ItemSummary[]; headings: WallHeading[] } {
+  const groups = groupByFolder(items, (i) => i.path ?? "");
+  const headings: WallHeading[] = [];
+  let at = 0;
+  for (const g of groups) {
+    if (g.title !== "") headings.push({ at, title: g.title });
+    at += g.items.length;
+  }
+  return { items: groups.flatMap((g) => g.items), headings };
 }
 
 const subscribeWidth = (onChange: () => void) => {
@@ -119,8 +134,13 @@ export function Wall({ kind, view, onView }: WallProps) {
 function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] }) {
   const columns = columnsFor(useSyncExternalStore(subscribeWidth, windowWidth), kind, true);
   const [focused, setFocused] = useState<Id | null>(null);
+  // Other hangs grouped by folder, each group under its folder's name.
+  const hung = useMemo(() => (kind === "other" ? byFolder(items) : { items, headings: undefined }), [kind, items]);
   // The focused work as the library last reported it; the first one before anything has focus.
-  const current = items.find((i) => i.id === focused) ?? items[0];
+  const current = hung.items.find((i) => i.id === focused) ?? hung.items[0];
+  // The genres on this wall as its other filters leave it, so choosing one never hides the rest.
+  const pool = useItems(useMemo(() => wallQuery(kind, { ...view, genre: null }), [kind, view])).items;
+  const genres = useMemo(() => [...new Set(pool.flatMap((i) => i.genres))].sort(byName), [pool]);
 
   const [selected, setSelected] = useState<ReadonlySet<Id> | null>(null);
   const ctx = useActionContext();
@@ -185,7 +205,8 @@ function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] 
           <div data-wheel-steps className="wall-fade min-w-0 flex-1">
             <WallGrid
               id={`wall-${kind}`}
-              items={items}
+              items={hung.items}
+              headings={hung.headings}
               columns={columns}
               shape={kind === "other" ? "wide" : "poster"}
               onOpen={open}
@@ -207,6 +228,7 @@ function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] 
         view={view}
         onView={onView}
         total={items.length}
+        genres={genres}
         selection={selected === null ? undefined : { count: selected.size, onMark: (w) => void mark(w), onDone: done }}
       />
     </div>

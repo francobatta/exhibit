@@ -39,9 +39,6 @@ export const cellOf = (index: number, columns: number): GridCell => ({
   col: index % columns,
 });
 export const indexOf = (cell: GridCell, columns: number): number => cell.row * columns + cell.col;
-/** A cell with no work: past the end of a short last row, or below the last row. */
-export const isPastEnd = (cell: GridCell, columns: number, count: number): boolean =>
-  indexOf(cell, columns) >= count;
 
 /** Columns for a window this many CSS px wide: 7 up to 1920, 9 up to 2560, 11 wider. */
 export function wallColumns(width: number): number {
