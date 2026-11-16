@@ -116,7 +116,8 @@ function Spotlight({ rows }: { rows: Row[] }) {
   }, []);
 
   return (
-    <div className="absolute inset-0 overflow-clip">
+    // The wheel moves by shelves and works here, through the arrow keys (focus/input/wheel.ts).
+    <div data-wheel-steps className="absolute inset-0 overflow-clip">
       <div className="flex h-full flex-col">
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
@@ -204,8 +205,8 @@ function Shelves({
       if (el !== null) stopGlide(el);
     };
   }, []);
-  // Only the shelf in view is reachable, so Down from the top bar lands on it and not on a shelf
-  // slid out above. Up or Down inside the region first opens its neighbour, synchronously, so the
+  // Only the shelf in view is reachable (its neighbours' titles stay pointer targets), so Down from
+  // the top bar lands on it and not on a shelf slid out above. Up or Down inside the region first opens its neighbour, synchronously, so the
   // focus bridge (listening on the document, after this) can cross into it.
   const [reach, setReach] = useState<number | null>(null);
   useEffect(() => setReach(null), [active]);
@@ -214,6 +215,11 @@ function Shelves({
     const next = event.key === "ArrowUp" ? active - 1 : event.key === "ArrowDown" ? active + 1 : -1;
     if (next >= 0 && next < rows.length) flushSync(() => setReach(next));
   };
+  // A pointer on a shelf's title (the peeking one) opens it before the shelf focuses its work.
+  const openers = useMemo(
+    () => Array.from({ length: rows.length }, (_, i) => () => flushSync(() => setReach(i))),
+    [rows.length],
+  );
   // One stable handler per shelf, so a focus move re-renders no shelf (they are memoised).
   const handlers = useMemo(
     () => Array.from({ length: rows.length }, (_, i) => (item: ItemSummary) => onFocusItem(item, i)),
@@ -234,7 +240,6 @@ function Shelves({
         {rows.map((row, i) => (
           <div
             key={row.shelf}
-            inert={i !== active && i !== reach}
             ref={(el) => {
               els.current[i] = el;
             }}
@@ -245,6 +250,8 @@ function Shelves({
               items={row.items}
               onOpen={onOpen}
               onFocusItem={handlers[i]}
+              inert={i !== active && i !== reach}
+              onEnter={openers[i]}
             />
           </div>
         ))}
@@ -252,4 +259,5 @@ function Shelves({
     </div>
   );
 }
+
 

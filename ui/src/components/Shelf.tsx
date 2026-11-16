@@ -5,7 +5,7 @@
 
 import { createVirtualizer } from "@ui-sdk/core";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from "react";
-import { useFocusState } from "@/focus/bridge";
+import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem, type GroupMove } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
 import { glideScroll, remPx, rems, scrollBehavior, stopGlide } from "@/lib/motion";
@@ -27,6 +27,13 @@ export interface ShelfProps {
   size?: number;
   /** The light's shared id. Default "work-light": one light for the screen. */
   light?: string;
+  /** The works cannot be reached (a screen shows the shelf only in passing); the title still can. */
+  inert?: boolean;
+  /**
+   * With this, the title is a pointer target that enters the shelf: it calls `onEnter` (where the
+   * screen makes the shelf reachable), then focuses the work the shelf remembers, else its first.
+   */
+  onEnter?: () => void;
   className?: string;
 }
 
@@ -93,6 +100,8 @@ export const Shelf = memo(function Shelf({
   shape = "poster",
   size = rems(shape === "poster" ? "--work-poster" : "--work-wide"),
   light = "work-light",
+  inert,
+  onEnter,
   className,
 }: ShelfProps) {
   const section = useRef<HTMLElement>(null);
@@ -150,6 +159,21 @@ export const Shelf = memo(function Shelf({
     [scroller],
   );
 
+  // The least glide that shows the whole work at `index`, inside the shelf's edge padding.
+  const reveal = useCallback(
+    (index: number) => {
+      const el = scroller();
+      if (el === null) return;
+      const rem = remPx();
+      const edge = rems("--space-edge") * rem;
+      const left = edge + index * (latest.current.size + rems("--space-work-gap")) * rem;
+      const right = left + latest.current.size * rem;
+      if (right > el.scrollLeft + el.clientWidth - edge) glideScroll(el, "left", right - el.clientWidth + edge);
+      else if (left < el.scrollLeft + edge) glideScroll(el, "left", left - edge);
+    },
+    [scroller],
+  );
+
   const move = useCallback<GroupMove>(
     (event, { from }) => {
       if (event.altKey || event.ctrlKey || event.metaKey) return undefined;
@@ -177,20 +201,45 @@ export const Shelf = memo(function Shelf({
       if (item === undefined) return;
       remembered.current = itemKey(id, item);
       latest.current.onFocusItem?.(item);
-      if (useFocusState.getState().mode === "pointer") return;
+      // A pointer brings a work partly past the edge just into view; it does not slide the shelf
+      // away from under itself.
+      if (useFocusState.getState().mode === "pointer") return reveal(index);
       slideTo(index);
       section.current?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
     },
-    [slideTo, id],
+    [slideTo, reveal, id],
   );
+
+  const enter = useCallback(() => {
+    const first = latest.current.items[0];
+    if (first === undefined) return;
+    onEnter?.();
+    focusItem(remembered.current ?? itemKey(id, first));
+  }, [onEnter, id]);
 
   const height = size * ASPECT[shape];
   const gap = rems("--space-work-gap");
   return (
     <section ref={section} aria-label={title} className={cn("flex flex-col", className)}>
-      <h2 className="mb-6 px-edge font-display text-lead font-ui text-label-dim">{title}</h2>
+      <h2 className="mb-6 px-edge font-display text-lead font-ui text-label-dim">
+        {onEnter ? (
+          // Not a focus item: a pointer target only, which keeps focus where it is until it enters.
+          <button
+            type="button"
+            tabIndex={-1}
+            onPointerDown={(e) => e.preventDefault()}
+            onClick={enter}
+            className="cursor-pointer transition-colors hover:text-label"
+          >
+            {title}
+          </button>
+        ) : (
+          title
+        )}
+      </h2>
       <FocusGroup
         id={id}
+        inert={inert}
         orientation="horizontal"
         move={move}
         reveals

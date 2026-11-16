@@ -48,6 +48,7 @@ import {
 import { startGamepad } from "./input/gamepad";
 import { fieldKeeps, startKeys } from "./input/keys";
 import { startPointer } from "./input/pointer";
+import { startWheel } from "./input/wheel";
 
 export type Orientation = "horizontal" | "vertical" | "spatial";
 
@@ -545,6 +546,7 @@ export function FocusRoot(props: FocusRootProps) {
       }),
       startKeys(),
       startPointer(),
+      startWheel(),
       startGamepad({ onSettings: () => latest.current.onSettings() }),
     ];
     return () => {

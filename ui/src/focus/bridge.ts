@@ -104,17 +104,45 @@ export function markEdge(event: Event): void {
   edges.add(event);
 }
 
-/** The id of the group nearest `from` in `dir`, or undefined at a true edge. Pure. */
+/**
+ * The part of `rect` straight ahead of `from` when moving along `dir`: where the two overlap across
+ * the movement, only the overlap. UI SDK `nearestInDirection` scores centres inside a 45 degree
+ * cone, so a wide group just above a work near the screen's edge (a full-width shelf) has its
+ * centre far to the side and loses to a group further away; seen from the work, it is ahead.
+ */
+function ahead(rect: Box, from: Box, dir: Dir): Box {
+  if (dir[0] === 0) {
+    const left = Math.max(rect.left, from.left);
+    const right = Math.min(rect.right, from.right);
+    return left < right ? { ...rect, left, right } : rect;
+  }
+  const top = Math.max(rect.top, from.top);
+  const bottom = Math.min(rect.bottom, from.bottom);
+  return top < bottom ? { ...rect, top, bottom } : rect;
+}
+
+/** Whether `rect`'s centre lies within 45 degrees of `dir` from `from`'s, as UI SDK measures it. */
+function inCone(rect: Box, from: Box, dir: Dir): boolean {
+  const x = (rect.left + rect.right) / 2 - (from.left + from.right) / 2;
+  const y = (rect.top + rect.bottom) / 2 - (from.top + from.bottom) / 2;
+  const forward = x * dir[0] + y * dir[1];
+  return forward > 0 && Math.abs(dir[0] ? y : x) <= forward;
+}
+
+/**
+ * The id of the group nearest `from` in `dir`, or undefined at a true edge. Pure. Only a group
+ * that lies that way counts: at the end of a shelf nothing is to the right, so Right stays rather
+ * than jumping to the top bar far above.
+ */
 export function crossMove(
   candidates: Array<{ id: string; rect: Box }>,
   from: Box,
   dir: Dir,
 ): string | undefined {
-  return nearestInDirection(
-    from,
-    candidates.map((g) => ({ key: g.id, rect: g.rect })),
-    dir,
-  );
+  const straight = candidates
+    .map((g) => ({ key: g.id, rect: ahead(g.rect, from, dir) }))
+    .filter((g) => inCone(g.rect, from, dir));
+  return nearestInDirection(from, straight, dir);
 }
 
 const live = (el: Element) => el.isConnected && el.closest("[inert]") === null;
