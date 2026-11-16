@@ -128,6 +128,18 @@
     );
   }
 
+  /* Home's shelf region: shelves slide in and out softly at its top, and the next one fades out
+     at the window's foot. */
+  .shelf-peek {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black calc(var(--space-light) / 2),
+      black calc(100% - var(--home-peek)),
+      transparent 100%
+    );
+  }
+
   .backdrop-scrim {
     background:
       linear-gradient(

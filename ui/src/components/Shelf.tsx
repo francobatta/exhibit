@@ -8,7 +8,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem, type GroupMove } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
-import { remPx, rems, scrollBehavior } from "@/lib/motion";
+import { glideScroll, remPx, rems, scrollBehavior } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openItemMenu, useMenuOpenOn } from "./ItemMenu";
 import { ASPECT, Work, workLabel, type WorkShape } from "./Work";
@@ -139,7 +139,8 @@ export function Shelf({
   const slideTo = useCallback(
     (index: number) => {
       const slot = (latest.current.size + rems("--space-work-gap")) * remPx();
-      scroller()?.scrollTo({ left: Math.max(0, (index - 1) * slot), behavior: scrollBehavior() });
+      const el = scroller();
+      if (el !== null) glideScroll(el, "left", Math.max(0, (index - 1) * slot));
     },
     [scroller],
   );

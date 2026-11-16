@@ -37,6 +37,15 @@ Element.prototype.scrollTo = function (this: Element, a?: ScrollToOptions | numb
   this.dispatchEvent(new Event("scroll"));
 } as Element["scrollTo"];
 Object.defineProperty(navigator, "getGamepads", { configurable: true, value: () => [] });
+// Motion in tests is instant (durations are zero above); code-driven scrolls follow the same rule
+// by seeing the owner's reduced-motion preference, so a spring-driven slide lands at once.
+{
+  const real = window.matchMedia.bind(window);
+  window.matchMedia = (query: string) =>
+    query === "(prefers-reduced-motion: reduce)"
+      ? Object.defineProperty(real(query), "matches", { value: true })
+      : real(query);
+}
 // A FontFaceSet is an EventTarget; UI SDK's popup positioning listens to it.
 const fonts = Object.assign(new EventTarget(), { ready: Promise.resolve(), status: "loaded" });
 Object.defineProperty(document, "fonts", { configurable: true, value: fonts });

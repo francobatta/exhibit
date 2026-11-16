@@ -72,6 +72,11 @@
   --work-poster: 11rem;
   --work-wide: 21rem;
   --menu-width: 22rem;
+  /* Home: the space between the hero placard and the shelves' light, the gap between shelves,
+     and how much of the next shelf shows below the one in view. */
+  --home-placard-foot: 1.5rem;
+  --home-shelf-gap: 2.5rem;
+  --home-peek: 3.5rem;
   --round-work: 0.125rem;
   --round-control: 0.375rem;
   --hairline: 1px;

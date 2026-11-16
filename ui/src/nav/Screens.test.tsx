@@ -11,7 +11,7 @@ import { useNav } from "./stack";
 function summary(id: number): ItemSummary {
   return {
     id,
-    kind: "movie",
+    kind: "show",
     title: `Film ${id}`,
     year: 1979,
     season: null,
@@ -76,13 +76,13 @@ test("Back returns focus to the item the previous screen remembered, through the
   expect(activeKey()).toBe("item:2");
   expect(useNav.getState().focusKey).toBe("item:2");
 
-  // Opens the details screen, whose stub has a focusable item.
+  // A on a show opens its screen, whose stub has a focusable item.
   await act(async () => {
     (document.activeElement as HTMLElement).click();
     await sleep(20);
   });
   await settle();
-  expect(useNav.getState().current).toEqual({ screen: "details", id: 2 });
+  expect(useNav.getState().current).toEqual({ screen: "show", id: 2 });
   expect(activeKey()).toBe("stub:back");
   expect(activeEntry()).not.toBe(home);
 

@@ -1,6 +1,8 @@
 // Motion's timings and the layout numbers code needs, read from tokens.css so values live in one
 // place. A token that is missing is a bug, and throws.
 
+import { animate } from "motion/react";
+
 // A computed style is live, so one read of it stays current.
 let root: CSSStyleDeclaration | null = null;
 
@@ -66,4 +68,21 @@ export function rems(name: string): number {
 /** How code-driven scrolls move: smooth, or at once when the owner prefers reduced motion. */
 export function scrollBehavior(): ScrollBehavior {
   return matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+}
+
+const glides = new WeakMap<Element, { stop(): void }>();
+
+/**
+ * Slides a scroller to `to` on the focus spring, or at once when the owner prefers reduced motion.
+ * Motion writes the position every frame. A native smooth scroll is not used: in WebView2 it is cut
+ * short by any other scroll in the same chain, such as Chromium's own focus scroll.
+ */
+export function glideScroll(el: HTMLElement, axis: "left" | "top", to: number): void {
+  glides.get(el)?.stop();
+  if (scrollBehavior() === "auto") {
+    el.scrollTo({ [axis]: to });
+    return;
+  }
+  const from = axis === "left" ? el.scrollLeft : el.scrollTop;
+  glides.set(el, animate(from, to, { ...focusSpring(), onUpdate: (v) => el.scrollTo({ [axis]: v }) }));
 }
