@@ -5,15 +5,25 @@ import { cn } from "@/lib/utils";
 import { buttonVariants } from "./button";
 
 export type ToggleProps = Omit<ComponentProps<typeof TogglePart>, "className"> &
-  Pick<VariantProps<typeof buttonVariants>, "size"> & { className?: string };
+  Pick<VariantProps<typeof buttonVariants>, "size"> & {
+    /** `line` (Loved, Watched): a hairline that firms up when pressed. `plain`: text on the wall, framed by a hairline when pressed. */
+    variant?: "line" | "plain";
+    className?: string;
+  };
 
-/** A button that stays pressed (Loved, Watched); pressed reads as label white. */
-export function Toggle({ className, size, ...props }: ToggleProps) {
+const pressed = {
+  line: "data-pressed:border-label-dim",
+  plain: "data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-label-faint",
+};
+
+/** A button that stays pressed; pressed reads as label white. */
+export function Toggle({ className, size, variant = "line", ...props }: ToggleProps) {
   return (
     <TogglePart
       className={cn(
-        buttonVariants({ variant: "line", size }),
-        "text-label-dim data-pressed:border-label-dim data-pressed:text-label",
+        buttonVariants({ variant, size }),
+        "text-label-dim data-pressed:text-label",
+        pressed[variant],
         className,
       )}
       {...props}

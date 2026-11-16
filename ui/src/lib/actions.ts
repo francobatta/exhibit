@@ -105,6 +105,21 @@ export function itemActions(item: ActionItem): Action[] {
   return list;
 }
 
+/** What A does on a work: a show (or season) opens; anything else plays or resumes. */
+export function mainAction(item: ActionItem): Action {
+  const actions = itemActions(item);
+  const { kind } = facetsOf(item);
+  const container = kind === "show" || kind === "season";
+  return (container ? actions.find((a) => a.id === "details") : undefined) ?? actions[0]!;
+}
+
+/** Runs A on `item`; one that cannot run says why. */
+export function runMain(item: ActionItem, ctx: ActionContext): void {
+  const action = mainAction(item);
+  if (action.disabled) ctx.fail(action.disabled);
+  else void runAction(action, item, ctx);
+}
+
 /** What `runAction` needs from the app: the library mutations, navigation and two dialogs. */
 export interface ActionContext {
   play(v: { id: Id; resume: boolean }): Promise<unknown>;

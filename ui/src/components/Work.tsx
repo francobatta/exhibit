@@ -104,7 +104,8 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
           "relative overflow-hidden rounded-work bg-wall-raised",
           "transition-[filter] duration-(--dur-screen) ease-out",
           RATIO[shape],
-          item.available ? (focused ? "" : "[filter:var(--work-dim)]") : focused ? "grayscale" : "[filter:var(--offline)]",
+          // A chosen work stays lit, so a selection reads at a glance.
+          item.available ? (focused || selected ? "" : "[filter:var(--work-dim)]") : focused ? "grayscale" : "[filter:var(--offline)]",
         )}
         initial={false}
         animate={{ scale: focused ? scale : 1 }}
@@ -140,7 +141,13 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
           </div>
         )}
         {selected && (
-          <div aria-hidden className="absolute top-[5cqi] left-[5cqi] size-[4cqi] rounded-full bg-lamp" />
+          <div
+            data-selected
+            aria-hidden
+            className="absolute top-[5cqi] left-[5cqi] size-[10cqi] rounded-full bg-lamp p-[1.5cqi] text-wall"
+          >
+            <Check />
+          </div>
         )}
       </motion.div>
       {focused && (

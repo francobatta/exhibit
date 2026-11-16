@@ -2,16 +2,21 @@
 // each entry remembers which element had focus so Back returns to it.
 
 import { create } from "zustand";
+import type { WallView } from "@/components/WallControls";
 import type { Id } from "@/lib/api";
 
 export type Route =
   | { screen: "home" }
-  | { screen: "wall"; kind: "movie" | "show" | "other" }
+  | { screen: "wall"; kind: "movie" | "show" | "other"; view?: WallView }
   | { screen: "show"; id: Id }
   | { screen: "details"; id: Id }
   | { screen: "review" }
   | { screen: "settings" }
   | { screen: "firstRun" };
+
+/** Whether two routes are the same place, whatever state they carry (a wall's sort and filters). */
+export const samePlace = (a: Route, b: Route) =>
+  a.screen === b.screen && (a.screen !== "wall" || (b.screen === "wall" && a.kind === b.kind));
 
 export interface Entry {
   /** Unique per visit, for React keys and focus memory. */
@@ -34,6 +39,8 @@ export interface NavState {
   replaceRoot(route: Route): void;
   /** Remembers what has focus on the current entry. */
   setFocusKey(key: string | null): void;
+  /** Replaces the route of entry `id`, keeping its place and focus (a wall's sort and filters). */
+  setRoute(id: number, route: Route): void;
 }
 
 let nextId = 1;
@@ -64,5 +71,11 @@ export const useNav = create<NavState>()((set, get) => ({
       const top = entries[entries.length - 1]!;
       entries[entries.length - 1] = { ...top, focusKey: key };
       return { entries, focusKey: key };
+    }),
+
+  setRoute: (id, route) =>
+    set((s) => {
+      const entries = s.entries.map((e) => (e.id === id ? { ...e, route } : e));
+      return { entries, current: entries[entries.length - 1]!.route };
     }),
 }));

@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { modalOpen } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
+import { DEFAULT_VIEW } from "@/components/WallControls";
 import { Home } from "@/screens/Home";
-import { useNav, type Entry, type Route } from "./stack";
+import { Wall } from "@/screens/Wall";
+import { samePlace, useNav, type Entry, type Route } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [
@@ -25,7 +27,7 @@ const SECTIONS: Route[] = [
 export function cycleSection(delta: -1 | 1): void {
   const { entries, replaceRoot } = useNav.getState();
   const root = entries[0]!.route;
-  const at = SECTIONS.findIndex((s) => JSON.stringify(s) === JSON.stringify(root));
+  const at = SECTIONS.findIndex((s) => samePlace(s, root));
   const next = at === -1 ? 0 : (at + delta + SECTIONS.length) % SECTIONS.length;
   replaceRoot(SECTIONS[next]!);
 }
@@ -62,14 +64,19 @@ function Stub({ title, body, pushed }: { title: string; body: string; pushed: bo
   );
 }
 
-function screenFor(route: Route, pushed: boolean): ReactNode {
+function screenFor(entry: Entry, pushed: boolean): ReactNode {
+  const route = entry.route;
   switch (route.screen) {
     case "home":
       return <Home />;
-    case "wall": {
-      const name = { movie: "Movies", show: "Shows", other: "Other" }[route.kind];
-      return <Empty title={name} body="This wall is hung in a later step." />;
-    }
+    case "wall":
+      return (
+        <Wall
+          kind={route.kind}
+          view={route.view ?? DEFAULT_VIEW}
+          onView={(view) => useNav.getState().setRoute(entry.id, { ...route, view })}
+        />
+      );
     case "show":
     case "details":
       return <Stub title="Details" body="This screen is built in a later step." pushed={pushed} />;
@@ -107,7 +114,7 @@ function Layer({ entry, top, pushed }: { entry: Entry; top: boolean; pushed: boo
         active={live}
         onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry.route, pushed)}
+        {screenFor(entry, pushed)}
       </FocusScope>
     </motion.div>
   );

@@ -140,6 +140,17 @@
     );
   }
 
+  /* A wall's grid region: works scroll softly out under the controls and at the window's foot. */
+  .wall-fade {
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0,
+      black calc(var(--space-light) / 2),
+      black calc(100% - var(--space-light)),
+      transparent 100%
+    );
+  }
+
   .backdrop-scrim {
     background:
       linear-gradient(

@@ -77,6 +77,10 @@
   --home-placard-foot: 1.5rem;
   --home-shelf-gap: 2.5rem;
   --home-peek: 3.5rem;
+  /* The wall: the details panel's share of the window beside the grid. */
+  --wall-panel: 26%;
+  /* The height of the row of controls above a wall. */
+  --wall-controls: 3.5rem;
   /* The keycap that names the button beside an action ("A", "Enter"). */
   --keycap: 1.75rem;
   --round-work: 0.125rem;
@@ -88,6 +92,8 @@
   --focus-damping: 40;
   --dur-backdrop: 450ms;
   --delay-backdrop: 140ms;
+  /* How long focus rests on a work before the wall's panel asks for its full record. */
+  --delay-panel: 250ms;
   --dur-open: 320ms;
   --dur-screen: 200ms;
   --dur-control: 120ms;

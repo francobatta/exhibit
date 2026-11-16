@@ -9,7 +9,7 @@ import { count } from "@/lib/format";
 import { useJobStatus, useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
-import { useNav, type Route } from "@/nav/stack";
+import { samePlace, useNav, type Route } from "@/nav/stack";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -20,9 +20,6 @@ const SECTIONS: Array<{ label: string; route: Route }> = [
   { label: "Shows", route: { screen: "wall", kind: "show" } },
   { label: "Other", route: { screen: "wall", kind: "other" } },
 ];
-
-const same = (a: Route, b: Route) =>
-  a.screen === b.screen && (a.screen !== "wall" || (b.screen === "wall" && a.kind === b.kind));
 
 const PHASE: Record<RefreshPhase, string> = {
   scanning: "Scanning",
@@ -110,7 +107,7 @@ export function TopBar() {
 
         <nav aria-label="Sections" className="-ml-4 flex items-center gap-1">
           {sections.map(({ label, route }) => {
-            const here = same(root, route);
+            const here = samePlace(root, route);
             return (
               <BarButton
                 key={label}

@@ -22,6 +22,9 @@ export function clock(seconds: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
 
+/** A frame this wide (or tall) is 4K, whatever it is cropped to. */
+export const UHD = { width: 3200, height: 2000 };
+
 /**
  * "4K", "1080p", "720p", "SD", with HDR after it ("4K Dolby Vision"). The width, when given, names
  * a frame cropped to a wide ratio (3840x1608 is 4K, not 1080p).
@@ -34,7 +37,7 @@ export function resolution(
   if (!finite(height) || height <= 0) return null;
   const w = finite(width) ? width : 0;
   const name =
-    height >= 2000 || w >= 3200
+    height >= UHD.height || w >= UHD.width
       ? "4K"
       : height >= 1000 || w >= 1800
         ? "1080p"
@@ -65,6 +68,57 @@ export function episodeLabel(s: number | null, e: number | null): string {
 /** "1 file", "214 files". */
 export function count(n: number, one: string, many: string): string {
   return `${n.toLocaleString("en-GB")} ${n === 1 ? one : many}`;
+}
+
+const languages = new Intl.DisplayNames(["en"], { type: "language" });
+
+/** "English" for "eng" or "en"; null for no code or one that names no language ("und"). */
+export function language(code: string | null): string | null {
+  const c = code?.trim();
+  if (!c) return null;
+  try {
+    const name = languages.of(c);
+    return name === undefined || name.toLowerCase() === c.toLowerCase() ? null : name;
+  } catch {
+    return null;
+  }
+}
+
+const CODECS: Record<string, string> = {
+  hevc: "HEVC",
+  h264: "H.264",
+  av1: "AV1",
+  vp9: "VP9",
+  mpeg2video: "MPEG-2",
+  truehd: "TrueHD",
+  eac3: "E-AC-3",
+  ac3: "AC-3",
+  dts: "DTS",
+  aac: "AAC",
+  flac: "FLAC",
+  opus: "Opus",
+  mp3: "MP3",
+};
+
+/** A codec as people know it: "HEVC", "TrueHD"; an unknown one in capitals. */
+export function codec(name: string | null): string | null {
+  const c = name?.trim().toLowerCase();
+  if (!c) return null;
+  return CODECS[c] ?? c.toUpperCase();
+}
+
+/** "Mono", "Stereo", "5.1", "7.1"; null for none. */
+export function channels(n: number | null): string | null {
+  if (!finite(n) || n <= 0) return null;
+  if (n === 1) return "Mono";
+  if (n === 2) return "Stereo";
+  return n >= 6 ? `${n - 1}.1` : `${n} channels`;
+}
+
+/** "12 November 2026". */
+export function day(unixSeconds: number): string | null {
+  if (!finite(unixSeconds) || unixSeconds <= 0) return null;
+  return new Date(unixSeconds * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
 
 /** How a placard and a work name the watched state and a missing drive. */

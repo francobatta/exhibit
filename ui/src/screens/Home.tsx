@@ -6,17 +6,16 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
+import { ActionLine } from "@/components/ActionLine";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
 import { Placard } from "@/components/Placard";
 import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
-import { useInputMode } from "@/focus/react";
-import { OFFLINE, itemActions, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
+import { mainAction, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
-import { facts } from "@/lib/format";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
-import { useItem, useJobStatus, useShelf, useStatus } from "@/lib/queries";
+import { useItem, useItemSources, useJobStatus, useShelf } from "@/lib/queries";
 
 /** Home's shelves, in order, each shown only when it has items. */
 const SHELVES: Array<{ shelf: ShelfName; limit: number; title: string }> = [
@@ -30,14 +29,6 @@ interface Row {
   shelf: ShelfName;
   title: string;
   items: ItemSummary[];
-}
-
-/** What A does on a work: a show (or season) opens; anything else plays or resumes. */
-export function mainAction(item: ActionItem): Action {
-  const actions = itemActions(item);
-  const kind = "item" in item ? item.item.kind : item.kind;
-  const container = kind === "show" || kind === "season";
-  return (container ? actions.find((a) => a.id === "details") : undefined) ?? actions[0]!;
 }
 
 export function Home() {
@@ -88,12 +79,9 @@ function Spotlight({ rows }: { rows: Row[] }) {
   const settled = useSettled(current.id, seconds("--delay-backdrop"));
   const loaded = useItem(current.id, settled === current.id).data;
   const detail = loaded?.item.id === current.id ? loaded : undefined;
-  const sources = useStatus().data?.sources;
   const action = mainAction(detail ?? current);
   // Which drive a disabled play waits for, when the full record says.
-  const drive = detail?.files
-    .map((f) => sources?.find((s) => s.id === f.source_id))
-    .find((s) => s !== undefined && !s.online)?.path;
+  const drive = useItemSources(detail).find((s) => !s.online)?.path;
 
   useEffect(() => {
     useBackdrop.getState().show(current.backdrop, current.poster);
@@ -106,10 +94,7 @@ function Spotlight({ rows }: { rows: Row[] }) {
   });
   const open = useCallback((item: ItemSummary) => {
     const { detail, ctx } = latest.current;
-    const subject: ActionItem = detail?.item.id === item.id ? detail : item;
-    const action = mainAction(subject);
-    if (action.disabled) ctx.fail(action.disabled);
-    else void runAction(action, subject, ctx);
+    runMain(detail?.item.id === item.id ? detail : item, ctx);
   }, []);
   const focus = useCallback((item: ItemSummary, row: ShelfName) => {
     setFocused(item);
@@ -137,36 +122,6 @@ function Spotlight({ rows }: { rows: Row[] }) {
         />
       </div>
     </div>
-  );
-}
-
-/** Why the main action cannot run, as the second half of the line:
- * "Play, the drive for D:\Movies is not connected". */
-function whyNot(reason: string, drive: string | undefined): string {
-  if (reason === OFFLINE && drive !== undefined) return `the drive for ${drive} is not connected`;
-  return reason.charAt(0).toLowerCase() + reason.slice(1);
-}
-
-/** The placard's last line: what A does, as text with the key that does it. Not focusable. */
-function ActionLine({ action, drive }: { action: Action; drive: string | undefined }) {
-  const mode = useInputMode();
-  if (action.disabled) {
-    return (
-      <p className="flex h-(--keycap) items-center font-display text-lead text-label-dim">
-        {facts([action.label, whyNot(action.disabled, drive)])}
-      </p>
-    );
-  }
-  const key = mode === "pad" ? "A" : mode === "keys" ? "Enter" : null;
-  return (
-    <p className="flex h-(--keycap) items-center gap-3 font-display text-lead font-ui text-label">
-      {key !== null && (
-        <kbd className="inline-flex h-(--keycap) min-w-(--keycap) items-center justify-center rounded-work px-2 font-display text-caption font-title text-label-dim ring-1 ring-line ring-inset">
-          {key}
-        </kbd>
-      )}
-      {action.label}
-    </p>
   );
 }
 

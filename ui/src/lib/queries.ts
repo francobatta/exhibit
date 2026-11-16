@@ -3,6 +3,7 @@
 // and put the cache back if the command fails.
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -22,6 +23,7 @@ import type {
   JobStatus,
   SearchQuery,
   Shelf,
+  Source,
 } from "./api";
 
 export const keys = {
@@ -64,14 +66,23 @@ export function useShelf(shelf: Shelf, limit: number) {
   return useQuery({ queryKey: keys.shelf(shelf, limit), queryFn: () => api.shelf(shelf, limit) });
 }
 
-/** Every item matching `query`, loaded in pages of 500; `items` is the pages flattened. */
+/**
+ * Every item matching `query`, loaded in pages of 500 one after another; `items` is the pages so
+ * far, flattened. A new query keeps showing the last one's items until its own arrive, so a list
+ * that is re-sorted or filtered stays in place (and keeps focus) meanwhile.
+ */
 export function useItems(query: Omit<SearchQuery, "limit" | "offset">) {
   const result = useInfiniteQuery({
     queryKey: keys.items(query),
     queryFn: ({ pageParam }) => api.search({ ...query, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => (last.length < PAGE ? undefined : all.length * PAGE),
+    placeholderData: keepPreviousData,
   });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = result;
+  useEffect(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const items = useMemo(() => result.data?.pages.flat() ?? [], [result.data]);
   return { ...result, items };
 }
@@ -90,6 +101,15 @@ export function useItem(id: Id | null, fetch = true) {
     enabled: id !== null && fetch,
     staleTime: ITEM_STALE,
   });
+}
+
+/** The folders a full record's files are on, as the library knows them now; none until both are known. */
+export function useItemSources(detail: ItemDetail | undefined): Source[] {
+  const sources = useStatus().data?.sources;
+  return useMemo(() => {
+    const ids = new Set(detail?.files.map((f) => f.source_id));
+    return sources?.filter((s) => ids.has(s.id)) ?? [];
+  }, [detail, sources]);
 }
 
 export function useNeedsReview() {
