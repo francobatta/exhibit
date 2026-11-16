@@ -50,16 +50,24 @@ const reading = "font-reading text-lead leading-reading text-label-dim";
 export function Empty({
   title,
   body,
+  status,
   action,
 }: {
   title: string;
   body?: string;
+  /** A quiet line on what is happening now, such as the library's job. */
+  status?: string;
   action?: StateAction;
 }) {
   return (
     <Panel>
       <h2 className={heading}>{title}</h2>
       {body && <p className={reading}>{body}</p>}
+      {status && (
+        <p role="status" className="font-display text-body text-label-faint">
+          {status}
+        </p>
+      )}
       {action && <Action action={action} />}
     </Panel>
   );

@@ -77,6 +77,8 @@
   --home-placard-foot: 1.5rem;
   --home-shelf-gap: 2.5rem;
   --home-peek: 3.5rem;
+  /* The keycap that names the button beside an action ("A", "Enter"). */
+  --keycap: 1.75rem;
   --round-work: 0.125rem;
   --round-control: 0.375rem;
   --hairline: 1px;

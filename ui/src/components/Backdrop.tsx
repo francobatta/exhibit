@@ -24,7 +24,7 @@ export const useBackdrop = create<BackdropState>()((set) => ({
 }));
 
 /** `value`, once it has stopped changing for `delayS` seconds. */
-function useSettled<T>(value: T, delayS: number): T {
+export function useSettled<T>(value: T, delayS: number): T {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setSettled(value), delayS * 1000);

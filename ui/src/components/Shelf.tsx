@@ -8,7 +8,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem, type GroupMove } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
-import { glideScroll, remPx, rems, scrollBehavior } from "@/lib/motion";
+import { glideScroll, remPx, rems, scrollBehavior, stopGlide } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openItemMenu, useMenuOpenOn } from "./ItemMenu";
 import { ASPECT, Work, workLabel, type WorkShape } from "./Work";
@@ -32,10 +32,14 @@ export interface ShelfProps {
 
 const OVERSCAN = 4;
 
-export const itemKey = (item: ItemSummary) => `item:${item.id}`;
-
+/**
+ * A work's focus key, namespaced by its shelf: a film on two shelves is two places, and Back
+ * returns to the one the owner left. The wall grid keys works as `item:<id>`.
+ */
+export const itemKey = (shelf: string, item: ItemSummary) => `${shelf}:item:${item.id}`;
 
 interface CellProps {
+  shelf: string;
   item: ItemSummary;
   index: number;
   shape: WorkShape;
@@ -45,10 +49,10 @@ interface CellProps {
   onFocused: (index: number) => void;
 }
 
-const ShelfCell = memo(function ShelfCell({ item, index, shape, size, light, onOpen, onFocused }: CellProps) {
+const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, onOpen, onFocused }: CellProps) {
   const el = useRef<HTMLButtonElement | null>(null);
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
-    key: itemKey(item),
+    key: itemKey(shelf, item),
     onSelect: () => onOpen(item),
     onMenu: () => openItemMenu(item, el.current),
   });
@@ -80,7 +84,7 @@ const ShelfCell = memo(function ShelfCell({ item, index, shape, size, light, onO
   );
 });
 
-export function Shelf({
+export const Shelf = memo(function Shelf({
   id,
   title,
   items,
@@ -98,7 +102,7 @@ export function Shelf({
   });
   // The work the shelf remembers stays rendered wherever it scrolls, so focus can come back to it.
   const remembered = useRef<string | null>(null);
-  const indexOf = useMemo(() => new Map(items.map((it, i) => [itemKey(it), i])), [items]);
+  const indexOf = useMemo(() => new Map(items.map((it, i) => [itemKey(id, it), i])), [items, id]);
   const indexRef = useRef(indexOf);
   indexRef.current = indexOf;
 
@@ -128,6 +132,7 @@ export function Shelf({
     return () => {
       disconnect();
       window.removeEventListener("resize", onResize);
+      stopGlide(el);
     };
   }, [virtual, scroller]);
 
@@ -159,9 +164,9 @@ export function Shelf({
       // The shelf slides the target to its slot now; a work not rendered yet renders as it nears,
       // and focus follows when it binds. Its focus then asks for the same slot, so there is one scroll.
       slideTo(to);
-      return itemKey(list[to]!);
+      return itemKey(id, list[to]!);
     },
-    [slideTo],
+    [slideTo, id],
   );
 
   const open = useCallback((item: ItemSummary) => latest.current.onOpen(item), []);
@@ -170,13 +175,13 @@ export function Shelf({
     (index: number) => {
       const item = latest.current.items[index];
       if (item === undefined) return;
-      remembered.current = itemKey(item);
+      remembered.current = itemKey(id, item);
       latest.current.onFocusItem?.(item);
       if (useFocusState.getState().mode === "pointer") return;
       slideTo(index);
       section.current?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
     },
-    [slideTo],
+    [slideTo, id],
   );
 
   const height = size * ASPECT[shape];
@@ -202,6 +207,7 @@ export function Shelf({
             return (
               <ShelfCell
                 key={item.id}
+                shelf={id}
                 item={item}
                 index={v.index}
                 shape={shape}
@@ -216,4 +222,4 @@ export function Shelf({
       </FocusGroup>
     </section>
   );
-}
+});

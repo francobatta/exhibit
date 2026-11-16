@@ -79,10 +79,10 @@ test("arrows walk the shelf by index, report the focused work and open it", asyn
   layout();
   await press("ArrowDown");
   layout();
-  expect(active()).toBe("item:1");
+  expect(active()).toBe("recent:item:1");
   await press("ArrowRight");
   await press("ArrowRight");
-  expect(active()).toBe("item:3");
+  expect(active()).toBe("recent:item:3");
   expect(focusedItems).toEqual([1, 2, 3]);
   await act(async () => {
     (document.activeElement as HTMLElement).click();
@@ -98,7 +98,7 @@ test("Left at the first work is left for the bridge; Up leaves the shelf", async
   await press("ArrowDown");
   layout();
   await press("ArrowLeft");
-  expect(active()).toBe("item:1");
+  expect(active()).toBe("recent:item:1");
   await press("ArrowUp");
   expect(active()).toBe("above");
 });
@@ -112,12 +112,12 @@ test("returning to the shelf lands on the work it remembers", async () => {
   await press("ArrowRight");
   await press("ArrowRight");
   await press("ArrowRight");
-  expect(active()).toBe("item:4");
+  expect(active()).toBe("recent:item:4");
   await press("ArrowUp");
   expect(active()).toBe("above");
   layout();
   await press("ArrowDown");
-  expect(active()).toBe("item:4");
+  expect(active()).toBe("recent:item:4");
 });
 
 test("End reaches the last work though it was not rendered", async () => {
@@ -125,10 +125,10 @@ test("End reaches the last work though it was not rendered", async () => {
   await tick();
   layout();
   await press("ArrowDown");
-  expect(document.querySelector('[data-focus-key="item:300"]')).toBeNull();
+  expect(document.querySelector('[data-focus-key="recent:item:300"]')).toBeNull();
   await press("End");
   await tick(50);
-  expect(active()).toBe("item:300");
+  expect(active()).toBe("recent:item:300");
 });
 
 // X, m and right-click all reach the focused item's onMenu through the bridge's openMenu.
@@ -144,5 +144,5 @@ test("X, m and right-click open the item menu on the focused work", async () => 
   const state = useItemMenu.getState();
   expect(state.open).toBe(true);
   expect(state.item && "id" in state.item ? state.item.id : null).toBe(1);
-  expect(state.anchor).toBe(document.querySelector<HTMLElement>('[data-focus-key="item:1"]'));
+  expect(state.anchor).toBe(document.querySelector<HTMLElement>('[data-focus-key="recent:item:1"]'));
 });

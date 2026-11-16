@@ -71,10 +71,10 @@ test("Back returns focus to the item the previous screen remembered, through the
   app();
   await settle();
   const home = String(useNav.getState().entries[0]!.id);
-  expect(activeKey()).toBe("item:1");
+  expect(activeKey()).toBe("home-continue_watching:item:1");
   await press("ArrowRight");
-  expect(activeKey()).toBe("item:2");
-  expect(useNav.getState().focusKey).toBe("item:2");
+  expect(activeKey()).toBe("home-continue_watching:item:2");
+  expect(useNav.getState().focusKey).toBe("home-continue_watching:item:2");
 
   // A on a show opens its screen, whose stub has a focusable item.
   await act(async () => {
@@ -90,8 +90,8 @@ test("Back returns focus to the item the previous screen remembered, through the
   await settle(150);
   expect(useNav.getState().entries.length).toBe(1);
   expect(activeEntry()).toBe(home);
-  expect(activeKey()).toBe("item:2");
-  expect(useNav.getState().entries[0]!.focusKey).toBe("item:2");
+  expect(activeKey()).toBe("home-continue_watching:item:2");
+  expect(useNav.getState().entries[0]!.focusKey).toBe("home-continue_watching:item:2");
 });
 
 test("the settings action does nothing when Settings is already on top or a modal is open", async () => {

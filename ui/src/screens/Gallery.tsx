@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useBackdrop } from "@/components/Backdrop";
 import { Placard } from "@/components/Placard";
-import { Shelf } from "@/components/Shelf";
+import { itemKey, Shelf } from "@/components/Shelf";
 import { WallGrid } from "@/components/WallGrid";
 import { FocusScope } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
@@ -67,7 +67,7 @@ export function Gallery() {
   if (recent.isPending || movies.isPending) return null;
   return (
     <div className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar">
-      <FocusScope id="gallery" restoreKey={real[0] ? `item:${real[0].id}` : null}>
+      <FocusScope id="gallery" restoreKey={real[0] ? itemKey("g-recent", real[0]) : null}>
         <div className="flex flex-col gap-14 pb-24">
           <div className="flex min-h-[26rem] items-end px-edge pt-10">
             {shown && <Placard item={shown} detail={detail?.item.id === shown.id ? detail : undefined} size="hero" />}

@@ -76,11 +76,19 @@ export function useItems(query: Omit<SearchQuery, "limit" | "offset">) {
   return { ...result, items };
 }
 
-export function useItem(id: Id | null) {
+/** Library changes refresh a record through `library-changed`; nothing else makes it stale. */
+const ITEM_STALE = 10 * 60_000;
+
+/**
+ * One full record. With `fetch` false only what is cached is returned, so a screen can show a
+ * record it has seen at once and ask for a new one only once focus has settled on it.
+ */
+export function useItem(id: Id | null, fetch = true) {
   return useQuery({
     queryKey: keys.item(id ?? -1),
     queryFn: () => api.item(id!),
-    enabled: id !== null,
+    enabled: id !== null && fetch,
+    staleTime: ITEM_STALE,
   });
 }
 

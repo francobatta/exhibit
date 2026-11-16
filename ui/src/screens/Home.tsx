@@ -4,17 +4,19 @@
 // scrolls and nothing passes under the top bar. A on a work runs its main action (play or resume;
 // a show opens), X opens the item menu.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useBackdrop } from "@/components/Backdrop";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { flushSync } from "react-dom";
+import { useBackdrop, useSettled } from "@/components/Backdrop";
 import { Placard } from "@/components/Placard";
 import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
 import { useInputMode } from "@/focus/react";
-import { itemActions, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
+import { OFFLINE, itemActions, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
-import { glideScroll, remPx } from "@/lib/motion";
-import { useItem, useJobStatus, useShelf } from "@/lib/queries";
+import { facts } from "@/lib/format";
+import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
+import { useItem, useJobStatus, useShelf, useStatus } from "@/lib/queries";
 
 /** Home's shelves, in order, each shown only when it has items. */
 const SHELVES: Array<{ shelf: ShelfName; limit: number; title: string }> = [
@@ -65,14 +67,11 @@ export function Home() {
   );
   if (rows.length === 0) {
     return (
-      <div className="flex flex-col">
-        <Empty title="Nothing here yet." body="Exhibit is still looking through your folders." />
-        {job !== null && (
-          <p role="status" className="-mt-12 px-edge font-display text-body text-label-faint">
-            {job}
-          </p>
-        )}
-      </div>
+      <Empty
+        title="Nothing here yet."
+        body="Exhibit is still looking through your folders."
+        status={job ?? undefined}
+      />
     );
   }
   return <Spotlight rows={rows} />;
@@ -83,8 +82,17 @@ function Spotlight({ rows }: { rows: Row[] }) {
   const [active, setActive] = useState(0);
   // The focused work as the library last reported it (marking it watched changes its facts).
   const current = rows.flatMap((r) => r.items).find((i) => i.id === focused.id) ?? focused;
-  const loaded = useItem(current.id).data;
+  // A record seen before shows at once; a new one is asked for once focus has settled, so a held
+  // direction does not fetch every work it crosses.
+  const settled = useSettled(current.id, seconds("--delay-backdrop"));
+  const loaded = useItem(current.id, settled === current.id).data;
   const detail = loaded?.item.id === current.id ? loaded : undefined;
+  const sources = useStatus().data?.sources;
+  const action = mainAction(detail ?? current);
+  // Which drive a disabled play waits for, when the full record says.
+  const drive = detail?.files
+    .map((f) => sources?.find((s) => s.id === f.source_id))
+    .find((s) => s !== undefined && !s.online)?.path;
 
   useEffect(() => {
     useBackdrop.getState().show(current.backdrop, current.poster);
@@ -102,6 +110,10 @@ function Spotlight({ rows }: { rows: Row[] }) {
     if (action.disabled) ctx.fail(action.disabled);
     else void runAction(action, subject, ctx);
   }, []);
+  const focus = useCallback((item: ItemSummary, row: number) => {
+    setFocused(item);
+    setActive(row);
+  }, []);
 
   return (
     <div className="absolute inset-0 overflow-clip">
@@ -112,34 +124,42 @@ function Spotlight({ rows }: { rows: Row[] }) {
             <Placard item={current} detail={detail} size="hero" />
             {/* Until the full record arrives, its description's two lines are held open. */}
             {detail === undefined && <p aria-hidden className="h-[2lh] font-reading text-lead leading-reading" />}
-            <ActionLine action={mainAction(detail ?? current)} />
+            <ActionLine action={action} drive={drive} />
           </div>
         </div>
         <Shelves
           rows={rows}
           active={active}
           onOpen={open}
-          onFocusItem={(item, row) => {
-            setFocused(item);
-            setActive(row);
-          }}
+          onFocusItem={focus}
         />
       </div>
     </div>
   );
 }
 
+/** Why the main action cannot run, as the second half of the line:
+ * "Play, the drive for D:\Movies is not connected". */
+function whyNot(reason: string, drive: string | undefined): string {
+  if (reason === OFFLINE && drive !== undefined) return `the drive for ${drive} is not connected`;
+  return reason.charAt(0).toLowerCase() + reason.slice(1);
+}
+
 /** The placard's last line: what A does, as text with the key that does it. Not focusable. */
-function ActionLine({ action }: { action: Action }) {
+function ActionLine({ action, drive }: { action: Action; drive: string | undefined }) {
   const mode = useInputMode();
   if (action.disabled) {
-    return <p className="font-display text-lead text-label-dim">{action.disabled}</p>;
+    return (
+      <p className="flex h-(--keycap) items-center font-display text-lead text-label-dim">
+        {facts([action.label, whyNot(action.disabled, drive)])}
+      </p>
+    );
   }
   const key = mode === "pad" ? "A" : mode === "keys" ? "Enter" : null;
   return (
-    <p className="flex h-[1.75rem] items-center gap-3 font-display text-lead font-ui text-label">
+    <p className="flex h-(--keycap) items-center gap-3 font-display text-lead font-ui text-label">
       {key !== null && (
-        <kbd className="inline-flex h-[1.75rem] min-w-[1.75rem] items-center justify-center rounded-full px-2 font-display text-caption font-title text-label-dim ring-1 ring-line ring-inset">
+        <kbd className="inline-flex h-(--keycap) min-w-(--keycap) items-center justify-center rounded-work px-2 font-display text-caption font-title text-label-dim ring-1 ring-line ring-inset">
           {key}
         </kbd>
       )}
@@ -178,10 +198,32 @@ function Shelves({
   useEffect(() => {
     if (region.current !== null) glideScroll(region.current, "top", top * remPx());
   }, [top]);
+  useEffect(() => {
+    const el = region.current;
+    return () => {
+      if (el !== null) stopGlide(el);
+    };
+  }, []);
+  // Only the shelf in view is reachable, so Down from the top bar lands on it and not on a shelf
+  // slid out above. Up or Down inside the region first opens its neighbour, synchronously, so the
+  // focus bridge (listening on the document, after this) can cross into it.
+  const [reach, setReach] = useState<number | null>(null);
+  useEffect(() => setReach(null), [active]);
+  const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const next = event.key === "ArrowUp" ? active - 1 : event.key === "ArrowDown" ? active + 1 : -1;
+    if (next >= 0 && next < rows.length) flushSync(() => setReach(next));
+  };
+  // One stable handler per shelf, so a focus move re-renders no shelf (they are memoised).
+  const handlers = useMemo(
+    () => Array.from({ length: rows.length }, (_, i) => (item: ItemSummary) => onFocusItem(item, i)),
+    [rows.length, onFocusItem],
+  );
 
   return (
     <div
       ref={region}
+      onKeyDownCapture={onKeyDownCapture}
       className="shelf-peek relative shrink-0 overflow-hidden pt-light"
       style={{
         height: `calc(${geometry?.height ?? 0}rem + var(--space-light) + var(--home-shelf-gap) + var(--home-peek))`,
@@ -192,6 +234,7 @@ function Shelves({
         {rows.map((row, i) => (
           <div
             key={row.shelf}
+            inert={i !== active && i !== reach}
             ref={(el) => {
               els.current[i] = el;
             }}
@@ -201,7 +244,7 @@ function Shelves({
               title={row.title}
               items={row.items}
               onOpen={onOpen}
-              onFocusItem={(item) => onFocusItem(item, i)}
+              onFocusItem={handlers[i]}
             />
           </div>
         ))}
@@ -209,5 +252,4 @@ function Shelves({
     </div>
   );
 }
-
 

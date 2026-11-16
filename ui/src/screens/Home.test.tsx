@@ -60,7 +60,7 @@ test("focusing a work puts its title on the placard", async () => {
   await settle();
   expect(placardTitle()).toBe("Taxi Driver");
   await act(async () => {
-    document.querySelector<HTMLElement>('[data-focus-key="item:2"]')!.focus();
+    document.querySelector<HTMLElement>('[data-focus-key="home-recently_added:item:2"]')!.focus();
     await sleep(20);
   });
   expect(placardTitle()).toBe("Heat");

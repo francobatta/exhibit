@@ -1,7 +1,7 @@
 // Motion's timings and the layout numbers code needs, read from tokens.css so values live in one
 // place. A token that is missing is a bug, and throws.
 
-import { animate } from "motion/react";
+import { animate, motionValue, type MotionValue } from "motion/react";
 
 // A computed style is live, so one read of it stays current.
 let root: CSSStyleDeclaration | null = null;
@@ -70,19 +70,36 @@ export function scrollBehavior(): ScrollBehavior {
   return matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
 }
 
-const glides = new WeakMap<Element, { stop(): void }>();
+// One Motion value per scroller, holding its position while it glides.
+const glides = new WeakMap<HTMLElement, MotionValue<number>>();
+
+const position = (el: HTMLElement, axis: "left" | "top") => (axis === "left" ? el.scrollLeft : el.scrollTop);
 
 /**
  * Slides a scroller to `to` on the focus spring, or at once when the owner prefers reduced motion.
- * Motion writes the position every frame. A native smooth scroll is not used: in WebView2 it is cut
- * short by any other scroll in the same chain, such as Chromium's own focus scroll.
+ * Motion writes the position every frame; a native smooth scroll is not used, since in WebView2 it
+ * is cut short by any other scroll in the same chain, such as Chromium's own focus scroll. A glide
+ * retargeted while it runs keeps its speed, so a held direction moves as one motion.
  */
 export function glideScroll(el: HTMLElement, axis: "left" | "top", to: number): void {
-  glides.get(el)?.stop();
+  let value = glides.get(el);
   if (scrollBehavior() === "auto") {
+    value?.stop();
     el.scrollTo({ [axis]: to });
     return;
   }
-  const from = axis === "left" ? el.scrollLeft : el.scrollTop;
-  glides.set(el, animate(from, to, { ...focusSpring(), onUpdate: (v) => el.scrollTo({ [axis]: v }) }));
+  if (value === undefined) {
+    value = motionValue(position(el, axis));
+    value.on("change", (v) => el.scrollTo({ [axis]: v }));
+    glides.set(el, value);
+  } else if (!value.isAnimating()) {
+    // At rest it starts from where the scroller is now, whatever moved it since.
+    value.jump(position(el, axis));
+  }
+  animate(value, to, focusSpring());
+}
+
+/** Stops a scroller's glide; for a scroller leaving the page. */
+export function stopGlide(el: HTMLElement): void {
+  glides.get(el)?.stop();
 }
