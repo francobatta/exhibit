@@ -46,6 +46,17 @@ test("crossMove picks the top bar when pressing up from the first shelf", () => 
   expect(crossMove(groups, poster, [0, -1])).toBe("bar");
 });
 
+test("crossMove reaches a short group off to the side ahead, but never one beside", () => {
+  const controls = { id: "controls", rect: box(0, 0, 300, 60), near: true };
+  const grid = { id: "grid", rect: box(0, 100, 1900, 800), near: true };
+  const farRightCell = box(1700, 120, 150, 220);
+  // Up from the far right: no group within 45 degrees, the controls row still lies above.
+  expect(crossMove([controls, grid], farRightCell, [0, -1])).toBe("controls");
+  // Right at the end of a short shelf: the bar above is not to the right.
+  const bar = { id: "bar", rect: box(0, 0, 1900, 60) };
+  expect(crossMove([bar], box(300, 600, 150, 220), [1, 0])).toBeUndefined();
+});
+
 test("crossMove finds nothing at a true edge", () => {
   const groups = [
     { id: "bar", rect: topBar },

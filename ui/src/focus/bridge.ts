@@ -111,14 +111,16 @@ export function markEdge(event: Event): void {
  * centre far to the side and loses to a group further away; seen from the work, it is ahead.
  */
 function ahead(rect: Box, from: Box, dir: Dir): Box {
+  // Built field by field: a DOMRect's fields are getters, which a spread would drop.
+  const { left, top, right, bottom } = rect;
   if (dir[0] === 0) {
-    const left = Math.max(rect.left, from.left);
-    const right = Math.min(rect.right, from.right);
-    return left < right ? { ...rect, left, right } : rect;
+    const l = Math.max(left, from.left);
+    const r = Math.min(right, from.right);
+    return l < r ? { left: l, top, right: r, bottom } : { left, top, right, bottom };
   }
-  const top = Math.max(rect.top, from.top);
-  const bottom = Math.min(rect.bottom, from.bottom);
-  return top < bottom ? { ...rect, top, bottom } : rect;
+  const t = Math.max(top, from.top);
+  const b = Math.min(bottom, from.bottom);
+  return t < b ? { left, top: t, right, bottom: b } : { left, top, right, bottom };
 }
 
 /** Whether `rect`'s centre lies within 45 degrees of `dir` from `from`'s, as UI SDK measures it. */
@@ -129,20 +131,31 @@ function inCone(rect: Box, from: Box, dir: Dir): boolean {
   return forward > 0 && Math.abs(dir[0] ? y : x) <= forward;
 }
 
+/** Whether all of `rect` lies past `from`'s leading edge in `dir` (a pixel of overlap allowed). */
+function past(rect: Box, from: Box, dir: Dir): boolean {
+  if (dir[1] < 0) return rect.bottom <= from.top + 1;
+  if (dir[1] > 0) return rect.top >= from.bottom - 1;
+  if (dir[0] < 0) return rect.right <= from.left + 1;
+  return rect.left >= from.right - 1;
+}
+
 /**
- * The id of the group nearest `from` in `dir`, or undefined at a true edge. Pure. Only a group
- * that lies that way counts: at the end of a shelf nothing is to the right, so Right stays rather
- * than jumping to the top bar far above.
+ * The id of the group to move to from `from` in `dir`, or undefined at a true edge. Pure.
+ * First choice: the nearest group within 45 degrees ahead (a group overlapping the origin across
+ * the movement is measured by the overlap). Else: the nearest group of the same scope (`near`)
+ * lying wholly past the origin that way, wherever across. Never a group behind or beside: at the
+ * end of a shelf, Right stays rather than jumping to the top bar far above.
  */
 export function crossMove(
-  candidates: Array<{ id: string; rect: Box }>,
+  candidates: Array<{ id: string; rect: Box; near?: boolean }>,
   from: Box,
   dir: Dir,
 ): string | undefined {
-  const straight = candidates
-    .map((g) => ({ key: g.id, rect: ahead(g.rect, from, dir) }))
-    .filter((g) => inCone(g.rect, from, dir));
-  return nearestInDirection(from, straight, dir);
+  const projected = candidates.map((g) => ({ key: g.id, rect: ahead(g.rect, from, dir), raw: g.rect, near: g.near }));
+  const cone = projected.filter((g) => inCone(g.rect, from, dir));
+  if (cone.length > 0) return nearestInDirection(from, cone, dir);
+  const beyond = projected.filter((g) => g.near !== false && past(g.raw, from, dir));
+  return nearestInDirection(from, beyond, dir);
 }
 
 const live = (el: Element) => el.isConnected && el.closest("[inert]") === null;
@@ -207,12 +220,22 @@ function stranded(): boolean {
   return modal !== undefined && !modal.el.contains(a);
 }
 
-/** Puts focus back where the active scope wants it. False when the scope has nowhere to put it. */
+/**
+ * Puts focus back where the active scope wants it: its target, else its fallback, else the stop of
+ * its first live group that takes focus. False (the key is not consumed) when nothing took it, as
+ * when the saved target has gone inert.
+ */
 function restoreFocus(): boolean {
-  const target = (topModal() ?? activeScreen())?.target?.();
-  if (target === undefined) return false;
-  target.focus({ preventScroll: true });
-  return true;
+  const scope = topModal() ?? activeScreen();
+  if (scope === undefined) return false;
+  const tries = [() => scope.target?.(), () => scope.fallback?.(), ...liveGroups(scope.el).map((g) => () => g.stop())];
+  for (const next of tries) {
+    const el = next();
+    if (el === undefined || el === null) continue;
+    el.focus({ preventScroll: true });
+    if (document.activeElement === el) return true;
+  }
+  return false;
 }
 
 /** The live groups a move may reach: inside the topmost modal while one is open, else anywhere. */
@@ -296,12 +319,13 @@ function moveAcross(dir: Dir): boolean {
   const others = reachable.filter(
     (g) => g !== from && !g.el.contains(from.el) && !from.el.contains(g.el),
   );
+  const home = scopeOf(from.el);
   const tried = new Set<string>();
   // A group with nothing in it yet is skipped in favour of the next one that way.
   for (;;) {
     const candidates = others
       .filter((g) => !tried.has(g.id))
-      .map((g) => ({ id: g.id, rect: rectOf(g.el), g }))
+      .map((g) => ({ id: g.id, rect: rectOf(g.el), near: scopeOf(g.el) === home, g }))
       .filter((c) => hasArea(c.rect));
     const id = crossMove(candidates, origin, dir);
     if (id === undefined) break;

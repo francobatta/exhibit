@@ -79,7 +79,8 @@ export function Home() {
 
 function Spotlight({ rows }: { rows: Row[] }) {
   const [focused, setFocused] = useState<ItemSummary>(rows[0]!.items[0]!);
-  const [active, setActive] = useState(0);
+  // The shelf in view, by its name: a refresh may add or drop a shelf above it.
+  const [active, setActive] = useState<ShelfName>(rows[0]!.shelf);
   // The focused work as the library last reported it (marking it watched changes its facts).
   const current = rows.flatMap((r) => r.items).find((i) => i.id === focused.id) ?? focused;
   // A record seen before shows at once; a new one is asked for once focus has settled, so a held
@@ -110,7 +111,7 @@ function Spotlight({ rows }: { rows: Row[] }) {
     if (action.disabled) ctx.fail(action.disabled);
     else void runAction(action, subject, ctx);
   }, []);
-  const focus = useCallback((item: ItemSummary, row: number) => {
+  const focus = useCallback((item: ItemSummary, row: ShelfName) => {
     setFocused(item);
     setActive(row);
   }, []);
@@ -176,10 +177,14 @@ function Shelves({
   onFocusItem,
 }: {
   rows: Row[];
-  active: number;
+  active: ShelfName;
   onOpen: (item: ItemSummary) => void;
-  onFocusItem: (item: ItemSummary, row: number) => void;
+  onFocusItem: (item: ItemSummary, row: ShelfName) => void;
 }) {
+  // Which shelves are shown, in order: the layout and the handlers follow it, not the row count.
+  const shape = rows.map((r) => r.shelf).join(",");
+  // A shelf gone from under focus leaves the first one in view; the scope then puts focus there.
+  const at = Math.max(0, rows.findIndex((r) => r.shelf === active));
   const els = useRef<Array<HTMLDivElement | null>>([]);
   // Each shelf's offset from the first, and the first shelf's height, in rem: the layout is all
   // rem, so these hold at any window size.
@@ -191,11 +196,11 @@ function Shelves({
       tops: els.current.slice(0, rows.length).map((el) => ((el?.offsetTop ?? 0) - first) / rem),
       height: (els.current[0]?.offsetHeight ?? 0) / rem,
     });
-  }, [rows.length]);
+  }, [shape, rows.length]);
 
   // The region scrolls itself, by code only (overflow hidden), so the page never does.
   const region = useRef<HTMLDivElement>(null);
-  const top = geometry?.tops[active] ?? 0;
+  const top = geometry?.tops[at] ?? 0;
   useEffect(() => {
     if (region.current !== null) glideScroll(region.current, "top", top * remPx());
   }, [top]);
@@ -206,24 +211,31 @@ function Shelves({
     };
   }, []);
   // Only the shelf in view is reachable (its neighbours' titles stay pointer targets), so Down from
-  // the top bar lands on it and not on a shelf slid out above. Up or Down inside the region first opens its neighbour, synchronously, so the
-  // focus bridge (listening on the document, after this) can cross into it.
-  const [reach, setReach] = useState<number | null>(null);
-  useEffect(() => setReach(null), [active]);
+  // the top bar lands on it and not on a shelf slid out above. Up or Down inside the region first
+  // opens the neighbour, synchronously, so the focus bridge (listening on the document, after this)
+  // can cross into it; once the key has played out the neighbour closes again, entered or not.
+  const [reach, setReach] = useState<ShelfName | null>(null);
+  const open = useCallback((shelf: ShelfName) => {
+    flushSync(() => setReach(shelf));
+    setTimeout(() => setReach(null));
+  }, []);
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
-    const next = event.key === "ArrowUp" ? active - 1 : event.key === "ArrowDown" ? active + 1 : -1;
-    if (next >= 0 && next < rows.length) flushSync(() => setReach(next));
+    const next = event.key === "ArrowUp" ? at - 1 : event.key === "ArrowDown" ? at + 1 : -1;
+    const shelf = rows[next]?.shelf;
+    if (shelf !== undefined) open(shelf);
   };
-  // A pointer on a shelf's title (the peeking one) opens it before the shelf focuses its work.
-  const openers = useMemo(
-    () => Array.from({ length: rows.length }, (_, i) => () => flushSync(() => setReach(i))),
-    [rows.length],
-  );
-  // One stable handler per shelf, so a focus move re-renders no shelf (they are memoised).
+  // Stable handlers per shelf, so a focus move re-renders no shelf (they are memoised): a pointer
+  // on a shelf's title (the peeking one) opens it before the shelf focuses its work.
   const handlers = useMemo(
-    () => Array.from({ length: rows.length }, (_, i) => (item: ItemSummary) => onFocusItem(item, i)),
-    [rows.length, onFocusItem],
+    () =>
+      new Map(
+        shape.split(",").map((shelf) => {
+          const name = shelf as ShelfName;
+          return [name, { focus: (item: ItemSummary) => onFocusItem(item, name), enter: () => open(name) }] as const;
+        }),
+      ),
+    [shape, onFocusItem, open],
   );
 
   return (
@@ -249,9 +261,9 @@ function Shelves({
               title={row.title}
               items={row.items}
               onOpen={onOpen}
-              onFocusItem={handlers[i]}
-              inert={i !== active && i !== reach}
-              onEnter={openers[i]}
+              onFocusItem={handlers.get(row.shelf)!.focus}
+              inert={row.shelf !== active && row.shelf !== reach}
+              onEnter={handlers.get(row.shelf)!.enter}
             />
           </div>
         ))}
@@ -259,5 +271,6 @@ function Shelves({
     </div>
   );
 }
+
 
 
