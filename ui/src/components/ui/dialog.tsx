@@ -10,6 +10,22 @@ import { cn } from "@/lib/utils";
 
 export { Dialog, DialogTrigger, createDialogController } from "@ui-sdk/react/dialog";
 
+/** The dimmed wall behind a dialog. */
+export const dialogBackdrop = cn(
+  "fixed inset-0 z-40 bg-wall/80 transition-opacity duration-(--dur-screen)",
+  "data-starting-style:opacity-0 data-ending-style:opacity-0",
+);
+
+/** The dialog panel: raised wall, hairline, centred; enters and leaves with a short fade. */
+export const dialogPanel = cn(
+  "fixed top-1/2 left-1/2 z-50 flex w-[min(40rem,calc(100vw-4rem))] -translate-1/2 flex-col gap-6",
+  "rounded-control border border-line bg-wall-raised p-8 text-label outline-none",
+  "transition-[opacity,scale] duration-(--dur-screen)",
+  "data-starting-style:scale-[0.98] data-starting-style:opacity-0",
+  "data-ending-style:scale-[0.98] data-ending-style:opacity-0",
+  "motion-reduce:transition-opacity",
+);
+
 type Styled<T> = Omit<T, "className"> & { className?: string };
 
 /** The panel and the dimmed wall behind it. Enter and exit use UI SDK's starting/ending styles. */
@@ -20,22 +36,9 @@ export function DialogContent({
 }: Styled<ComponentProps<typeof ContentPart>>) {
   return (
     <>
-      <BackdropPart
-        className={cn(
-          "fixed inset-0 z-40 bg-wall/80 transition-opacity duration-(--dur-screen)",
-          "data-starting-style:opacity-0 data-ending-style:opacity-0",
-        )}
-      />
+      <BackdropPart className={dialogBackdrop} />
       <ContentPart
-        className={cn(
-          "fixed top-1/2 left-1/2 z-50 flex w-[min(40rem,calc(100vw-4rem))] -translate-1/2 flex-col gap-6",
-          "rounded-control border border-line bg-wall-raised p-8 text-label outline-none",
-          "transition-[opacity,scale] duration-(--dur-screen)",
-          "data-starting-style:scale-[0.98] data-starting-style:opacity-0",
-          "data-ending-style:scale-[0.98] data-ending-style:opacity-0",
-          "motion-reduce:transition-opacity",
-          className,
-        )}
+        className={cn(dialogPanel, className)}
         {...props}
       >
         {children}

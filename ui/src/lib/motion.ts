@@ -39,3 +39,20 @@ export function easeOut(): [number, number, number, number] | "easeOut" {
 export function length(name: string): string {
   return token(name) || "0rem";
 }
+
+/** The px size of 1rem now (it follows the window width). */
+export function remPx(): number {
+  if (typeof document === "undefined") return 16;
+  return Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+}
+
+/** A rem length token as a number of rem ("1.75rem" gives 1.75). */
+export function rems(name: string): number {
+  return Number.parseFloat(token(name)) || 0;
+}
+
+/** How code-driven scrolls move: smooth, or at once when the owner prefers reduced motion. */
+export function scrollBehavior(): ScrollBehavior {
+  const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return reduced ? "auto" : "smooth";
+}

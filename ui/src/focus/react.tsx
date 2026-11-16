@@ -5,6 +5,7 @@
 import {
   createFocusRecovery,
   createRovingFocus,
+  type RovingFocusMoveContext,
   definePrimitive,
   keepFocus,
   nearestInDirection,
@@ -54,8 +55,12 @@ interface ItemProps {
   disabled?: boolean;
 }
 
+/** Where an arrow goes inside a group: a key, maybe of an item not rendered yet, or undefined to let it go. */
+export type GroupMove = (event: globalThis.KeyboardEvent, context: RovingFocusMoveContext<ItemProps>) => string | undefined;
+
 interface GroupOptions {
   orientation?: Orientation;
+  move?: GroupMove;
   remember?: boolean;
   /** Where focus goes when the group empties under it: the scope's fallback. */
   fallback?: () => HTMLElement | undefined;
@@ -63,17 +68,21 @@ interface GroupOptions {
 
 const focusGroup = definePrimitive({
   name: "focus-group",
-  options: { orientation: "string", remember: "boolean", fallback: "value" },
+  options: { orientation: "string", remember: "boolean", fallback: "value", move: "value" },
   state: (_options: GroupOptions) => ({ stop: null as string | null }),
   api: (context) => {
-    const { orientation, remember = true } = context.options();
+    const { orientation, remember = true, move } = context.options();
     const roving = createRovingFocus<{ stop: string | null }, ItemProps>(context, {
       slot: "item",
       key: "stop",
       orientation: () => (context.options().orientation === "vertical" ? "vertical" : "horizontal"),
       remember,
       disabled: (item) => item.props.disabled === true,
-      ...(orientation === "spatial" ? { move: spatialMove() } : {}),
+      ...(move !== undefined
+        ? { move: (event: globalThis.KeyboardEvent, c: RovingFocusMoveContext<ItemProps>) => context.options().move?.(event, c) }
+        : orientation === "spatial"
+          ? { move: spatialMove() }
+          : {}),
     });
     // The order as focus last saw it, so a removed item's place can be found afterwards.
     let order: string[] = [];
@@ -139,13 +148,27 @@ export interface FocusGroupProps extends Omit<PartProps<"div">, "children" | "re
   remember?: boolean;
   /** An arrow left the group and no group lies that way. */
   onEdge?: (dir: Dir) => void;
+  /** Replaces the arrows, Home and End inside the group (UI SDK roving `move`). Present or absent for the group's life. */
+  move?: GroupMove;
+  /** The group scrolls its own items into view, so the bridge does not. */
+  reveals?: boolean;
   children?: ReactNode;
 }
 
 /** A group of focus items with one tab stop, built on UI SDK's `createRovingFocus`. */
-export function FocusGroup({ id, orientation, remember = true, onEdge, children, onFocus, ...props }: FocusGroupProps) {
+export function FocusGroup({
+  id,
+  orientation,
+  remember = true,
+  onEdge,
+  move,
+  reveals = false,
+  children,
+  onFocus,
+  ...props
+}: FocusGroupProps) {
   const scope = useContext(ScopeContext);
-  const group = usePrimitive(focusGroup, { orientation, remember, fallback: scope?.fallback });
+  const group = usePrimitive(focusGroup, { orientation, remember, fallback: scope?.fallback, move });
   const root = useRef<HTMLDivElement>(null);
   const visited = useRef(false);
   const edge = useRef(onEdge);
@@ -162,8 +185,9 @@ export function FocusGroup({ id, orientation, remember = true, onEdge, children,
         stop: () => stopOf(group),
         items: () => group.api.roving.items().map((i) => i.el),
         onEdge: (dir) => edge.current?.(dir),
+        reveals,
       }),
-    [id, group, remember],
+    [id, group, remember, reveals],
   );
 
   const part = usePart(
@@ -310,6 +334,8 @@ export interface FocusScopeProps {
   label?: string;
   /** Classes for the modal's content, or for a screen scope's element (default `contents`). */
   className?: string;
+  /** A modal has finished closing (after its exit, with focus returned). */
+  onClosed?: () => void;
   /** When set, a modal renders a backdrop with these classes. */
   backdropClassName?: string;
   children?: ReactNode;
@@ -464,6 +490,9 @@ export function FocusScope({
         open={isOpen}
         modal
         dismissible={false}
+        onOpenChangeComplete={(next) => {
+          if (!next) latest.current.onClosed?.();
+        }}
         onDismissAttempt={(details) => {
           // Escape reaches the bridge unhandled; a press outside the overlay means Back.
           if (details.reason === "outside-press") latest.current.onBack?.();

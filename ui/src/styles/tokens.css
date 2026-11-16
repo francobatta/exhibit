@@ -63,6 +63,9 @@
   --space-edge: 4.5rem;
   --space-bar: 6rem;
   --placard-measure: 46rem;
+  /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
+  --space-work-gap: 1.75rem;
+  --space-light: 4rem;
   --round-work: 0.125rem;
   --round-control: 0.375rem;
   --hairline: 1px;
@@ -169,6 +172,8 @@
   --spacing-edge: var(--space-edge);
   --spacing-bar: var(--space-bar);
   --spacing-measure: var(--placard-measure);
+  --spacing-work-gap: var(--space-work-gap);
+  --spacing-light: var(--space-light);
 
   --ease-out: var(--curve-out);
   --default-transition-duration: var(--dur-control);

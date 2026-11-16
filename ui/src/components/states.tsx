@@ -1,13 +1,38 @@
 // What a screen shows when it has nothing, is still loading, failed, or its drive is away.
 // Plain words, sentence case, never apologising; still, nothing loops.
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
+import { FocusGroup, useFocusItem } from "@/focus/react";
 import { cn } from "@/lib/utils";
 
 export interface StateAction {
   label: string;
   onAction: () => unknown;
+}
+
+function ActionButton({ action }: { action: StateAction }) {
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
+    key: `state:${action.label}`,
+    onSelect: () => void action.onAction(),
+  });
+  return (
+    <Button ref={ref} {...props} variant="line" className="relative focus:border-lamp">
+      {action.label}
+      {focused && <Lamp />}
+    </Button>
+  );
+}
+
+/** A state's one action, as a focus item so the pad reaches it. */
+function Action({ action }: { action: StateAction }) {
+  const id = useId();
+  return (
+    <FocusGroup id={`state-${id}`} orientation="horizontal" className="mt-2">
+      <ActionButton action={action} />
+    </FocusGroup>
+  );
 }
 
 function Panel({ children, className }: { children: ReactNode; className?: string }) {
@@ -35,11 +60,7 @@ export function Empty({
     <Panel>
       <h2 className={heading}>{title}</h2>
       {body && <p className={reading}>{body}</p>}
-      {action && (
-        <Button variant="line" className="mt-2" onClick={action.onAction}>
-          {action.label}
-        </Button>
-      )}
+      {action && <Action action={action} />}
     </Panel>
   );
 }
@@ -71,11 +92,7 @@ export function ErrorState({
         {message}
       </h2>
       <p className={reading}>{hint}</p>
-      {action && (
-        <Button variant="line" className="mt-2" onClick={action.onAction}>
-          {action.label}
-        </Button>
-      )}
+      {action && <Action action={action} />}
     </Panel>
   );
 }

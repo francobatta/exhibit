@@ -109,6 +109,17 @@
     filter: var(--backdrop-dim);
   }
 
+  /* The lamp's pool on the wall above and behind a focused work. */
+  .work-pool {
+    --pool: color-mix(in oklch, var(--lamp) 85%, var(--tint));
+    background: radial-gradient(
+      ellipse 50% 46% at 50% 47%,
+      color-mix(in oklch, var(--pool) 14%, transparent) 0%,
+      color-mix(in oklch, var(--pool) 6%, transparent) 55%,
+      transparent 100%
+    );
+  }
+
   .backdrop-scrim {
     background:
       linear-gradient(

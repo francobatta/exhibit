@@ -1,8 +1,10 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Backdrop } from "@/components/Backdrop";
+import { ConfirmHost } from "@/components/Dialog";
 import { Hints } from "@/components/Hints";
+import { ItemMenuHost } from "@/components/ItemMenu";
 import { ErrorState, Loading } from "@/components/states";
 import { TopBar } from "@/components/TopBar";
 import { Toaster } from "@/components/ui/toast";
@@ -12,6 +14,12 @@ import { plain } from "@/lib/api";
 import { LibrarySync, useBoot } from "@/lib/queries";
 import { cycleSection, openSettings, Screens } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
+
+// Development only: every work component on one wall (screens/Gallery.tsx). Not in production builds.
+const gallery =
+  import.meta.env.DEV &&
+  (new URLSearchParams(location.search).has("gallery") || import.meta.env.VITE_EXHIBIT_GALLERY === "1");
+const Gallery = gallery ? lazy(() => import("@/screens/Gallery").then((m) => ({ default: m.Gallery }))) : null;
 
 function Shell() {
   const boot = useBoot();
@@ -35,7 +43,13 @@ function Shell() {
   }
   return (
     <>
-      <Screens />
+      {Gallery ? (
+        <Suspense fallback={<Loading />}>
+          <Gallery />
+        </Suspense>
+      ) : (
+        <Screens />
+      )}
       <TopBar />
     </>
   );
@@ -56,6 +70,8 @@ export default function App() {
         <LibrarySync />
         <Backdrop />
         <Shell />
+        <ItemMenuHost />
+        <ConfirmHost />
         <Hints />
         <Toaster />
       </MotionConfig>
