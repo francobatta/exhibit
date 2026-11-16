@@ -72,6 +72,8 @@
   --work-poster: 11rem;
   --work-wide: 21rem;
   --menu-width: 22rem;
+  /* The tallest a list inside a dialog grows (the genres) before it scrolls. */
+  --dialog-list: 30rem;
   /* Home: the space between the hero placard and the shelves' light, the gap between shelves,
      and how much of the next shelf shows below the one in view. */
   --home-placard-foot: 1.5rem;

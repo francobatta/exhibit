@@ -5,7 +5,7 @@ import { useState } from "react";
 import { films, summary } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { ItemMenuHost, useItemMenu } from "@/components/ItemMenu";
-import { DEFAULT_VIEW, type WallView } from "@/components/WallControls";
+import { DEFAULT_VIEW, type WallView } from "@/nav/stack";
 import { installBridge, openMenu } from "@/focus/bridge";
 import { FocusScope } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";

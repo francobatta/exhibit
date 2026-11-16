@@ -10,10 +10,9 @@ import { Button } from "@/components/ui/button";
 import { modalOpen } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
-import { DEFAULT_VIEW } from "@/components/WallControls";
 import { Home } from "@/screens/Home";
 import { Wall } from "@/screens/Wall";
-import { samePlace, useNav, type Entry, type Route } from "./stack";
+import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [

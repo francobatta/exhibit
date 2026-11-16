@@ -11,14 +11,7 @@ import { Placard } from "@/components/Placard";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { TechLines } from "@/components/TechLines";
 import { jobLine } from "@/components/TopBar";
-import {
-  WallControls,
-  clearFilters,
-  hasFilters,
-  wallQuery,
-  type WallKind,
-  type WallView,
-} from "@/components/WallControls";
+import { WallControls, clearFilters, hasFilters, wallQuery } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { mainAction, runMain, useActionContext } from "@/lib/actions";
@@ -26,6 +19,7 @@ import { plain, type Id, type ItemSummary } from "@/lib/api";
 import { seconds } from "@/lib/motion";
 import { useItem, useItemSources, useItems, useJobStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
+import type { WallKind, WallView } from "@/nav/stack";
 
 /**
  * Columns for a window `width` CSS px wide: posters 7, 9 or 11, two fewer beside the panel; wide
@@ -128,10 +122,12 @@ export function Wall({ kind, view, onView }: WallProps) {
       />
     );
   }
-  return <Hung kind={kind} view={view} onView={onView} items={result.items} />;
+  // The count waits for every page, so it never reads low while a large wall is still arriving.
+  const complete = !result.hasNextPage && !result.isPlaceholderData;
+  return <Hung kind={kind} view={view} onView={onView} items={result.items} complete={complete} />;
 }
 
-function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] }) {
+function Hung({ kind, view, onView, items, complete }: WallProps & { items: ItemSummary[]; complete: boolean }) {
   const columns = columnsFor(useSyncExternalStore(subscribeWidth, windowWidth), kind, true);
   const [focused, setFocused] = useState<Id | null>(null);
   // Other hangs grouped by folder, each group under its folder's name.
@@ -139,7 +135,12 @@ function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] 
   // The focused work as the library last reported it; the first one before anything has focus.
   const current = hung.items.find((i) => i.id === focused) ?? hung.items[0];
   // The genres on this wall as its other filters leave it, so choosing one never hides the rest.
-  const pool = useItems(useMemo(() => wallQuery(kind, { ...view, genre: null }), [kind, view])).items;
+  // With no genre chosen that is the wall itself; with one, it is fetched once the list is opened.
+  const [wantGenres, setWantGenres] = useState(false);
+  const pool = useItems(
+    useMemo(() => wallQuery(kind, { ...view, genre: null }), [kind, view]),
+    view.genre === null || wantGenres,
+  ).items;
   const genres = useMemo(() => [...new Set(pool.flatMap((i) => i.genres))].sort(byName), [pool]);
 
   const [selected, setSelected] = useState<ReadonlySet<Id> | null>(null);
@@ -227,8 +228,9 @@ function Hung({ kind, view, onView, items }: WallProps & { items: ItemSummary[] 
         kind={kind}
         view={view}
         onView={onView}
-        total={items.length}
+        total={complete ? items.length : null}
         genres={genres}
+        onGenres={() => setWantGenres(true)}
         selection={selected === null ? undefined : { count: selected.size, onMark: (w) => void mark(w), onDone: done }}
       />
     </div>

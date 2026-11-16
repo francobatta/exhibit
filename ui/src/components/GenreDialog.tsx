@@ -48,7 +48,7 @@ export function GenreDialog({ open, genres, value, onChoose, onBack }: GenreDial
         id="genre-list"
         orientation="spatial"
         aria-label="Genres"
-        className="-mx-3 grid max-h-[50vh] grid-cols-3 gap-x-2 gap-y-1 overflow-y-auto"
+        className="-mx-3 grid max-h-(--dialog-list) grid-cols-3 gap-x-2 gap-y-1 overflow-y-auto"
       >
         {[null, ...genres].map((g) => (
           <Choice key={keyOf(g)} genre={g} chosen={g === value} onChoose={() => onChoose(g)} />

@@ -12,28 +12,7 @@ import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { SearchQuery, Sort } from "@/lib/api";
 import { UHD, count } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-export type WallKind = "movie" | "show" | "other";
-
-/** What the owner has asked of a wall; kept in its navigation entry, so Back finds it as left. */
-export interface WallView {
-  sort: Sort;
-  unwatched: boolean;
-  loved: boolean;
-  available: boolean;
-  uhd: boolean;
-  /** One genre, or any. */
-  genre: string | null;
-}
-
-export const DEFAULT_VIEW: WallView = {
-  sort: "title",
-  unwatched: false,
-  loved: false,
-  available: false,
-  uhd: false,
-  genre: null,
-};
+import { DEFAULT_VIEW, type WallKind, type WallView } from "@/nav/stack";
 
 type Filter = Exclude<keyof WallView, "sort" | "genre">;
 
@@ -51,11 +30,17 @@ const FILTERS: Array<{ filter: Filter; label: string }> = [
   { filter: "uhd", label: "4K" },
 ];
 
-/** The library query a wall's view asks for: only what is set (title order is the library's own). */
+/** Other hangs by folder, so it has no Sort control. */
+const sorts = (kind: WallKind) => kind !== "other";
+
+/**
+ * The library query a wall's view asks for: only what is set (title order is the library's own,
+ * and Other's folder order needs none).
+ */
 export function wallQuery(kind: WallKind, view: WallView): SearchQuery {
   return {
     kind,
-    ...(view.sort !== "title" && { sort: view.sort }),
+    ...(sorts(kind) && view.sort !== "title" && { sort: view.sort }),
     ...(view.unwatched && { watched: false }),
     ...(view.loved && { loved: true }),
     ...(view.available && { available: true }),
@@ -128,15 +113,17 @@ export interface WallControlsProps {
   kind: WallKind;
   view: WallView;
   onView: (view: WallView) => void;
-  /** How many works the view leaves. */
-  total: number;
+  /** How many works the view leaves; null until every page of them has arrived. */
+  total: number | null;
   /** The genres the Genre control offers, sorted. */
   genres: string[];
+  /** The Genre list is about to open: the screen fetches every genre on the wall if it has not. */
+  onGenres: () => void;
   selection?: WallSelection;
   className?: string;
 }
 
-export function WallControls({ kind, view, onView, total, genres, selection, className }: WallControlsProps) {
+export function WallControls({ kind, view, onView, total, genres, onGenres, selection, className }: WallControlsProps) {
   const [picking, setPicking] = useState(false);
   return (
     <>
@@ -161,20 +148,24 @@ export function WallControls({ kind, view, onView, total, genres, selection, cla
           </>
         ) : (
           <>
-            <span className={cn(caption, "mr-3")}>Sort</span>
-            <div role="group" aria-label="Sort" className="contents">
-              {SORTS.map(({ sort, label }) => (
-                <ControlToggle
-                  key={sort}
-                  focusKey={`wall:sort:${sort}`}
-                  pressed={view.sort === sort}
-                  onPress={(on) => on && onView({ ...view, sort })}
-                >
-                  {label}
-                </ControlToggle>
-              ))}
-            </div>
-            <span aria-hidden className="mx-5 h-5 w-px bg-line" />
+            {sorts(kind) && (
+              <>
+                <span className={cn(caption, "mr-3")}>Sort</span>
+                <div role="group" aria-label="Sort" className="contents">
+                  {SORTS.map(({ sort, label }) => (
+                    <ControlToggle
+                      key={sort}
+                      focusKey={`wall:sort:${sort}`}
+                      pressed={view.sort === sort}
+                      onPress={(on) => on && onView({ ...view, sort })}
+                    >
+                      {label}
+                    </ControlToggle>
+                  ))}
+                </div>
+                <span aria-hidden className="mx-5 h-5 w-px bg-line" />
+              </>
+            )}
             <div role="group" aria-label="Filters" className="contents">
               {FILTERS.map(({ filter, label }) => (
                 <ControlToggle
@@ -187,7 +178,14 @@ export function WallControls({ kind, view, onView, total, genres, selection, cla
                 </ControlToggle>
               ))}
               {(genres.length > 0 || view.genre !== null) && (
-                <ControlToggle focusKey="wall:filter:genre" pressed={view.genre !== null} onPress={() => setPicking(true)}>
+                <ControlToggle
+                  focusKey="wall:filter:genre"
+                  pressed={view.genre !== null}
+                  onPress={() => {
+                    onGenres();
+                    setPicking(true);
+                  }}
+                >
                   {view.genre ?? "Genre"}
                 </ControlToggle>
               )}
@@ -195,7 +193,7 @@ export function WallControls({ kind, view, onView, total, genres, selection, cla
           </>
         )}
         <p role="status" className={cn(caption, "ml-auto tabular-nums")}>
-          {countLine(kind, total)}
+          {total !== null && countLine(kind, total)}
         </p>
       </FocusGroup>
       <GenreDialog

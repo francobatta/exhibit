@@ -68,12 +68,13 @@ export function useShelf(shelf: Shelf, limit: number) {
 
 /**
  * Every item matching `query`, loaded in pages of 500 one after another; `items` is the pages so
- * far, flattened. A new query keeps showing the last one's items until its own arrive, so a list
+ * far, flattened. With `enabled` false only what is cached is returned. A new query keeps showing the last one's items until its own arrive, so a list
  * that is re-sorted or filtered stays in place (and keeps focus) meanwhile.
  */
-export function useItems(query: Omit<SearchQuery, "limit" | "offset">) {
+export function useItems(query: Omit<SearchQuery, "limit" | "offset">, enabled = true) {
   const result = useInfiniteQuery({
     queryKey: keys.items(query),
+    enabled,
     queryFn: ({ pageParam }) => api.search({ ...query, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => (last.length < PAGE ? undefined : all.length * PAGE),

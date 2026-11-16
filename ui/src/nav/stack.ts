@@ -2,12 +2,33 @@
 // each entry remembers which element had focus so Back returns to it.
 
 import { create } from "zustand";
-import type { WallView } from "@/components/WallControls";
-import type { Id } from "@/lib/api";
+import type { Id, Sort } from "@/lib/api";
+
+export type WallKind = "movie" | "show" | "other";
+
+/** What the owner has asked of a wall; kept in its route, so Back finds it as left. */
+export interface WallView {
+  sort: Sort;
+  unwatched: boolean;
+  loved: boolean;
+  available: boolean;
+  uhd: boolean;
+  /** One genre, or any. */
+  genre: string | null;
+}
+
+export const DEFAULT_VIEW: WallView = {
+  sort: "title",
+  unwatched: false,
+  loved: false,
+  available: false,
+  uhd: false,
+  genre: null,
+};
 
 export type Route =
   | { screen: "home" }
-  | { screen: "wall"; kind: "movie" | "show" | "other"; view?: WallView }
+  | { screen: "wall"; kind: WallKind; view?: WallView }
   | { screen: "show"; id: Id }
   | { screen: "details"; id: Id }
   | { screen: "review" }
