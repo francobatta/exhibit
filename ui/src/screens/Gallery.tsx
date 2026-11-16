@@ -35,6 +35,8 @@ function awkward(real: ItemSummary[]): ItemSummary[] {
     loved: false,
     available: true,
     match_state: "matched",
+    genres: [],
+    path: null,
   };
   return [
     { ...base, id: -1, title: LONG, year: 2007, runtime_min: 160 },

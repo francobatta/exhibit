@@ -39,6 +39,10 @@ pub struct ItemSummary {
     pub loved: bool,
     pub available: bool,
     pub match_state: MatchState,
+    pub genres: Vec<String>,
+    /// The item's first file (lowest id), relative to its source, as stored; `None` for an item
+    /// with no file of its own (a show or season).
+    pub path: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -182,7 +186,8 @@ fn list(
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
-             i.loved, lib.avail AS available, i.match_state, i.genres, i.added_at \
+             i.loved, lib.avail AS available, i.match_state, i.genres, i.added_at, \
+             (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path \
            FROM items i JOIN lib ON lib.item_id = i.id \
            LEFT JOIN play_state p ON p.item_id = i.id) b \
          WHERE {where_sql} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
@@ -807,6 +812,23 @@ mod tests {
         };
         assert_eq!(k(ItemKind::Season), ["Season 1"]);
         assert_eq!(k(ItemKind::Episode), ["S ep 1"]);
+    }
+
+    #[test]
+    fn summaries_carry_genres_and_their_first_files_path() {
+        let e = env();
+        let m = e.add(ItemKind::Movie, "M", None);
+        e.exec(&format!(
+            "UPDATE items SET genres='[\"Drama\",\"War\"]' WHERE id={m};\
+             INSERT INTO files(source_id, rel_path, item_id) VALUES ({src}, 'Films/b.mkv', {m});\
+             INSERT INTO files(source_id, rel_path, item_id) VALUES ({src}, 'Films/a.mkv', {m});",
+            src = e.src
+        ));
+        let (show, _, _) = e.show("S", 1);
+        let s = e.summary(m);
+        assert_eq!(s.genres, ["Drama", "War"]);
+        assert_eq!(s.path.as_deref(), Some("Films/b.mkv"));
+        assert_eq!(e.summary(show).path, None);
     }
 
     #[test]

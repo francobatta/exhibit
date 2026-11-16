@@ -23,6 +23,8 @@ export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
     loved: false,
     available: true,
     match_state: "matched",
+    genres: [],
+    path: "Films/Taxi Driver.mkv",
     ...over,
   };
 }

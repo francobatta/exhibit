@@ -217,6 +217,8 @@ mod tests {
             loved: false,
             available: true,
             match_state: MatchState::Matched,
+            genres: vec![],
+            path: None,
         }
     }
 

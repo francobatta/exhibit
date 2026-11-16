@@ -28,6 +28,8 @@ function summary(id: number): ItemSummary {
     loved: false,
     available: true,
     match_state: "matched",
+    genres: [],
+    path: null,
   };
 }
 

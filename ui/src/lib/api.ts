@@ -112,6 +112,9 @@ export interface ItemSummary {
   loved: boolean;
   available: boolean;
   match_state: MatchState;
+  genres: string[];
+  /** The first file, relative to its source, forward slashes; null for a show or season. */
+  path: string | null;
 }
 
 export interface ItemDetail {
