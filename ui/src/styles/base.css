@@ -151,6 +151,15 @@
     );
   }
 
+  /* The Show screen's seasons and episodes: they read on the wall, the backdrop faint behind them. */
+  .show-scrim {
+    background: linear-gradient(
+      to right,
+      transparent 0,
+      color-mix(in oklch, var(--wall-tinted) 82%, transparent) var(--space-edge)
+    );
+  }
+
   .backdrop-scrim {
     background:
       linear-gradient(

@@ -83,6 +83,11 @@
   --wall-panel: 26%;
   /* The height of the row of controls above a wall. */
   --wall-controls: 3.5rem;
+  /* Details: the width of its list of actions. Show: the share of the window the placard keeps
+     beside the seasons, and an episode's frame in the list. */
+  --details-actions: 20rem;
+  --show-placard: 42%;
+  --show-episode: 15rem;
   /* The keycap that names the button beside an action ("A", "Enter"). */
   --keycap: 1.75rem;
   --round-work: 0.125rem;

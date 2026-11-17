@@ -2,13 +2,13 @@
 // focusable. A disabled action says why instead ("Play, the drive for D:\Movies is not connected").
 
 import { useInputMode } from "@/focus/react";
-import { OFFLINE, type Action } from "@/lib/actions";
+import { OFFLINE, offlineReason, type Action } from "@/lib/actions";
 import { facts } from "@/lib/format";
 
 /** Why the main action cannot run, as the second half of the line. */
 function whyNot(reason: string, drive: string | undefined): string {
-  if (reason === OFFLINE && drive !== undefined) return `the drive for ${drive} is not connected`;
-  return reason.charAt(0).toLowerCase() + reason.slice(1);
+  const why = reason === OFFLINE ? offlineReason(drive) : reason;
+  return why.charAt(0).toLowerCase() + why.slice(1);
 }
 
 /** The key that names the button for the input in use; none for the pointer. */

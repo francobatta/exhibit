@@ -10,7 +10,9 @@ import { Button } from "@/components/ui/button";
 import { modalOpen } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
+import { Details } from "@/screens/Details";
 import { Home } from "@/screens/Home";
+import { Show } from "@/screens/Show";
 import { Wall } from "@/screens/Wall";
 import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route } from "./stack";
 
@@ -77,8 +79,9 @@ function screenFor(entry: Entry, pushed: boolean): ReactNode {
         />
       );
     case "show":
+      return <Show id={route.id} />;
     case "details":
-      return <Stub title="Details" body="This screen is built in a later step." pushed={pushed} />;
+      return <Details id={route.id} />;
     case "review":
       return <Stub title="Needs review" body="This screen is built in a later step." pushed={pushed} />;
     case "settings":

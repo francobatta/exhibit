@@ -11,26 +11,27 @@ import { buttonVariants } from "./button";
 export { toast } from "@ui-sdk/react/toast";
 
 /**
- * Where `toast()` messages appear: bottom left, one at a time in front, quiet. Place once at the
- * app root.
+ * Where `toast()` messages appear: top right under the bar, over the artwork and clear of the
+ * placards, action lists and shelves on the left and the pad hints at the bottom; one at a time
+ * in front, quiet. Place once at the app root.
  */
 export function Toaster() {
   return (
     <ToastRegion
-      side="bottom"
-      align="start"
+      side="top"
+      align="end"
       maxVisible={3}
       shortcut={null}
-      className="fixed bottom-edge left-edge z-50 h-(--toast-front-height) w-[30rem]"
+      className="fixed top-bar right-edge z-50 h-(--toast-front-height) w-[30rem]"
     >
       {() => (
         <Toast
           className={cn(
-            "absolute inset-x-0 bottom-0 flex h-(--toast-height) items-start gap-6 overflow-hidden",
+            "absolute inset-x-0 top-0 flex h-(--toast-height) items-start gap-6 overflow-hidden",
             "rounded-control border border-line bg-wall-raised px-6 py-5",
-            "translate-y-[calc(var(--toast-index)*-0.75rem)] scale-[calc(1-var(--toast-index)*0.04)]",
+            "translate-y-[calc(var(--toast-index)*0.75rem)] scale-[calc(1-var(--toast-index)*0.04)]",
             "transition-[translate,scale,opacity] duration-(--dur-screen)",
-            "data-starting-style:translate-y-4 data-starting-style:opacity-0",
+            "data-starting-style:-translate-y-4 data-starting-style:opacity-0",
             "data-ending-style:opacity-0 not-data-front:opacity-60",
             "motion-reduce:transition-opacity",
           )}

@@ -121,6 +121,33 @@ export function day(unixSeconds: number): string | null {
   return new Date(unixSeconds * 1000).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 }
 
+/** "3 March" this year, "3 March 2019" before it. */
+export function shortDay(unixSeconds: number): string | null {
+  if (!finite(unixSeconds) || unixSeconds <= 0) return null;
+  const date = new Date(unixSeconds * 1000);
+  const thisYear = date.getFullYear() === new Date().getFullYear();
+  return date.toLocaleDateString("en-GB", { day: "numeric", month: "long", ...(thisYear ? {} : { year: "numeric" }) });
+}
+
+/** "4.2 GB", "700 MB"; null for nothing. */
+export function bytes(n: number): string | null {
+  if (!finite(n) || n <= 0) return null;
+  const units = ["bytes", "KB", "MB", "GB", "TB"];
+  let v = n;
+  let u = 0;
+  while (v >= 1000 && u < units.length - 1) {
+    v /= 1000;
+    u++;
+  }
+  return `${v >= 100 || u === 0 ? Math.round(v) : v.toFixed(1)} ${units[u]}`;
+}
+
+/** "English", "English and French", "English, French and Dutch". */
+export function listed(parts: string[]): string {
+  if (parts.length <= 1) return parts.join("");
+  return `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}`;
+}
+
 /** How a placard and a work name the watched state and a missing drive. */
 export const WATCHED = "Watched";
 export const OFFLINE = "Offline";

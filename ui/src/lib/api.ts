@@ -238,7 +238,9 @@ export function isApiError(e: unknown): e is ApiError {
 }
 
 /**
- * The message of an error as the owner should read it: the core's `<kind>: ` prefix removed.
+ * The message of an error as the owner should read it: the core's kind prefix removed ("tool
+ * error: ", "source offline: ", "invalid: "), starting with a capital unless it starts with the
+ * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe").
  * Also takes a bare message (such as `JobStatus.last_error`) or anything a promise rejected with.
  */
 export function plain(e: unknown): string {
@@ -249,8 +251,9 @@ export function plain(e: unknown): string {
       : e instanceof Error
         ? e.message
         : "";
-  const stripped = text.trim().replace(/^[a-z_]+: /, "");
+  const stripped = text.trim().replace(/^[a-z_]+(?: [a-z]+)?: /, "");
   if (stripped === "") return "Something went wrong.";
+  if (/^(mpv|ffprobe|ffmpeg)\b/.test(stripped)) return stripped;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }
 

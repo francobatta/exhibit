@@ -23,6 +23,22 @@ export const useBackdrop = create<BackdropState>()((set) => ({
   show: (image, poster) => set({ image, poster }),
 }));
 
+/**
+ * A pushed screen shows its work's backdrop while it is up, and gives back the one it found when it
+ * goes, unless the screen that replaced it (which may arrive before it has finished leaving) has
+ * already shown its own.
+ */
+export function useScreenBackdrop(image: string | null, poster: string | null): void {
+  useEffect(() => {
+    const before = useBackdrop.getState();
+    before.show(image, poster);
+    return () => {
+      const now = useBackdrop.getState();
+      if (now.image === image && now.poster === poster) now.show(before.image, before.poster);
+    };
+  }, [image, poster]);
+}
+
 /** `value`, once it has stopped changing for `delayS` seconds. */
 export function useSettled<T>(value: T, delayS: number): T {
   const [settled, setSettled] = useState(value);

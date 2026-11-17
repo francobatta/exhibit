@@ -78,14 +78,14 @@ test("Back returns focus to the item the previous screen remembered, through the
   expect(activeKey()).toBe("home-continue_watching:item:2");
   expect(useNav.getState().focusKey).toBe("home-continue_watching:item:2");
 
-  // A on a show opens its screen, whose stub has a focusable item.
+  // A on a show opens its screen; the show cannot be read here, so its error offers a way back.
   await act(async () => {
     (document.activeElement as HTMLElement).click();
     await sleep(20);
   });
   await settle();
   expect(useNav.getState().current).toEqual({ screen: "show", id: 2 });
-  expect(activeKey()).toBe("stub:back");
+  expect(activeKey()).toBe("state:Go back");
   expect(activeEntry()).not.toBe(home);
 
   await press("Escape");

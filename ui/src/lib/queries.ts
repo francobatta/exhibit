@@ -230,10 +230,3 @@ export function useMoveToOther() {
     }),
   );
 }
-
-/** Starts playback; the end arrives as `play-ended` and refreshes the library. */
-export function usePlay() {
-  return useMutation<void, ApiError, { id: Id; resume: boolean }>({
-    mutationFn: ({ id, resume }) => api.play(id, resume),
-  });
-}

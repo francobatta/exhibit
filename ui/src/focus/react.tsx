@@ -89,6 +89,9 @@ const focusGroup = definePrimitive({
     let order: string[] = [];
     const recovery = createFocusRecovery<ItemProps>({
       fallback: (lost) => {
+        // Unbound but still on the page (React binding it again, as StrictMode does on mount):
+        // nothing was lost, so focus stays.
+        if (lost.el.isConnected) return lost.el;
         const now = roving.items().filter((i) => i.key !== lost.key && i.el.isConnected);
         const at = order.indexOf(lost.key);
         return (at >= 0 ? now[at] : undefined)?.el ?? now.at(-1)?.el ?? context.options().fallback?.();
@@ -339,6 +342,8 @@ export interface FocusScopeProps {
   onClosed?: () => void;
   /** When set, a modal renders a backdrop with these classes. */
   backdropClassName?: string;
+  /** Where a modal puts focus as it opens: nowhere (its items settle it), or on itself, for a layer with no items that must still hold the keys. */
+  initialFocus?: "none" | "content";
   children?: ReactNode;
 }
 
@@ -356,6 +361,7 @@ export function FocusScope({
   label,
   className,
   backdropClassName,
+  initialFocus = "none",
   children,
   ...handlers
 }: FocusScopeProps) {
@@ -502,7 +508,7 @@ export function FocusScope({
         {backdropClassName !== undefined && <DialogBackdrop className={backdropClassName} />}
         <DialogContent
           aria-label={label}
-          initialFocus="none"
+          initialFocus={initialFocus}
           finalFocus={() => back.current()}
           className={className}
         >

@@ -68,11 +68,16 @@ export interface PlacardProps {
   detail?: ItemDetail;
   /** `hero` on Home and Details, over the backdrop; `panel` beside a wall. */
   size: "hero" | "panel";
+  /** Further lines after the facts, in the same voice (the cast, the genres). Empty ones are left out. */
+  more?: string[];
+  /** The whole description (the details screen), not two lines of it. */
+  full?: boolean;
   className?: string;
 }
 
-export function Placard({ item, detail, size, className }: PlacardProps) {
+export function Placard({ item, detail, size, more = [], full = false, className }: PlacardProps) {
   const lines = placardLines(item, detail);
+  const after = more.filter((l) => l !== "");
   const hero = size === "hero";
   return (
     <div className={cn("flex w-full flex-col", hero ? "max-w-measure gap-5" : "gap-3", className)}>
@@ -86,7 +91,7 @@ export function Placard({ item, detail, size, className }: PlacardProps) {
           )}
         />
       </div>
-      {(lines.credit || lines.facts) && (
+      {(lines.credit || lines.facts || after.length > 0) && (
         <div className={cn("flex flex-col font-display text-label-dim", hero ? "gap-1 text-lead" : "gap-0.5 text-body")}>
           {lines.credit && (
             <p data-line="credit" className="truncate">
@@ -98,13 +103,19 @@ export function Placard({ item, detail, size, className }: PlacardProps) {
               {lines.facts}
             </p>
           )}
+          {after.map((l) => (
+            <p key={l} className="line-clamp-2">
+              {l}
+            </p>
+          ))}
         </div>
       )}
       {lines.overview && (
         <p
           data-line="overview"
           className={cn(
-            "line-clamp-2 font-reading leading-reading text-label-dim",
+            "font-reading leading-reading text-label-dim",
+            full ? "line-clamp-8" : "line-clamp-2",
             hero ? "text-lead" : "text-body",
           )}
         >

@@ -5,6 +5,7 @@ import { Backdrop } from "@/components/Backdrop";
 import { ConfirmHost } from "@/components/Dialog";
 import { Hints } from "@/components/Hints";
 import { ItemMenuHost } from "@/components/ItemMenu";
+import { PlaybackHost } from "@/components/Playing";
 import { ErrorState, Loading } from "@/components/states";
 import { TopBar } from "@/components/TopBar";
 import { Toaster } from "@/components/ui/toast";
@@ -72,6 +73,7 @@ export default function App() {
         <Shell />
         <ItemMenuHost />
         <ConfirmHost />
+        <PlaybackHost />
         <Hints />
         <Toaster />
       </MotionConfig>

@@ -8,7 +8,8 @@ import { toast } from "@/components/ui/toast";
 import { useNav } from "@/nav/stack";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
 import { clock, episodeLabel } from "./format";
-import { usePlay, useMoveToOther, useSetLoved, useSetWatched } from "./queries";
+import { usePlayback } from "./playback";
+import { useMoveToOther, useSetLoved, useSetWatched } from "./queries";
 
 export type ActionId =
   | "play"
@@ -33,6 +34,11 @@ export type ActionItem = ItemSummary | ItemDetail;
 
 export const OFFLINE = "Drive is not connected";
 
+/** Why a work cannot play: its drive by the folder it holds, when known. */
+export function offlineReason(drive: string | undefined): string {
+  return drive === undefined ? OFFLINE : `The drive for ${drive} is not connected`;
+}
+
 const isDetail = (item: ActionItem): item is ItemDetail => "item" in item;
 
 /** The fields every action needs, from either shape. */
@@ -49,6 +55,7 @@ export function facetsOf(item: ActionItem) {
       inProgress: play !== null && !play.watched && play.position_s > 0,
       resumeAt: play !== null && play.position_s > 0 ? play.position_s : null,
       matchState: item.item.match_state,
+      seen: seenOf(item.children.length > 0 && item.children.every((c) => c.watched), item.children.some((c) => c.watched || (c.progress ?? 0) > 0)),
     };
   }
   return {
@@ -61,7 +68,13 @@ export function facetsOf(item: ActionItem) {
     inProgress: !item.watched && item.progress !== null && item.progress > 0,
     resumeAt: null,
     matchState: item.match_state,
+    seen: seenOf(item.watched, (item.progress ?? 0) > 0),
   };
+}
+
+/** How much of a show or season has been watched: none of it, some, or all. */
+function seenOf(all: boolean, any: boolean): "none" | "some" | "all" {
+  return all ? "all" : any ? "some" : "none";
 }
 
 function playLabel(item: ActionItem): string {
@@ -89,8 +102,12 @@ export function itemActions(item: ActionItem): Action[] {
   } else {
     list.push({ id: "play", label: playLabel(item), ...offline });
   }
-  list.push({ id: "details", label: "Details" });
-  if (!container) {
+  // A season is only ever seen on its show's screen, which is its details.
+  if (f.kind !== "season") list.push({ id: "details", label: "Details" });
+  if (container) {
+    if (f.seen !== "all") list.push({ id: "watched", label: "Mark all as watched" });
+    if (f.seen !== "none") list.push({ id: "unwatched", label: "Mark all as not watched" });
+  } else {
     list.push(
       f.watched
         ? { id: "unwatched", label: "Mark as not watched" }
@@ -181,14 +198,14 @@ export async function runAction(action: Action, item: ActionItem, ctx: ActionCon
 
 /** The app's `ActionContext`: the real mutations, the navigation stack, the confirm dialog, a toast. */
 export function useActionContext(fix?: (item: ActionItem) => void): ActionContext {
-  const play = usePlay();
+  const start = usePlayback((s) => s.start);
   const watched = useSetWatched();
   const loved = useSetLoved();
   const other = useMoveToOther();
   const push = useNav((s) => s.push);
   return useMemo(
     () => ({
-      play: play.mutateAsync,
+      play: ({ id, resume }) => start(id, resume),
       setWatched: watched.mutateAsync,
       setLoved: loved.mutateAsync,
       moveToOther: other.mutateAsync,
@@ -200,6 +217,6 @@ export function useActionContext(fix?: (item: ActionItem) => void): ActionContex
       confirm,
       fail: (message) => toast(message),
     }),
-    [play.mutateAsync, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push, fix],
+    [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push, fix],
   );
 }

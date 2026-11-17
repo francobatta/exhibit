@@ -52,8 +52,11 @@ describe("plain", () => {
     expect(api.plain({ kind: "invalid", message: "invalid: TMDB key not set" })).toBe(
       "TMDB key not set",
     );
-    expect(api.plain({ kind: "source_offline", message: "source_offline: D:\\ is not connected" })).toBe(
+    expect(api.plain({ kind: "source_offline", message: "source offline: D:\\ is not connected" })).toBe(
       "D:\\ is not connected",
+    );
+    expect(api.plain({ kind: "tool", message: "tool error: mpv not found at C:\\mpv\\mpv.exe" })).toBe(
+      "mpv not found at C:\\mpv\\mpv.exe",
     );
     expect(api.plain("io: the folder could not be read")).toBe("The folder could not be read");
     expect(api.plain({ kind: "db", message: "" })).toBe("Something went wrong.");
