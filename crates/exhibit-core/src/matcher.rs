@@ -86,6 +86,7 @@ mod tests {
             original_title: title.into(),
             year,
             popularity: 1.0,
+            poster: None,
         }
     }
 
@@ -97,6 +98,7 @@ mod tests {
                 title: h.title.clone(),
                 year: h.year,
                 score: score(e, h, *runtime),
+                poster: None,
             })
             .collect()
     }
@@ -183,6 +185,7 @@ mod tests {
             title: "x".into(),
             year: None,
             score: 0.79,
+            poster: None,
         };
         assert_eq!(decide(std::slice::from_ref(&low)), None);
     }

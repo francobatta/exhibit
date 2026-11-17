@@ -92,6 +92,11 @@ pub struct Candidate {
     pub title: String,
     pub year: Option<i32>,
     pub score: f32,
+    /// The cached poster's file name (`movie-603-poster.jpg`, the name the item takes if this
+    /// candidate is applied), set once its small sibling is on disk. Rows stored before
+    /// candidates had posters have none.
+    #[serde(default)]
+    pub poster: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -125,4 +130,16 @@ pub struct PlayState {
     pub duration_s: f64,
     pub watched: bool,
     pub last_played_at: i64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn candidate_stored_without_poster_reads() {
+        let old = r#"[{"tmdb_id":593,"kind":"movie","title":"Solaris","year":1972,"score":0.7}]"#;
+        let c: Vec<Candidate> = serde_json::from_str(old).unwrap();
+        assert_eq!((c[0].tmdb_id, c[0].poster.as_deref()), (593, None));
+    }
 }

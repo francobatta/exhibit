@@ -19,6 +19,8 @@ pub struct SearchHit {
     pub original_title: String,
     pub year: Option<i32>,
     pub popularity: f32,
+    /// TMDB's poster path, for `image()`.
+    pub poster: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -195,6 +197,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
                     title: m.title,
                     year: m.year,
                     popularity: 0.0,
+                    poster: m.poster,
                 }));
             }
             ExternalId::TmdbTv(n) => {
@@ -206,6 +209,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
                     title: s.title,
                     year: s.year,
                     popularity: 0.0,
+                    poster: s.poster,
                 }));
             }
             ExternalId::Imdb(s) => (s.clone(), "imdb_id"),
@@ -359,6 +363,7 @@ fn hits(results: &Value, kind: ItemKind) -> Vec<SearchHit> {
                 original_title: text(&r[orig]),
                 year: year_of(&r[date]),
                 popularity: r["popularity"].as_f64().unwrap_or(0.0) as f32,
+                poster: opt_text(&r["poster_path"]),
             })
         })
         .collect()
@@ -500,6 +505,10 @@ mod tests {
         assert_eq!(hits[0].title, "The Matrix");
         assert_eq!(hits[0].year, Some(1999));
         assert!((hits[0].popularity - 87.4).abs() < 0.01);
+        assert_eq!(
+            hits[0].poster.as_deref(),
+            Some("/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg")
+        );
         assert_eq!(
             last_url(&f),
             "https://api.themoviedb.org/3/search/movie?query=The%20Matrix&year=1999&api_key=abc123"

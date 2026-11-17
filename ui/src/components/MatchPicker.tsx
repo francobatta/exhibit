@@ -23,7 +23,7 @@ import { Button } from "./ui/button";
 import { toast } from "./ui/toast";
 import { Toggle } from "./ui/toggle";
 
-/** A candidate hung as a work: a typographic poster of its title. Its id is its place in the list. */
+/** A candidate hung as a work: its cached poster, else a typographic poster of its title. Its id is its place in the list. */
 export function candidateWork(c: Candidate, index: number): ItemSummary {
   return {
     id: index,
@@ -33,7 +33,7 @@ export function candidateWork(c: Candidate, index: number): ItemSummary {
     season: null,
     episode: null,
     show_title: null,
-    poster: null,
+    poster: c.poster,
     backdrop: null,
     runtime_min: null,
     width: null,

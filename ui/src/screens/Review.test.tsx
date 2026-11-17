@@ -4,7 +4,7 @@ import { activeKey, screens, select, settle } from "../../test/app";
 import { detail } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { focusItem, installBridge } from "@/focus/bridge";
-import type { Candidate, Id } from "@/lib/api";
+import { boot, type Candidate, type Id } from "@/lib/api";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -18,7 +18,14 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-const candidate = (tmdb_id: number, kind: Candidate["kind"], score: number): Candidate => ({ tmdb_id, kind, title: "x", year: 1972, score });
+const candidate = (tmdb_id: number, kind: Candidate["kind"], score: number, poster: string | null = null): Candidate => ({
+  tmdb_id,
+  kind,
+  title: "x",
+  year: 1972,
+  score,
+  poster,
+});
 
 function entry(id: Id, title: string) {
   return detail(
@@ -32,6 +39,20 @@ function entry(id: Id, title: string) {
     },
   );
 }
+
+test("a candidate with a cached poster hangs it; one without is a typographic poster", async () => {
+  tauri.handle("boot", () => ({ status: {}, imageDir: "C:\\data\\images", firstRun: false }));
+  await boot();
+  const solaris = entry(11, "Solaris");
+  solaris.item.candidates = [candidate(593, "movie", 0.82, "movie-593-poster.jpg"), candidate(2103, "movie", 0.61)];
+  tauri.handle("needs_review", () => [solaris]);
+  screens({ screen: "review" });
+  await settle(120);
+  const works = document.querySelectorAll('article[aria-label="Solaris.mkv"] [data-work]');
+  expect(works[0]!.querySelector("img")?.getAttribute("src")).toContain("movie-593-poster-s.jpg");
+  expect(works[1]!.querySelector("img")).toBeNull();
+  expect(works[1]!.querySelector("[data-typographic]")).not.toBeNull();
+});
 
 test("choosing a candidate applies it with the candidate's kind and id", async () => {
   tauri.handle("apply_match", () => null);

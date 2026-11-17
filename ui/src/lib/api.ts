@@ -28,6 +28,8 @@ export interface Candidate {
   title: string;
   year: number | null;
   score: number;
+  /** The cached poster's file name (its small sibling is on disk), as an item's `poster`. */
+  poster: string | null;
 }
 
 export interface Item {

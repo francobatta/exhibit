@@ -92,7 +92,7 @@ pub struct Library {
     volumes: Box<dyn Volumes + Send>,
     secrets: Box<dyn Secrets + Send>,
     env: Env,
-    http: Box<dyn Http + Send>,
+    http: Box<dyn Http + Send + Sync>,
 }
 
 impl Library {
@@ -125,7 +125,7 @@ impl Library {
 
     /// The same library over another HTTP layer, so tests can stand in for TMDB.
     #[cfg(test)]
-    pub(crate) fn with_http(mut self, http: Box<dyn Http + Send>) -> Library {
+    pub(crate) fn with_http(mut self, http: Box<dyn Http + Send + Sync>) -> Library {
         self.http = http;
         self
     }
@@ -146,12 +146,12 @@ impl Library {
             .query_row("PRAGMA data_version", [], |r| r.get(0))?)
     }
 
-    fn provider(&self) -> Result<Tmdb<&dyn Http>> {
+    fn provider(&self) -> Result<Tmdb<&(dyn Http + Sync)>> {
         let key = self
             .secrets
             .get(TMDB_KEY)?
             .ok_or_else(|| Error::Invalid("TMDB key not set".into()))?;
-        Ok(Tmdb::new(key, &*self.http as &dyn Http))
+        Ok(Tmdb::new(key, &*self.http))
     }
 
     pub fn add_source(&self, path: &Path) -> Result<Source> {
@@ -220,7 +220,7 @@ impl Library {
 
     /// TMDB search for picking a match by hand. `kind` is `Movie` or `Show`.
     pub fn lookup(&self, text: &str, kind: ItemKind, year: Option<i32>) -> Result<Vec<Candidate>> {
-        identify::lookup(&self.provider()?, text, kind, year)
+        identify::lookup(&self.provider()?, &self.image_dir(), text, kind, year)
     }
 
     /// Scan, identify (with a TMDB key), probe (with a tool), identify the items left for

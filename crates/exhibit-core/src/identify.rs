@@ -30,6 +30,8 @@ const POSTER_SIZE: &str = "w780";
 /// The small poster, for walls of many works; stored beside the large one with `-s`.
 const POSTER_SMALL_SIZE: &str = "w342";
 const BACKDROP_SIZE: &str = "original";
+/// Candidate posters downloaded at once by `lookup`, which the owner waits on.
+const LOOKUP_POSTER_THREADS: usize = 5;
 /// An episode's still, kept as the episode's backdrop: it is the episode's frame on the show
 /// screen and its backdrop on its details screen, so it is taken at full size like a backdrop.
 pub(crate) const STILL_SIZE: &str = "original";
@@ -143,6 +145,7 @@ pub fn identify(
 ) -> Result<IdentifyReport> {
     let mut report = IdentifyReport::default();
     small_posters(c, p, cache_dir, &mut report)?;
+    let mut posters = CandidatePosters::new(p, cache_dir);
     let mut episodes: Vec<Member> = Vec::new();
     for item in pending(c, v, &scope)? {
         let outcome = match route(p, &item) {
@@ -158,19 +161,20 @@ pub fn identify(
                 ));
                 continue;
             }
-            Ok(route) => identify_single(c, p, cache_dir, &item, route),
+            Ok(route) => identify_single(c, p, cache_dir, &mut posters, &item, route),
             Err(e) => Err(e),
         };
         record(&mut report, &item.rel_path, outcome, 1)?;
         on(item.item_id);
     }
     for g in &identify_show::groups(episodes) {
-        let outcome = identify_show::identify_group(c, p, cache_dir, g);
+        let outcome = identify_show::identify_group(c, p, cache_dir, &mut posters, g);
         record(&mut report, &g.title, outcome, g.members.len() as u32)?;
         for m in &g.members {
             on(m.pending.item_id);
         }
     }
+    report.errors.append(&mut posters.errors);
     identify_show::episode_stills(c, p, cache_dir, &mut report)?;
     Ok(report)
 }
@@ -368,11 +372,12 @@ fn identify_single(
     c: &Connection,
     p: &dyn MetadataProvider,
     cache_dir: &Path,
+    posters: &mut CandidatePosters,
     item: &Pending,
     route: Route,
 ) -> Result<Counts> {
     match route {
-        Route::Movie { title, year } => match_movie(c, p, cache_dir, item, &title, year),
+        Route::Movie { title, year } => match_movie(c, p, cache_dir, posters, item, &title, year),
         // A stale or wrong-kind nfo id is ignored: the item is matched by name instead.
         Route::NfoMovie { id, title, year } => match p.movie(id) {
             Ok(meta) => {
@@ -380,12 +385,13 @@ fn identify_single(
                 save_movie(c, p, cache_dir, item.item_id, &meta, how)?;
                 Ok((1, 0))
             }
-            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, item, &title, year),
+            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, posters, item, &title, year),
             Err(e) => Err(e),
         },
         Route::ShowWithoutEpisode { id, title, year } => match p.show(id) {
             Ok(s) => {
                 let only = Candidate {
+                    poster: posters.poster(ItemKind::Show, s.tmdb_id, s.poster.as_deref())?,
                     tmdb_id: s.tmdb_id,
                     kind: ItemKind::Show,
                     title: s.title,
@@ -395,7 +401,7 @@ fn identify_single(
                 set_review(c, item.item_id, &[only])?;
                 Ok((0, 1))
             }
-            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, item, &title, year),
+            Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, posters, item, &title, year),
             Err(e) => Err(e),
         },
         Route::Episode { .. } => unreachable!("episodes are identified in groups"),
@@ -406,6 +412,7 @@ fn match_movie(
     c: &Connection,
     p: &dyn MetadataProvider,
     cache_dir: &Path,
+    posters: &mut CandidatePosters,
     item: &Pending,
     title: &str,
     year: Option<i32>,
@@ -432,6 +439,7 @@ fn match_movie(
     }
     sort_candidates(&mut scored);
     let Some(best) = matcher::decide(&scored) else {
+        posters.add(&mut scored, &hits)?;
         set_review(c, item.item_id, &scored)?;
         return Ok((0, 1));
     };
@@ -457,6 +465,7 @@ pub(crate) fn candidate(hit: &SearchHit, score: f32) -> Candidate {
         title: hit.title.clone(),
         year: hit.year,
         score,
+        poster: None,
     }
 }
 
@@ -671,7 +680,7 @@ pub(crate) fn artwork(
         download(p, cache_dir, path?, size, &name).ok()?;
         Some(name)
     };
-    let large = get(poster, POSTER_SIZE, format!("{kind}-{id}-poster.jpg"));
+    let large = get(poster, POSTER_SIZE, poster_name(kind, id));
     if let Some(name) = &large {
         get(poster, POSTER_SMALL_SIZE, small_poster(name));
     }
@@ -679,6 +688,78 @@ pub(crate) fn artwork(
         large,
         get(backdrop, BACKDROP_SIZE, format!("{kind}-{id}-backdrop.jpg")),
     )
+}
+
+/// The cached poster of TMDB movie or show `id`: `movie-603-poster.jpg`, `tv-95396-poster.jpg`.
+fn poster_name(tag: &str, id: i64) -> String {
+    format!("{tag}-{id}-poster.jpg")
+}
+
+/// Small posters for match candidates, so the owner can judge them by sight. Each is saved
+/// under the name the item's own poster takes if that candidate is applied; the large one
+/// comes only then. After the first provider error (TMDB out of reach) the rest are taken
+/// only from the cache, so an outage costs one timeout rather than one per candidate.
+pub(crate) struct CandidatePosters<'a> {
+    p: &'a dyn MetadataProvider,
+    cache_dir: &'a Path,
+    unreachable: bool,
+    /// Every failed download, for the report.
+    pub(crate) errors: Vec<String>,
+}
+
+impl<'a> CandidatePosters<'a> {
+    pub(crate) fn new(p: &'a dyn MetadataProvider, cache_dir: &'a Path) -> Self {
+        CandidatePosters {
+            p,
+            cache_dir,
+            unreachable: false,
+            errors: Vec::new(),
+        }
+    }
+
+    /// Gives each candidate the poster of its search hit. Only a rejected key is an error.
+    pub(crate) fn add(&mut self, scored: &mut [Candidate], hits: &[SearchHit]) -> Result<()> {
+        for c in scored {
+            let path = hits
+                .iter()
+                .find(|h| h.tmdb_id == c.tmdb_id && h.kind == c.kind)
+                .and_then(|h| h.poster.as_deref());
+            c.poster = self.poster(c.kind, c.tmdb_id, path)?;
+        }
+        Ok(())
+    }
+
+    /// The poster's file name once its small file is on disk; `None` when TMDB has no poster
+    /// (`path`) or the download failed. Only a rejected key is an error.
+    pub(crate) fn poster(
+        &mut self,
+        kind: ItemKind,
+        id: i64,
+        path: Option<&str>,
+    ) -> Result<Option<String>> {
+        let Some(path) = path else {
+            return Ok(None);
+        };
+        let tag = if kind == ItemKind::Show {
+            "tv"
+        } else {
+            "movie"
+        };
+        let name = poster_name(tag, id);
+        let small = small_poster(&name);
+        if self.unreachable && !self.cache_dir.join(&small).is_file() {
+            return Ok(None);
+        }
+        match download(self.p, self.cache_dir, path, POSTER_SMALL_SIZE, &small) {
+            Ok(()) => Ok(Some(name)),
+            Err(e @ Error::Invalid(_)) => Err(e),
+            Err(e) => {
+                self.unreachable |= matches!(e, Error::Provider(_));
+                self.errors.push(format!("poster for {small}: {e}"));
+                Ok(None)
+            }
+        }
+    }
 }
 
 /// The small poster's file name for a large poster's: `-s` before the extension.
@@ -757,9 +838,11 @@ fn small_posters(
 }
 
 /// TMDB search for a match picked by hand: every hit scored as the matcher scores it
-/// (title, and year when given), best first. `kind` must be `Movie` or `Show`.
+/// (title, and year when given), best first, each with its small poster when it could be
+/// cached into `cache_dir`. `kind` must be `Movie` or `Show`.
 pub fn lookup(
-    p: &dyn MetadataProvider,
+    p: &(dyn MetadataProvider + Sync),
+    cache_dir: &Path,
     text: &str,
     kind: ItemKind,
     year: Option<i32>,
@@ -784,6 +867,17 @@ pub fn lookup(
         .map(|hit| candidate(hit, matcher::score(&ev, hit, None)))
         .collect();
     sort_candidates(&mut scored);
+    // The owner is waiting: posters come a few at a time, each thread over its share.
+    let share = scored.len().div_ceil(LOOKUP_POSTER_THREADS).max(1);
+    let hits = &hits;
+    std::thread::scope(|s| {
+        let jobs: Vec<_> = scored
+            .chunks_mut(share)
+            .map(|chunk| s.spawn(move || CandidatePosters::new(p, cache_dir).add(chunk, hits)))
+            .collect();
+        jobs.into_iter()
+            .try_for_each(|job| job.join().expect("a poster download panicked"))
+    })?;
     Ok(scored)
 }
 
@@ -863,6 +957,7 @@ mod tests {
     use std::cell::RefCell;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Mutex;
     use tempfile::TempDir;
 
     /// In-memory TMDB. Every call is logged; a call whose log line contains a string in
@@ -875,14 +970,19 @@ mod tests {
         movie_hits: Vec<(&'static str, Vec<SearchHit>)>,
         show_hits: Vec<(&'static str, Vec<SearchHit>)>,
         images_fail: bool,
-        fail: RefCell<Vec<String>>,
-        calls: RefCell<Vec<String>>,
+        fail: Mutex<Vec<String>>,
+        calls: Mutex<Vec<String>>,
     }
 
     impl Fake {
         fn log(&self, call: String) -> Result<()> {
-            let refused = self.fail.borrow().iter().any(|f| call.contains(f.as_str()));
-            self.calls.borrow_mut().push(call.clone());
+            let refused = self
+                .fail
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|f| call.contains(f.as_str()));
+            self.calls.lock().unwrap().push(call.clone());
             if refused {
                 return Err(Error::Provider(format!("refused: {call}")));
             }
@@ -891,7 +991,8 @@ mod tests {
 
         fn count(&self, prefix: &str) -> usize {
             self.calls
-                .borrow()
+                .lock()
+                .unwrap()
                 .iter()
                 .filter(|c| c.starts_with(prefix))
                 .count()
@@ -973,6 +1074,22 @@ mod tests {
             original_title: title.into(),
             year,
             popularity: 1.0,
+            poster: None,
+        }
+    }
+
+    /// Two Solaris hits, each with a TMDB poster path: never accepted, always reviewed.
+    fn solaris_with_posters() -> Fake {
+        let with_poster = |id, year| SearchHit {
+            poster: Some(format!("/p{id}.jpg")),
+            ..hit(id, Movie, "Solaris", Some(year))
+        };
+        Fake {
+            movie_hits: vec![(
+                "Solaris",
+                vec![with_poster(593, 1972), with_poster(2103, 2002)],
+            )],
+            ..Default::default()
         }
     }
 
@@ -1214,7 +1331,7 @@ mod tests {
             (Some(603), Some(MatchSource::Lookup))
         );
         assert_eq!(
-            *p.calls.borrow(),
+            *p.calls.lock().unwrap(),
             [
                 "search_movie The Matrix",
                 "movie 603",
@@ -1464,6 +1581,47 @@ mod tests {
     }
 
     #[test]
+    fn review_candidates_keep_small_posters() {
+        let e = env(&["Solaris.mkv"]);
+        assert_eq!(
+            run(&e, &solaris_with_posters(), IdentifyScope::Unmatched),
+            report(0, 1, 0)
+        );
+        let mut posters: Vec<_> = file_item(&e, "Solaris.mkv")
+            .candidates
+            .into_iter()
+            .map(|c| c.poster)
+            .collect();
+        posters.sort();
+        assert_eq!(
+            posters,
+            [
+                Some("movie-2103-poster.jpg".to_string()),
+                Some("movie-593-poster.jpg".to_string())
+            ]
+        );
+        let read = |n: &str| fs::read(e.cache().join(n)).unwrap();
+        assert_eq!(read("movie-593-poster-s.jpg"), b"w342/p593.jpg");
+        assert!(!e.cache().join("movie-593-poster.jpg").exists());
+    }
+
+    #[test]
+    fn failed_candidate_poster_still_goes_to_review() {
+        let e = env(&["Solaris.mkv"]);
+        let p = Fake {
+            images_fail: true,
+            ..solaris_with_posters()
+        };
+        let r = run(&e, &p, IdentifyScope::Unmatched);
+        assert_eq!((r.needs_review, r.failed, r.errors.len()), (1, 0, 1));
+        let it = file_item(&e, "Solaris.mkv");
+        assert_eq!(it.match_state, MatchState::NeedsReview);
+        assert!(it.candidates.iter().all(|c| c.poster.is_none()));
+        // An outage costs one try, not one per candidate.
+        assert_eq!(p.count("image"), 1);
+    }
+
+    #[test]
     fn review_scope_retries_only_review_items() {
         let e = env(&["Solaris.mkv"]);
         let p = matrix();
@@ -1555,10 +1713,10 @@ mod tests {
         let p = matrix();
         assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
         let it = file_item(&e, rel);
-        p.calls.borrow_mut().clear();
+        p.calls.lock().unwrap().clear();
         assert_already_identified(&e, &p, it.id);
         assert_eq!(file_item(&e, rel), it);
-        assert!(p.calls.borrow().is_empty());
+        assert!(p.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1579,7 +1737,7 @@ mod tests {
         );
         assert_already_identified(&e, &p, id);
         assert_eq!(item(&e.c, id), before);
-        assert!(p.calls.borrow().is_empty());
+        assert!(p.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1599,7 +1757,7 @@ mod tests {
             "Perfect Blue",
             vec![hit(10494, Movie, "Perfect Blue", Some(1997))],
         ));
-        p.fail.borrow_mut().push("Perfect Blue".into());
+        p.fail.lock().unwrap().push("Perfect Blue".into());
 
         let r = run(&e, &p, IdentifyScope::Unmatched);
         assert_eq!((r.matched, r.needs_review, r.failed), (2, 0, 1));
@@ -1608,7 +1766,7 @@ mod tests {
         let pb = file_item(&e, files[1]);
         assert_eq!((pb.kind, pb.match_state), (Other, MatchState::Unmatched));
 
-        p.fail.borrow_mut().clear();
+        p.fail.lock().unwrap().clear();
         assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
         assert_eq!(file_item(&e, files[1]).tmdb_id, Some(10494));
     }
@@ -1730,7 +1888,7 @@ mod tests {
         ];
         let e = env(&files);
         let p = severance();
-        p.fail.borrow_mut().push("season".into());
+        p.fail.lock().unwrap().push("season".into());
         let r = run(&e, &p, IdentifyScope::Unmatched);
         assert_eq!((r.matched, r.failed, r.errors.len()), (0, 2, 1));
         assert!(items_of(&e.c, "show").is_empty());
@@ -1780,7 +1938,7 @@ mod tests {
 
         // A failed download is reported and does not fail the run.
         fs::remove_file(&small).unwrap();
-        p.fail.borrow_mut().push("w342".into());
+        p.fail.lock().unwrap().push("w342".into());
         let r = run(&e, &p, IdentifyScope::Review);
         assert_eq!((r.matched, r.failed, r.errors.len()), (0, 0, 1));
         assert!(!small.exists());
@@ -1796,7 +1954,7 @@ mod tests {
                 hit(603, Movie, "The Matrix", Some(1999)),
             ],
         )];
-        let found = lookup(&p, "Matrix", Movie, Some(1999)).unwrap();
+        let found = lookup(&p, Path::new("."), "Matrix", Movie, Some(1999)).unwrap();
         assert_eq!(
             found.iter().map(|c| c.tmdb_id).collect::<Vec<_>>(),
             [603, 1]
@@ -1811,7 +1969,7 @@ mod tests {
         assert_eq!(found[0].kind, Movie);
         // Shows are searched as shows.
         let s = severance();
-        let found = lookup(&s, "Severance", Show, None).unwrap();
+        let found = lookup(&s, Path::new("."), "Severance", Show, None).unwrap();
         assert_eq!((found.len(), found[0].kind), (1, Show));
         assert_eq!(s.count("search_show"), 1);
     }
@@ -1821,11 +1979,11 @@ mod tests {
         let p = matrix();
         for kind in [Other, Episode, ItemKind::Season] {
             assert!(matches!(
-                lookup(&p, "The Matrix", kind, None),
+                lookup(&p, Path::new("."), "The Matrix", kind, None),
                 Err(Error::Invalid(_))
             ));
         }
-        assert!(p.calls.borrow().is_empty());
+        assert!(p.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1850,14 +2008,14 @@ mod tests {
 
         let scanned = scan_source(&e.c, &e.v, e.src, &mut |_| {}).unwrap();
         assert_eq!(scanned.unchanged, 1);
-        p.calls.borrow_mut().clear();
+        p.calls.lock().unwrap().clear();
         assert_eq!(
             run(&e, &p, IdentifyScope::UnmatchedAndReview),
             report(0, 0, 0)
         );
         assert_already_identified(&e, &p, id);
         assert_eq!(item(&e.c, id), it);
-        assert!(p.calls.borrow().is_empty());
+        assert!(p.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -1934,13 +2092,13 @@ mod tests {
         );
         assert!(it.genres.is_empty() && it.people.is_empty());
 
-        p.calls.borrow_mut().clear();
+        p.calls.lock().unwrap().clear();
         assert_eq!(
             run(&e, &p, IdentifyScope::UnmatchedAndReview),
             report(0, 0, 0)
         );
         assert_eq!(item(&e.c, id), it);
-        assert!(p.calls.borrow().is_empty());
+        assert!(p.calls.lock().unwrap().is_empty());
         assert!(matches!(
             move_to_other(&e.c, 99999),
             Err(Error::NotFound(_))

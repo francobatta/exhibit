@@ -7,8 +7,8 @@
 use crate::db;
 use crate::error::{Error, Result};
 use crate::identify::{
-    Counts, Fill, How, IdentifyReport, MAX_HITS, Pending, STILL_SIZE, absorb, artwork, candidate,
-    confirm, download, find_item, insert_item, set_review, sort_candidates,
+    CandidatePosters, Counts, Fill, How, IdentifyReport, MAX_HITS, Pending, STILL_SIZE, absorb,
+    artwork, candidate, confirm, download, find_item, insert_item, set_review, sort_candidates,
 };
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
@@ -108,6 +108,7 @@ pub(crate) fn identify_group(
     c: &Connection,
     p: &dyn MetadataProvider,
     cache_dir: &Path,
+    posters: &mut CandidatePosters,
     g: &Group,
 ) -> Result<Counts> {
     let seasons = || g.members.iter().map(|m| m.season);
@@ -135,6 +136,7 @@ pub(crate) fn identify_group(
             match matcher::decide(&scored) {
                 Some(best) => (fetch(p, best.tmdb_id, seasons())?, How::lookup(best.score)),
                 None => {
+                    posters.add(&mut scored, &hits)?;
                     let tx = db::write_tx(c)?;
                     for m in &g.members {
                         set_review(&tx, m.pending.item_id, &scored)?;
@@ -155,6 +157,20 @@ pub(crate) fn identify_group(
         })
         .collect();
     let added_at = g.members.iter().map(|m| m.pending.added_at).min();
+    // Files whose episode the show lacks go to review with the show as their candidate.
+    let missing = g
+        .members
+        .iter()
+        .any(|m| m.episode.and_then(|e| show.episode(m.season, e)).is_none());
+    let poster = if missing {
+        posters.poster(
+            ItemKind::Show,
+            show.meta.tmdb_id,
+            show.meta.poster.as_deref(),
+        )?
+    } else {
+        None
+    };
 
     let tx = db::write_tx(c)?;
     let show_item = ensure_show(&tx, &show, art, how, added_at.unwrap_or(0))?;
@@ -177,7 +193,7 @@ pub(crate) fn identify_group(
             None => {
                 // The show is right but this episode is not in it: leave the file for review.
                 let score = how.confidence.unwrap_or(1.0);
-                set_review(&tx, item_id, &[show.candidate(score)])?;
+                set_review(&tx, item_id, &[show.candidate(score, poster.clone())])?;
                 review += 1;
             }
         }
@@ -259,13 +275,14 @@ impl ShowData {
         s.episodes.iter().find(|e| e.episode == episode)
     }
 
-    fn candidate(&self, score: f32) -> Candidate {
+    fn candidate(&self, score: f32, poster: Option<String>) -> Candidate {
         Candidate {
             tmdb_id: self.meta.tmdb_id,
             kind: ItemKind::Show,
             title: self.meta.title.clone(),
             year: self.meta.year,
             score,
+            poster,
         }
     }
 }
