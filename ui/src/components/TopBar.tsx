@@ -1,7 +1,8 @@
 // The bar over every screen: the mark, the top-level sections, the ask field, settings, and a
 // quiet line saying what the library is doing.
 
-import type { ReactNode } from "react";
+import { isTypeaheadKey } from "@ui-sdk/core";
+import type { KeyboardEvent, ReactNode } from "react";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
@@ -9,10 +10,9 @@ import { count } from "@/lib/format";
 import { useJobStatus, useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
-import { samePlace, useNav, type Route } from "@/nav/stack";
+import { openAsk, samePlace, useNav, type Route } from "@/nav/stack";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 
 const SECTIONS: Array<{ label: string; route: Route }> = [
   { label: "Home", route: { screen: "home" } },
@@ -84,9 +84,37 @@ function BarButton({
   );
 }
 
+/** A real key typing a letter or digit (`/`, `[` and `]` stay shortcuts; the pad's keys are synthetic and stay its buttons). */
+const startsSearch = (e: globalThis.KeyboardEvent) => e.isTrusted && isTypeaheadKey(e) && /^[\p{L}\p{N}]$/u.test(e.key);
+
+/** Looks like a field and opens Ask, as Y, `/` and Ctrl+K do; a letter typed on it starts the search. */
 function AskField({ label }: { label: string }) {
-  const { ref, props } = useFocusItem<HTMLInputElement>({ key: "ask" });
-  return <Input ref={ref} {...props} aria-label={label} placeholder={label} className="w-[22rem]" />;
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "ask", onSelect: () => openAsk() });
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (startsSearch(e.nativeEvent)) {
+      e.preventDefault();
+      openAsk(e.key);
+      return;
+    }
+    props.onKeyDown(e);
+  };
+  return (
+    <button
+      ref={ref}
+      {...props}
+      onKeyDown={onKeyDown}
+      type="button"
+      aria-haspopup="dialog"
+      className={cn(
+        "flex h-11 w-[22rem] items-center rounded-control border border-line bg-wall/40 px-4 outline-none",
+        "font-display text-body text-label-faint transition-[border-color,background-color]",
+        "hover:border-label-faint",
+        focused && "border-lamp/60 bg-wall/70 text-label-dim",
+      )}
+    >
+      {label}
+    </button>
+  );
 }
 
 export function TopBar() {

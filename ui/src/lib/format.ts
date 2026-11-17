@@ -156,3 +156,8 @@ export const OFFLINE = "Offline";
 export function started(watched: boolean, progress: number | null): number | null {
   return !watched && progress !== null && Number.isFinite(progress) && progress > 0 ? Math.min(1, progress) : null;
 }
+
+/** How sure a match candidate is, in a word: "Likely" from 0.8, "Possible" from 0.6, else "Unlikely". */
+export function confidence(score: number): string {
+  return score >= 0.8 ? "Likely" : score >= 0.6 ? "Possible" : "Unlikely";
+}

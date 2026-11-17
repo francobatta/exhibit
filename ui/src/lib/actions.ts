@@ -4,8 +4,9 @@
 
 import { useMemo } from "react";
 import { confirm, type ConfirmRequest } from "@/components/Dialog";
+import { openMatchPicker } from "@/components/MatchPicker";
 import { toast } from "@/components/ui/toast";
-import { useNav } from "@/nav/stack";
+import { leaveAsk, useNav } from "@/nav/stack";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
 import { clock, episodeLabel } from "./format";
 import { usePlayback } from "./playback";
@@ -150,8 +151,8 @@ export interface ActionContext {
   moveToOther(v: { id: Id }): Promise<unknown>;
   /** Opens the details (or show) screen. */
   open(item: ActionItem): void;
-  /** Opens the match picker; Task 9 supplies it. */
-  fix?: (item: ActionItem) => void;
+  /** Opens the match picker. */
+  fix(item: ActionItem): void;
   /** Asks before something that moves a work; resolves true to go ahead. */
   confirm(request: ConfirmRequest): Promise<boolean>;
   /** Says what went wrong, in plain words. */
@@ -184,7 +185,7 @@ export async function runAction(action: Action, item: ActionItem, ctx: ActionCon
         ctx.open(item);
         return;
       case "fix":
-        ctx.fix?.(item);
+        ctx.fix(item);
         return;
       case "other": {
         const go = await ctx.confirm({
@@ -201,8 +202,11 @@ export async function runAction(action: Action, item: ActionItem, ctx: ActionCon
   }
 }
 
-/** The app's `ActionContext`: the real mutations, the navigation stack, the confirm dialog, a toast. */
-export function useActionContext(fix?: (item: ActionItem) => void): ActionContext {
+/**
+ * The app's `ActionContext`: the real mutations, the navigation stack (once Ask, if open, has
+ * closed), the match picker, the confirm dialog, a toast.
+ */
+export function useActionContext(): ActionContext {
   const start = usePlayback((s) => s.start);
   const watched = useSetWatched();
   const loved = useSetLoved();
@@ -216,12 +220,12 @@ export function useActionContext(fix?: (item: ActionItem) => void): ActionContex
       moveToOther: other.mutateAsync,
       open: (item) => {
         const f = facetsOf(item);
-        push({ screen: f.kind === "show" ? "show" : "details", id: f.id });
+        leaveAsk(() => push({ screen: f.kind === "show" ? "show" : "details", id: f.id }));
       },
-      fix,
+      fix: (item) => openMatchPicker(facetsOf(item).id),
       confirm,
       fail: (message) => toast(message),
     }),
-    [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push, fix],
+    [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push],
   );
 }

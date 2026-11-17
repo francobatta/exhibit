@@ -12,6 +12,7 @@ import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
 import { Details } from "@/screens/Details";
 import { Home } from "@/screens/Home";
+import { Review } from "@/screens/Review";
 import { Show } from "@/screens/Show";
 import { Wall } from "@/screens/Wall";
 import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route } from "./stack";
@@ -83,7 +84,7 @@ function screenFor(entry: Entry, pushed: boolean): ReactNode {
     case "details":
       return <Details id={route.id} />;
     case "review":
-      return <Stub title="Needs review" body="This screen is built in a later step." pushed={pushed} />;
+      return <Review />;
     case "settings":
       return <Stub title="Settings" body="This screen is built in a later step." pushed={pushed} />;
     case "firstRun":

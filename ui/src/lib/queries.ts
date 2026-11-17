@@ -35,6 +35,7 @@ export const keys = {
   items: (query: SearchQuery) => ["library", "items", query] as const,
   item: (id: Id) => ["library", "item", id] as const,
   needsReview: ["library", "needs-review"] as const,
+  ask: (text: string) => ["library", "ask", text] as const,
 };
 
 const PAGE = 500;
@@ -127,6 +128,38 @@ export function useOfflineDrive(): (id: Id) => Promise<string | undefined> {
     },
     [client],
   );
+}
+
+/** What Ask shows for some text: groups of works, each with a title and perhaps why it is there. */
+export interface AskResult {
+  groups: Array<{ title: string; reason?: string; items: ItemSummary[] }>;
+}
+
+/** The kinds Ask groups by, in order; seasons are reached through their shows. */
+const ASK_GROUPS: Array<[ItemKind, string]> = [
+  ["movie", "Movies"],
+  ["show", "Shows"],
+  ["episode", "Episodes"],
+  ["other", "Other"],
+];
+
+/** The library search as Ask's groups, by kind; a kind with nothing found is left out. */
+export function askGroups(items: ItemSummary[]): AskResult {
+  return {
+    groups: ASK_GROUPS.map(([kind, title]) => ({ title, items: items.filter((i) => i.kind === kind) })).filter(
+      (g) => g.items.length > 0,
+    ),
+  };
+}
+
+/** Ask's results for `text` (already debounced): in this stage, the library search by kind. */
+export function useAsk(text: string) {
+  return useQuery({
+    queryKey: keys.ask(text),
+    queryFn: async (): Promise<AskResult> => askGroups(await api.search({ text, limit: 40 })),
+    enabled: text !== "",
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useNeedsReview() {

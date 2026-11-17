@@ -100,3 +100,30 @@ export const useNav = create<NavState>()((set, get) => ({
       return { entries, current: entries[entries.length - 1]!.route };
     }),
 }));
+
+// Ask is an overlay over whatever screen is showing, not a place in the stack.
+
+interface AskOverlay {
+  open: boolean;
+  /** What the field starts with: a key typed on the top bar's field opens Ask with it. */
+  seed: string;
+  /** Runs once the overlay has closed and focus is back where it was. */
+  then: (() => void) | null;
+}
+
+export const useAskOverlay = create<AskOverlay>()(() => ({ open: false, seed: "", then: null }));
+
+export function openAsk(seed = ""): void {
+  useAskOverlay.setState({ open: true, seed, then: null });
+}
+
+/** Closes Ask; `then` runs once it has closed, so a screen it opens takes focus from the page. */
+export function closeAsk(then?: () => void): void {
+  useAskOverlay.setState({ open: false, then: then ?? null });
+}
+
+/** Runs `go` (a move to another screen) now, or once Ask has closed if it is open. */
+export function leaveAsk(go: () => void): void {
+  if (useAskOverlay.getState().open) closeAsk(go);
+  else go();
+}

@@ -21,6 +21,8 @@ export interface ItemHandlers {
   onMenu?: () => void;
   onBack?: () => void;
   disabled?: boolean;
+  /** What A does here, for the pad hints ("Type"); default "Open". */
+  hint?: string;
 }
 
 export interface GroupEntry {
@@ -44,6 +46,12 @@ export interface ScopeEntry {
   el: HTMLElement;
   modal: boolean;
   onBack?: () => void;
+  /** X (`m`) inside the scope when the focused item has no menu. */
+  onMenu?: () => void;
+  /** Y (`/`, Ctrl+K) while this modal is on top; without it, a modal ignores them. */
+  onAsk?: () => void;
+  /** The pad's Menu button while this modal is on top; elsewhere that button opens Settings. */
+  onDone?: () => void;
   /** Hears the key of every item focused inside this scope (and not inside a scope within it). */
   onFocusKey?: (key: string) => void;
   /** False while a screen sits under another one. Absent means active. */
@@ -357,9 +365,28 @@ function computeCanBack(): boolean {
   return useNav.getState().entries.length > 1;
 }
 
-/** Opens the focused item's menu, if it has one. */
+/** What X does from where focus is: the item's menu, else its scope's onMenu. */
+function menuAction(): (() => void) | undefined {
+  const active = document.activeElement;
+  return handlersOf(active)?.onMenu ?? (scopeOf(active) ?? topModal())?.onMenu;
+}
+
+/** Opens the focused item's menu, if it has one (or its scope's X, as the on-screen keyboard's Delete). */
 export function openMenu(): void {
-  handlersOf(document.activeElement)?.onMenu?.();
+  menuAction()?.();
+}
+
+/** What Y does: the topmost modal's onAsk while one is open, else `ask`. */
+function askAction(ask: () => void): (() => void) | undefined {
+  const modal = topModal();
+  return modal === undefined ? ask : modal.onAsk;
+}
+
+/** The pad's Menu button: the topmost modal's onDone while one is open, else `settings`. */
+export function menuButton(settings: () => void): void {
+  const modal = topModal();
+  if (modal === undefined) settings();
+  else modal.onDone?.();
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -430,19 +457,23 @@ export function installBridge(): () => void {
 
 /**
  * The global keys, through UI SDK's shared shortcuts: `/` and Ctrl+K ask, `[` and `]` change
- * section, `m` opens the focused item's menu. Plain keys never fire inside a text field, and a
- * UI SDK modal pauses them, as page shortcuts.
+ * section, `m` opens the focused item's menu. Plain keys never fire inside a text field. A UI SDK
+ * modal pauses the section keys, as page shortcuts; ask and menu belong to the topmost modal scope
+ * (UI SDK `layer`) and run there only when it, or the focused item, has something for them.
  */
 export function installShortcuts(actions: {
   onAsk: () => void;
   onSection: (delta: -1 | 1) => void;
 }): () => void {
+  // An element on the page makes a page shortcut; a function returning nothing would never run.
+  const layer = () => topModal()?.el ?? document.body;
+  const ask = { layer, when: () => askAction(actions.onAsk) !== undefined };
   const offs = [
-    registerShortcut("/", () => actions.onAsk(), { description: "Ask" }),
-    registerShortcut("mod+k", () => actions.onAsk(), { description: "Ask" }),
+    registerShortcut("/", () => askAction(actions.onAsk)?.(), { description: "Ask", ...ask }),
+    registerShortcut("mod+k", () => askAction(actions.onAsk)?.(), { description: "Ask", ...ask }),
     registerShortcut("[", () => actions.onSection(-1), { description: "Previous section" }),
     registerShortcut("]", () => actions.onSection(1), { description: "Next section" }),
-    registerShortcut("m", openMenu, { description: "Item menu" }),
+    registerShortcut("m", openMenu, { description: "Item menu", layer, when: () => menuAction() !== undefined }),
   ];
   return () => {
     for (const off of offs) off();

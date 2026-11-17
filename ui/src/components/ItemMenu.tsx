@@ -131,9 +131,9 @@ export function ItemMenu({ item, actions, extra = [], anchor, open, onClose, onC
 }
 
 /** Mount once near the app's root: the one item menu, for every work. */
-export function ItemMenuHost({ fix }: { fix?: (item: ActionItem) => void }) {
+export function ItemMenuHost() {
   const { item, anchor, extra, open } = useItemMenu();
-  const ctx = useActionContext(fix);
+  const ctx = useActionContext();
   const client = useQueryClient();
   const chosen = useRef<Action | MenuExtra | null>(null);
   // The full record says more ("Resume from 1:04:12", "Play S2 E4"). It is a local read, so the

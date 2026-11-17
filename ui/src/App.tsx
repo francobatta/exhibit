@@ -5,16 +5,17 @@ import { Backdrop } from "@/components/Backdrop";
 import { ConfirmHost } from "@/components/Dialog";
 import { Hints } from "@/components/Hints";
 import { ItemMenuHost } from "@/components/ItemMenu";
+import { MatchPickerHost } from "@/components/MatchPicker";
 import { PlaybackHost } from "@/components/Playing";
 import { ErrorState, Loading } from "@/components/states";
 import { TopBar } from "@/components/TopBar";
 import { Toaster } from "@/components/ui/toast";
-import { focusItem } from "@/focus/bridge";
 import { FocusRoot } from "@/focus/react";
 import { plain } from "@/lib/api";
 import { LibrarySync, useBoot } from "@/lib/queries";
 import { cycleSection, openSettings, Screens } from "@/nav/Screens";
-import { useNav } from "@/nav/stack";
+import { openAsk, useNav } from "@/nav/stack";
+import { AskHost } from "@/screens/Ask";
 
 // Development only: every work component on one wall (screens/Gallery.tsx). Not in production builds.
 const gallery =
@@ -64,14 +65,16 @@ export default function App() {
     <QueryClientProvider client={client}>
       <MotionConfig reducedMotion="user">
         <FocusRoot
-          onAsk={() => focusItem("ask")}
+          onAsk={() => openAsk()}
           onSection={cycleSection}
           onSettings={openSettings}
         />
         <LibrarySync />
         <Backdrop />
         <Shell />
+        <AskHost />
         <ItemMenuHost />
+        <MatchPickerHost />
         <ConfirmHost />
         <PlaybackHost />
         <Hints />

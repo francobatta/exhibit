@@ -8,6 +8,7 @@ import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle, dialogBackdrop, dialogPanel } from "@/components/ui/dialog";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
+import { cn } from "@/lib/utils";
 
 export interface DialogAction {
   label: string;
@@ -31,6 +32,8 @@ export interface DialogProps {
   initial?: number;
   /** An item among `children` to focus when it opens, instead of a button. */
   restoreKey?: string;
+  /** Classes for the panel, such as a wider measure. */
+  className?: string;
   children?: ReactNode;
 }
 
@@ -52,7 +55,7 @@ function DialogButton({ id, index, action }: { id: string; index: number; action
   );
 }
 
-export function Dialog({ id, open, title, body, actions, onBack, onClosed, initial = 0, restoreKey, children }: DialogProps) {
+export function Dialog({ id, open, title, body, actions, onBack, onClosed, initial = 0, restoreKey, className, children }: DialogProps) {
   return (
     <FocusScope
       id={id}
@@ -62,7 +65,7 @@ export function Dialog({ id, open, title, body, actions, onBack, onClosed, initi
       onBack={onBack}
       onClosed={onClosed}
       restoreKey={restoreKey ?? `${id}:${initial}`}
-      className={dialogPanel}
+      className={cn(dialogPanel, className)}
       backdropClassName={dialogBackdrop}
     >
       <DialogTitle>{title}</DialogTitle>

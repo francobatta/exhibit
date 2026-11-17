@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clock, episodeLabel, facts, resolution, runtime } from "./format";
+import { clock, confidence, episodeLabel, facts, resolution, runtime } from "./format";
 
 describe("runtime", () => {
   test("hours and minutes", () => {
@@ -73,4 +73,8 @@ describe("episodeLabel", () => {
     expect(episodeLabel(null, null)).toBe("");
     expect(episodeLabel(2, null)).toBe("S2");
   });
+});
+
+test("a candidate's score reads as Likely from 0.8, Possible from 0.6, else Unlikely", () => {
+  expect([0.8, 0.6, 0.59].map(confidence)).toEqual(["Likely", "Possible", "Unlikely"]);
 });

@@ -72,6 +72,16 @@
   --work-poster: 11rem;
   --work-wide: 21rem;
   --menu-width: 22rem;
+  /* A line under a work on a shelf (a candidate's year and confidence): its height and gap. */
+  --shelf-caption: 2.25rem;
+  --shelf-caption-gap: 1rem;
+  /* Ask: how far its field sits from the top of the window, and the field's height. */
+  --ask-top: 1.5rem;
+  --ask-field: 4.5rem;
+  /* A dialog that holds a row of works (the match picker). */
+  --dialog-wide: 76rem;
+  /* The room the match picker keeps for its results, so the dialog does not jump as they arrive. */
+  --match-results: 27rem;
   /* The tallest a list inside a dialog grows (the genres) before it scrolls. */
   --dialog-list: 30rem;
   /* Home: the space between the hero placard and the shelves' light, the gap between shelves,
@@ -88,6 +98,13 @@
   --details-actions: 20rem;
   --show-placard: 42%;
   --show-episode: 15rem;
+  /* The on-screen keyboard: its width (ten keys and their gaps), a key's height, the gap between keys. */
+  --keyboard-width: 64rem;
+  --key-height: 4.5rem;
+  --key-gap: 0.75rem;
+  /* Needs review: the width of an entry's file name and actions beside its candidates, and the gap between entries. */
+  --review-label: 34rem;
+  --review-gap: 3rem;
   /* The keycap that names the button beside an action ("A", "Enter"). */
   --keycap: 1.75rem;
   --round-work: 0.125rem;

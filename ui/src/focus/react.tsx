@@ -35,6 +35,7 @@ import {
   itemAt,
   liveGroups,
   markEdge,
+  menuButton,
   registerGroup,
   registerItem,
   registerScope,
@@ -124,6 +125,18 @@ function centre(b: Box): [number, number] {
   return [(b.left + b.right) / 2, (b.top + b.bottom) / 2];
 }
 
+/**
+ * Where a move up or down is measured from: a box wider than every item it moves to (a search
+ * field over a shelf) counts from its start, an item's width of it, so Down lands on the first
+ * work under the field and not the one under its middle.
+ */
+function startOf(from: Box, boxes: Array<{ rect: Box }>, dir: Dir): Box {
+  if (dir[1] === 0) return from;
+  const widest = Math.max(...boxes.map((b) => b.rect.right - b.rect.left));
+  if (from.right - from.left <= widest) return from;
+  return { left: from.left, top: from.top, right: from.left + widest, bottom: from.bottom };
+}
+
 /** Lands in a group: its remembered item, else the one nearest `from` that way, else nearest on the cross axis. */
 function enter(group: GroupHandle, useStop: boolean, from: Box, dir: Dir): boolean {
   const items = group.api.roving.items();
@@ -132,7 +145,7 @@ function enter(group: GroupHandle, useStop: boolean, from: Box, dir: Dir): boole
   let key = useStop && items.some((i) => i.key === stop) ? stop! : undefined;
   if (key === undefined) {
     const boxes = items.map((i) => ({ key: i.key, rect: i.el.getBoundingClientRect() as Box }));
-    key = nearestInDirection(from, boxes, dir);
+    key = nearestInDirection(startOf(from, boxes, dir), boxes, dir);
     if (key === undefined) {
       const axis = dir[0] === 0 ? 0 : 1;
       const origin = centre(from)[axis];
@@ -225,6 +238,8 @@ export interface FocusItemOptions {
   onBack?: () => void;
   /** Can be focused but not selected. */
   disabled?: boolean;
+  /** What A does, for the pad hints ("Type"); default "Open". */
+  hint?: string;
 }
 
 export interface FocusItemProps<T extends HTMLElement> {
@@ -282,6 +297,7 @@ export function useFocusItem<T extends HTMLElement = HTMLElement>(options: Focus
             onMenu: menu && (() => menu(el)),
             onBack: o.onBack,
             disabled: o.disabled,
+            hint: o.hint,
           };
         }),
       ];
@@ -338,6 +354,12 @@ export interface FocusScopeProps {
   restoreKey?: string | null;
   /** Back from inside the scope when the focused item has no onBack. A modal's close. */
   onBack?: () => void;
+  /** X (`m`) inside the scope when the focused item has no menu. */
+  onMenu?: () => void;
+  /** A modal's Y (`/`, Ctrl+K); without it, Y does nothing while the modal is on top. */
+  onAsk?: () => void;
+  /** A modal's pad Menu button; without it, that button does nothing while the modal is on top. */
+  onDone?: () => void;
   /** False while the scope sits under another screen; becoming true restores `restoreKey`. Default true. */
   active?: boolean;
   /** Hears each item focused inside the scope; a screen passes it to the navigation stack. */
@@ -414,6 +436,15 @@ export function FocusScope({
       modal: modal && open,
       get onBack() {
         return latest.current.onBack;
+      },
+      get onMenu() {
+        return latest.current.onMenu;
+      },
+      get onAsk() {
+        return latest.current.onAsk;
+      },
+      get onDone() {
+        return latest.current.onDone;
       },
       get onFocusKey() {
         return latest.current.onFocusKey;
@@ -561,7 +592,7 @@ export function FocusRoot(props: FocusRootProps) {
       startKeys(),
       startPointer(),
       startWheel(),
-      startGamepad({ onSettings: () => latest.current.onSettings() }),
+      startGamepad({ onSettings: () => menuButton(latest.current.onSettings) }),
     ];
     return () => {
       for (const off of offs.reverse()) off();

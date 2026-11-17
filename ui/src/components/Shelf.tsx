@@ -34,6 +34,15 @@ export interface ShelfProps {
    * screen makes the shelf reachable), then focuses the work the shelf remembers, else its first.
    */
   onEnter?: () => void;
+  /** A line under each work, for works whose facts do not hang elsewhere ("1972, Likely"). */
+  caption?: (item: ItemSummary) => string;
+  /**
+   * Brings the shelf into view when one of its works takes focus by key or pad, for a screen that
+   * glides its own scroller (`revealRow`). Without it the shelf scrolls itself into view.
+   */
+  onReveal?: (section: HTMLElement) => void;
+  /** X opens the item menu. False for works that are not in the library (match candidates). Default true. */
+  menu?: boolean;
   className?: string;
 }
 
@@ -52,16 +61,18 @@ interface CellProps {
   shape: WorkShape;
   size: number;
   light: string;
+  caption?: string;
+  menu: boolean;
   onOpen: (item: ItemSummary) => void;
   onFocused: (index: number) => void;
 }
 
-const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, onOpen, onFocused }: CellProps) {
+const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, caption, menu, onOpen, onFocused }: CellProps) {
   const el = useRef<HTMLButtonElement | null>(null);
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: itemKey(shelf, item),
     onSelect: () => onOpen(item),
-    onMenu: () => openItemMenu(item, el.current),
+    onMenu: menu ? () => openItemMenu(item, el.current) : undefined,
   });
   const menuOpen = useMenuOpenOn(el);
   const bind = useCallback(
@@ -87,6 +98,16 @@ const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, lig
       style={{ transform: `translateX(${index * (size + rems("--space-work-gap"))}rem)`, width: `${size}rem` }}
     >
       <Work item={item} shape={shape} focused={focused || menuOpen} size={size} light={light} />
+      {caption !== undefined && (
+        <span
+          className={cn(
+            "mt-(--shelf-caption-gap) block truncate text-left font-display text-body",
+            focused ? "text-label" : "text-label-dim",
+          )}
+        >
+          {caption}
+        </span>
+      )}
     </button>
   );
 });
@@ -102,12 +123,15 @@ export const Shelf = memo(function Shelf({
   light = "work-light",
   inert,
   onEnter,
+  caption,
+  onReveal,
+  menu = true,
   className,
 }: ShelfProps) {
   const section = useRef<HTMLElement>(null);
-  const latest = useRef({ items, onOpen, onFocusItem, size });
+  const latest = useRef({ items, onOpen, onFocusItem, onReveal, size });
   useLayoutEffect(() => {
-    latest.current = { items, onOpen, onFocusItem, size };
+    latest.current = { items, onOpen, onFocusItem, onReveal, size };
   });
   // The work the shelf remembers stays rendered wherever it scrolls, so focus can come back to it.
   const remembered = useRef<string | null>(null);
@@ -205,7 +229,10 @@ export const Shelf = memo(function Shelf({
       // away from under itself.
       if (useFocusState.getState().mode === "pointer") return reveal(index);
       slideTo(index);
-      section.current?.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
+      const el = section.current;
+      if (el === null) return;
+      if (latest.current.onReveal) latest.current.onReveal(el);
+      else el.scrollIntoView({ block: "nearest", behavior: scrollBehavior() });
     },
     [slideTo, reveal, id],
   );
@@ -217,7 +244,7 @@ export const Shelf = memo(function Shelf({
     focusItem(remembered.current ?? itemKey(id, first));
   }, [onEnter, id]);
 
-  const height = size * ASPECT[shape];
+  const height = size * ASPECT[shape] + (caption === undefined ? 0 : rems("--shelf-caption"));
   const gap = rems("--space-work-gap");
   return (
     <section ref={section} aria-label={title} className={cn("flex flex-col", className)}>
@@ -262,6 +289,8 @@ export const Shelf = memo(function Shelf({
                 shape={shape}
                 size={size}
                 light={light}
+                caption={caption?.(item)}
+                menu={menu}
                 onOpen={open}
                 onFocused={onFocused}
               />
