@@ -82,6 +82,7 @@ function context() {
     fix: mock((_item: unknown) => {}),
     confirm: mock(async (_r: { confirm: string }) => true),
     fail: mock((_m: string) => {}),
+    failOffline: mock((_id: number) => {}),
   } satisfies ActionContext;
 }
 

@@ -417,7 +417,6 @@ function onKeyDown(event: KeyboardEvent) {
   }
 }
 
-
 function onFocusIn(event: FocusEvent) {
   const el = itemAt(event.target);
   const state = useFocusState.getState();

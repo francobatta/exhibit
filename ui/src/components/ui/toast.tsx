@@ -36,7 +36,8 @@ export function Toaster() {
             "motion-reduce:transition-opacity",
           )}
         >
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* A long path (a drive's folder) wraps anywhere rather than running past the edge. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1 wrap-anywhere">
             <ToastTitle className="font-display text-body font-ui text-label" />
             <ToastDescription className="font-reading text-body leading-reading text-label-dim" />
           </div>

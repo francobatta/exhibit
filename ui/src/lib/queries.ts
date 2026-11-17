@@ -36,7 +36,8 @@ export const keys = {
   item: (id: Id) => ["library", "item", id] as const,
   needsReview: ["library", "needs-review"] as const,
   ask: (text: string) => ["library", "ask", text] as const,
-  tools: ["library", "tools"] as const,
+  // Not under "library": detecting runs each tool, so a library change does not ask again.
+  tools: ["tools"] as const,
   fullscreen: ["fullscreen"] as const,
 };
 
@@ -71,8 +72,9 @@ export function useShelf(shelf: Shelf, limit: number) {
 
 /**
  * Every item matching `query`, loaded in pages of 500 one after another; `items` is the pages so
- * far, flattened. With `enabled` false only what is cached is returned. A new query keeps showing the last one's items until its own arrive, so a list
- * that is re-sorted or filtered stays in place (and keeps focus) meanwhile.
+ * far, flattened. With `enabled` false only what is cached is returned. A new query keeps showing
+ * the last one's items until its own arrive, so a list that is re-sorted or filtered stays in
+ * place (and keeps focus) meanwhile.
  */
 export function useItems(query: Omit<SearchQuery, "limit" | "offset">, enabled = true) {
   const result = useInfiniteQuery({
@@ -116,15 +118,20 @@ export function useItemSources(detail: ItemDetail | undefined): Source[] {
   }, [detail, sources]);
 }
 
-/** The drive a work waits for, read on demand: the folder of its first file on an offline source. */
+/**
+ * The drive a work waits for, read on demand: the folder of its first file on an offline source.
+ * A show's files are its episodes': it waits for its next episode's drive.
+ */
 export function useOfflineDrive(): (id: Id) => Promise<string | undefined> {
   const client = useQueryClient();
   return useCallback(
-    async (id: Id) => {
+    async function driveOf(id: Id): Promise<string | undefined> {
       const [detail, status] = await Promise.all([
         client.fetchQuery({ queryKey: keys.item(id), queryFn: () => api.item(id), staleTime: ITEM_STALE }),
         client.fetchQuery({ queryKey: keys.status, queryFn: api.status }),
       ]);
+      const next = detail.next_episode;
+      if (detail.files.length === 0 && next !== null) return driveOf(next.id);
       const ids = new Set(detail.files.map((f) => f.source_id));
       return status.sources.find((s) => ids.has(s.id) && !s.online)?.path;
     },
@@ -154,17 +161,29 @@ export function askGroups(items: ItemSummary[]): AskResult {
   };
 }
 
-/** Ask's results for `text` (already debounced): in this stage, the library search by kind. */
+/** How many works Ask asks the library for, of the titles and of the episodes each. */
+const ASK_LIMIT = 40;
+
+/**
+ * Ask's results for `text` (already debounced): in this stage, the library search by kind. The
+ * plain search finds titles (an episode's hit counts for its show), so episodes are asked apart.
+ */
 export function useAsk(text: string) {
   return useQuery({
     queryKey: keys.ask(text),
-    queryFn: async (): Promise<AskResult> => askGroups(await api.search({ text, limit: 40 })),
+    queryFn: async (): Promise<AskResult> => {
+      const [titles, episodes] = await Promise.all([
+        api.search({ text, limit: ASK_LIMIT }),
+        api.search({ text, kind: "episode", limit: ASK_LIMIT }),
+      ]);
+      return askGroups([...titles, ...episodes]);
+    },
     enabled: text !== "",
     placeholderData: keepPreviousData,
   });
 }
 
-/** The media tools, detected afresh each time a screen showing them opens (and when the library changes). */
+/** The media tools, detected afresh each time a screen showing them opens, and after a path is set. */
 export function useTools() {
   return useQuery({ queryKey: keys.tools, queryFn: api.detectTools, staleTime: 0, refetchOnMount: "always" });
 }

@@ -17,7 +17,7 @@ beforeEach(() => {
   tauri.handle("item", () => {
     throw { kind: "not_found", message: "not_found: no such item" };
   });
-  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, tools: [] }));
+  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false }));
   tauri.handle("job_status", () => ({ phase: null, done: 0, message: null, last_error: null }));
 });
 afterEach(() => {

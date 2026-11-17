@@ -60,7 +60,17 @@ export function Review() {
   // A match applied or a file sent to Other leaves at once, before the library says so.
   const entries = query.data.filter((d) => d.item.match_state === "needsreview");
   if (entries.length === 0) {
-    return <Empty title="Nothing needs review." body="When Exhibit cannot tell what a file is, it asks here." />;
+    // The section leaves the top bar with its last entry, so the way on is offered here, and its
+    // own scope puts focus on it when the last entry (and focus with it) has just gone.
+    return (
+      <FocusScope id="review-empty">
+        <Empty
+          title="Nothing needs review."
+          body="When Exhibit cannot tell what a file is, it asks here."
+          action={{ label: "Go to Home", onAction: () => useNav.getState().replaceRoot({ screen: "home" }) }}
+        />
+      </FocusScope>
+    );
   }
   return <Entries entries={entries} />;
 }

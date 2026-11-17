@@ -150,15 +150,21 @@ export function startGamepad(options: { onSettings: () => void }): () => void {
     raf = 0;
     state = IDLE;
   };
+  // A button still held from before the window lost focus (the A that started mpv) is not a press.
+  const resume = () => {
+    const pad = readPad();
+    if (pad !== null) state = { ...IDLE, held: [...pad.buttons] };
+    schedule();
+  };
 
   window.addEventListener("gamepadconnected", schedule);
-  window.addEventListener("focus", schedule);
+  window.addEventListener("focus", resume);
   window.addEventListener("blur", pause);
   schedule();
   return () => {
     pause();
     window.removeEventListener("gamepadconnected", schedule);
-    window.removeEventListener("focus", schedule);
+    window.removeEventListener("focus", resume);
     window.removeEventListener("blur", pause);
   };
 }

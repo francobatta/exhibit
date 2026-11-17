@@ -26,11 +26,12 @@ function type(text: string) {
 }
 
 test("searches once typing pauses, and shows the results as a shelf per kind", async () => {
-  tauri.handle("search", () => [
-    summary({ id: 3, kind: "episode", title: "Heat Wave", show_title: "Severance", season: 1, episode: 2 }),
-    summary({ id: 1, title: "Heat" }),
-    summary({ id: 2, kind: "show", title: "Heated" }),
-  ]);
+  // As the core answers: titles by default (an episode's hit counts for its show), episodes when asked.
+  tauri.handle("search", (args) =>
+    (args.query as { kind?: string }).kind === "episode"
+      ? [summary({ id: 3, kind: "episode", title: "Heat Wave", show_title: "Severance", season: 1, episode: 2 })]
+      : [summary({ id: 1, title: "Heat" }), summary({ id: 2, kind: "show", title: "Heated" })],
+  );
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
@@ -48,7 +49,10 @@ test("searches once typing pauses, and shows the results as a shelf per kind", a
   });
   expect(tauri.calls().filter((c) => c.cmd === "search")).toEqual([]);
   await act(() => sleep(250));
-  expect(tauri.calls().filter((c) => c.cmd === "search").map((c) => c.args)).toEqual([{ query: { text: "heat", limit: 40 } }]);
+  expect(tauri.calls().filter((c) => c.cmd === "search").map((c) => c.args)).toEqual([
+    { query: { text: "heat", limit: 40 } },
+    { query: { text: "heat", kind: "episode", limit: 40 } },
+  ]);
   // The results arrive and render.
   await act(() => sleep(60));
   const shelves = [...document.querySelectorAll("section[aria-label]")].map((s) => s.getAttribute("aria-label"));

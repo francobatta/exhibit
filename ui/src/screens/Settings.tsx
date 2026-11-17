@@ -28,20 +28,23 @@ function settingsLanding(part: SettingsPart | undefined): string {
 
 export function Settings({ part }: { part?: SettingsPart }) {
   const status = useStatus();
-  if (status.isPending) return <Loading />;
-  if (status.isError) {
+  // Detected again as Settings opens, before it shows, so it can land on a tool.
+  const tools = useTools();
+  if (status.isPending || tools.isPending) return <Loading />;
+  if (status.isError || tools.isError) {
+    const failed = status.isError ? status : tools;
     return (
       <ErrorState
-        message={plain(status.error)}
+        message={plain(failed.error)}
         hint="Settings could not be read. Try again, or restart Exhibit if it keeps happening."
-        action={{ label: "Try again", onAction: () => status.refetch() }}
+        action={{ label: "Try again", onAction: () => void failed.refetch() }}
       />
     );
   }
-  return <Parts status={status.data} part={part} />;
+  return <Parts status={status.data} tools={tools.data} part={part} />;
 }
 
-function Parts({ status, part }: { status: LibraryStatus; part?: SettingsPart }) {
+function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStatus[]; part?: SettingsPart }) {
   // Settings takes focus as it opens, wherever it was opened from (the top bar, a dialog).
   useEffect(() => {
     focusItem(settingsLanding(part));
@@ -53,7 +56,7 @@ function Parts({ status, part }: { status: LibraryStatus; part?: SettingsPart })
         <h1 className="px-edge pt-4 pb-6 font-display text-title font-title tracking-title text-label">Settings</h1>
         <div className="wall-fade min-h-0 flex-1 overflow-y-auto px-edge pb-edge">
           <Folders sources={status.sources} />
-          <Tools initial={status.tools} />
+          <Tools tools={tools} />
           <TmdbKey status={status} />
           <Part title="Agent key" note="Used from the next version of Exhibit.">
             <SetLine set={status.agent_key} />
@@ -149,9 +152,7 @@ function Folders({ sources }: { sources: Source[] }) {
   );
 }
 
-function Tools({ initial }: { initial: ToolStatus[] }) {
-  // Detected again as Settings opens; what the library knew is shown meanwhile.
-  const tools = useTools().data ?? initial;
+function Tools({ tools }: { tools: ToolStatus[] }) {
   const { browser, choose, set } = useSetToolPath();
   return (
     <Part title="Tools" note="Free programs Exhibit uses to play your files and read them.">

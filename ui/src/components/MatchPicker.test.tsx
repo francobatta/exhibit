@@ -19,7 +19,7 @@ afterEach(() => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test("without a TMDB key it offers Settings and never looks anything up", async () => {
-  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 1, needs_review: 1, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, tools: [] }));
+  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 1, needs_review: 1, unprobed: 0, sources: [], tmdb_key: false, agent_key: false }));
   tauri.handle("item", () => detail({}, { id: 7, kind: "other", title: "Solaris", match_state: "needsreview" }));
   tauri.handle("lookup", () => []);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

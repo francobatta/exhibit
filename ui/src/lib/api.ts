@@ -176,7 +176,6 @@ export interface LibraryStatus {
   sources: Source[];
   tmdb_key: boolean;
   agent_key: boolean;
-  tools: ToolStatus[];
 }
 
 export interface Boot {

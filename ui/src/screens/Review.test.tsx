@@ -5,11 +5,12 @@ import { detail } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { focusItem, installBridge } from "@/focus/bridge";
 import { boot, type Candidate, type Id } from "@/lib/api";
+import { useNav } from "@/nav/stack";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
   uninstall = installBridge();
-  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 3, needs_review: 3, unprobed: 0, sources: [], tmdb_key: true, agent_key: false, tools: [] }));
+  tauri.handle("status", () => ({ movies: 0, shows: 0, other: 3, needs_review: 3, unprobed: 0, sources: [], tmdb_key: true, agent_key: false }));
   tauri.handle("needs_review", () => [entry(11, "Solaris"), entry(12, "Crash"), entry(13, "Heat")]);
 });
 afterEach(() => {
@@ -78,4 +79,20 @@ test("after Send to Other the entry leaves and focus is on the next entry", asyn
   expect(tauri.calls().filter((c) => c.cmd === "move_to_other").map((c) => c.args)).toEqual([{ id: 12 }]);
   expect(document.querySelector('article[aria-label="Crash.mkv"]')).toBeNull();
   expect(activeKey()).toBe("review-13:item:0");
+});
+
+test("when the last entry leaves, Go to Home has focus and goes there", async () => {
+  tauri.handle("move_to_other", () => null);
+  tauri.handle("needs_review", () => [entry(12, "Crash")]);
+  screens({ screen: "review" });
+  await settle(120);
+  await act(async () => {
+    focusItem("review-12:other");
+  });
+  await select();
+  await settle(120);
+  expect(document.body.textContent).toContain("Nothing needs review.");
+  expect(document.activeElement?.textContent).toBe("Go to Home");
+  await select();
+  expect(useNav.getState().current).toEqual({ screen: "home" });
 });

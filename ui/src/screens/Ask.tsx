@@ -29,7 +29,7 @@ const DEBOUNCE = 200;
 const RECENT_KEY = "exhibit.ask.recent";
 const RECENT_MAX = 6;
 
-/** None when what is stored cannot be read. */
+/** The recent searches, newest first; an empty list when what is stored cannot be read. */
 export function recentSearches(): string[] {
   let stored: unknown;
   try {

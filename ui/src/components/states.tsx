@@ -1,4 +1,4 @@
-// What a screen shows when it has nothing, is still loading, failed, or its drive is away.
+// What a screen shows when it has nothing, is still loading or failed.
 // Plain words, sentence case, never apologising; still, nothing loops.
 
 import { useId, type ReactNode } from "react";
@@ -102,14 +102,5 @@ export function ErrorState({
       <p className={reading}>{hint}</p>
       {action && <Action action={action} />}
     </Panel>
-  );
-}
-
-/** A quiet line saying a drive is not connected and what still works. */
-export function OfflineNote({ drive, className }: { drive: string; className?: string }) {
-  return (
-    <p className={cn("font-display text-body text-label-dim", className)}>
-      {drive} is not connected. Connect it to play what is on it.
-    </p>
   );
 }

@@ -33,7 +33,7 @@ export function useSetToolPath() {
   const { browser, browse } = useBrowse();
   const set = (tool: api.Tool, path: string | null) =>
     api.setToolPath(tool, path).then(
-      () => client.invalidateQueries({ queryKey: keys.library }),
+      () => client.invalidateQueries({ queryKey: keys.tools }),
       (e: unknown) => toast(plain(e)),
     );
   const choose = (tool: api.Tool) =>

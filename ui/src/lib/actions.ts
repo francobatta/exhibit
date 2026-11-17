@@ -10,7 +10,7 @@ import { leaveAsk, useNav } from "@/nav/stack";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
 import { clock, episodeLabel } from "./format";
 import { usePlayback } from "./playback";
-import { useMoveToOther, useSetLoved, useSetWatched } from "./queries";
+import { useMoveToOther, useOfflineDrive, useSetLoved, useSetWatched } from "./queries";
 
 export type ActionId =
   | "play"
@@ -33,16 +33,17 @@ export interface Action {
 
 export type ActionItem = ItemSummary | ItemDetail;
 
-export const OFFLINE = "Drive is not connected";
+/** Why a play cannot run, before its drive is known. */
+export const OFFLINE_REASON = "Drive is not connected";
 
 /** Why a work cannot play: its drive by the folder it holds, when known. */
 export function offlineReason(drive: string | undefined): string {
-  return drive === undefined ? OFFLINE : `The drive for ${drive} is not connected`;
+  return drive === undefined ? OFFLINE_REASON : `The drive for ${drive} is not connected`;
 }
 
 /** Why `action` cannot run, a missing drive named by `drive`; undefined when it can. */
 export function reasonOf(action: Pick<Action, "disabled">, drive: string | undefined): string | undefined {
-  return action.disabled === OFFLINE ? offlineReason(drive) : action.disabled;
+  return action.disabled === OFFLINE_REASON ? offlineReason(drive) : action.disabled;
 }
 
 const isDetail = (item: ActionItem): item is ItemDetail => "item" in item;
@@ -94,7 +95,7 @@ function playLabel(item: ActionItem): string {
 /** What can be done to `item`, the main action first. */
 export function itemActions(item: ActionItem): Action[] {
   const f = facetsOf(item);
-  const offline = f.available ? {} : { disabled: OFFLINE };
+  const offline = f.available ? {} : { disabled: OFFLINE_REASON };
   const list: Action[] = [];
   const container = f.kind === "show" || f.kind === "season";
 
@@ -136,14 +137,19 @@ export function mainAction(item: ActionItem): Action {
   return (container ? actions.find((a) => a.id === "details") : undefined) ?? actions[0]!;
 }
 
-/** Runs A on `item`; one that cannot run says why. */
-export function runMain(item: ActionItem, ctx: ActionContext): void {
-  const action = mainAction(item);
-  if (action.disabled) ctx.fail(action.disabled);
+/** Runs `action` on `item` as A does: one that cannot run says why, a missing drive by name. */
+export function runSelected(action: Action, item: ActionItem, ctx: ActionContext): void {
+  if (action.disabled === OFFLINE_REASON) ctx.failOffline(facetsOf(item).id);
+  else if (action.disabled) ctx.fail(action.disabled);
   else void runAction(action, item, ctx);
 }
 
-/** What `runAction` needs from the app: the library mutations, navigation and two dialogs. */
+/** Runs A on `item`; one that cannot run says why. */
+export function runMain(item: ActionItem, ctx: ActionContext): void {
+  runSelected(mainAction(item), item, ctx);
+}
+
+/** What `runAction` needs from the app: the library mutations, navigation, two dialogs and a message. */
 export interface ActionContext {
   play(v: { id: Id; resume: boolean }): Promise<unknown>;
   setWatched(v: { id: Id; watched: boolean }): Promise<unknown>;
@@ -157,6 +163,8 @@ export interface ActionContext {
   confirm(request: ConfirmRequest): Promise<boolean>;
   /** Says what went wrong, in plain words. */
   fail(message: string): void;
+  /** Says that the work `id` cannot play, naming the drive it waits for. */
+  failOffline(id: Id): void;
 }
 
 /** Runs `action` on `item`. Never throws: a failure goes to `ctx.fail`. */
@@ -204,7 +212,7 @@ export async function runAction(action: Action, item: ActionItem, ctx: ActionCon
 
 /**
  * The app's `ActionContext`: the real mutations, the navigation stack (once Ask, if open, has
- * closed), the match picker, the confirm dialog, a toast.
+ * closed), the match picker, the confirm dialog, a toast (naming the drive a work waits for).
  */
 export function useActionContext(): ActionContext {
   const start = usePlayback((s) => s.start);
@@ -212,6 +220,7 @@ export function useActionContext(): ActionContext {
   const loved = useSetLoved();
   const other = useMoveToOther();
   const push = useNav((s) => s.push);
+  const driveOf = useOfflineDrive();
   return useMemo(
     () => ({
       play: ({ id, resume }) => start(id, resume),
@@ -225,7 +234,13 @@ export function useActionContext(): ActionContext {
       fix: (item) => openMatchPicker(facetsOf(item).id),
       confirm,
       fail: (message) => toast(message),
+      failOffline: (id) => {
+        void driveOf(id).then(
+          (drive) => toast(offlineReason(drive)),
+          () => toast(OFFLINE_REASON),
+        );
+      },
     }),
-    [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push],
+    [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push, driveOf],
   );
 }

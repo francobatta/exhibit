@@ -38,7 +38,6 @@ function status(online: boolean): LibraryStatus {
     ],
     tmdb_key: true,
     agent_key: false,
-    tools: [],
   };
 }
 

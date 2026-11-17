@@ -10,7 +10,7 @@ import { ErrorState, Loading } from "@/components/states";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { itemActions, reasonOf, runAction, useActionContext, type Action, type ActionId } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type MediaFile, type Source } from "@/lib/api";
-import { bytes, clock, facts, language, listed, resolution, shortDay } from "@/lib/format";
+import { OFFLINE, bytes, clock, facts, language, listed, resolution, shortDay } from "@/lib/format";
 import { useItem, useItemSources } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useNav } from "@/nav/stack";
@@ -138,7 +138,7 @@ export function fileLine(file: MediaFile, source: Source | undefined): string {
     audio,
     subs && `subtitles ${subs}`,
     source?.path,
-    source?.online === false ? "Offline" : null,
+    source?.online === false ? OFFLINE : null,
   ]);
 }
 

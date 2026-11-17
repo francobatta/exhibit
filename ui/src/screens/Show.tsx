@@ -16,12 +16,12 @@ import { Toggle } from "@/components/ui/toggle";
 import { Work } from "@/components/Work";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
-import { itemActions, offlineReason, reasonOf, runAction, runMain, useActionContext } from "@/lib/actions";
+import { itemActions, runMain, runSelected, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "@/lib/api";
 import { OFFLINE, WATCHED, count, episodeLabel, facts, runtime, started } from "@/lib/format";
 import { rems, revealRow, stopGlide } from "@/lib/motion";
 import { usePlayback } from "@/lib/playback";
-import { useItem, useItemSources, useOfflineDrive } from "@/lib/queries";
+import { useItem, useItemSources } from "@/lib/queries";
 import { useNav } from "@/nav/stack";
 
 export const episodeKey = (id: Id) => `episode:${id}`;
@@ -128,11 +128,7 @@ function ShowWork({ show, seasons }: { show: ItemDetail; seasons: number }) {
   const drive = useItemSources(next).find((s) => !s.online)?.path;
   const { ref, props, focused } = useFocusItem<HTMLDivElement>({
     key: SHOW_KEY,
-    onSelect: () => {
-      const why = reasonOf(action, drive);
-      if (why !== undefined) ctx.fail(why);
-      else void runAction(action, show, ctx);
-    },
+    onSelect: () => runSelected(action, show, ctx),
     onMenu: (el) => openItemMenu(show, el),
   });
   // The show stays lit under its menu, as a work does.
@@ -214,18 +210,7 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
     };
   }, []);
 
-  // An episode whose drive is away says which drive, and is never handed to the player.
-  const driveOf = useOfflineDrive();
-  const open = useCallback(
-    (item: ItemSummary) => {
-      if (item.available) return runMain(item, latest.current);
-      void driveOf(item.id).then(
-        (drive) => latest.current.fail(offlineReason(drive)),
-        () => latest.current.fail(offlineReason(undefined)),
-      );
-    },
-    [driveOf],
-  );
+  const open = useCallback((item: ItemSummary) => runMain(item, latest.current), []);
   // The list scrolls itself (`reveals`), as the wall does.
   const reveal = useCallback((row: HTMLElement) => {
     const el = list.current;

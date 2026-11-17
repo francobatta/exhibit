@@ -10,9 +10,7 @@ let uninstall: () => void = () => {};
 
 const found = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: `C:\\tools\\${tool}.exe`, version: `${tool} 1.0`, manual: false });
 
-function status(tools: ToolStatus[]): LibraryStatus {
-  return { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, tools };
-}
+const STATUS: LibraryStatus = { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false };
 
 beforeEach(() => {
   uninstall = installBridge();
@@ -40,7 +38,7 @@ async function choose(key: string) {
 
 test("with every tool found, the tools step is left out, and skipping every step ends at Home", async () => {
   const all = [found("mpv"), found("ffprobe"), found("ffmpeg")];
-  tauri.handle("status", () => status(all));
+  tauri.handle("status", () => STATUS);
   tauri.handle("detect_tools", () => all);
   screens({ screen: "firstRun" });
   await settle(120);
@@ -62,7 +60,7 @@ test("with every tool found, the tools step is left out, and skipping every step
 
 test("a missing tool gets its own step, which can be skipped too", async () => {
   const tools = [{ tool: "mpv", path: null, version: null, manual: false } as ToolStatus, found("ffprobe"), found("ffmpeg")];
-  tauri.handle("status", () => status(tools));
+  tauri.handle("status", () => STATUS);
   tauri.handle("detect_tools", () => tools);
   screens({ screen: "firstRun" });
   await settle(120);

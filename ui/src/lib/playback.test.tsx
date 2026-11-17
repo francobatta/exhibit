@@ -29,7 +29,7 @@ const ended = (p: Partial<PlayEnded>) =>
   });
 
 function film() {
-  tauri.handle("status", () => ({ movies: 1, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: true, agent_key: false, tools: [] }));
+  tauri.handle("status", () => ({ movies: 1, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: true, agent_key: false }));
   tauri.handle("item", () => detail({}, { id: 7 }));
 }
 

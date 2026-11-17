@@ -21,7 +21,6 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
     sources: [{ id: 4, path: "D:\\Films", volume_id: "a", online: true }],
     tmdb_key: false,
     agent_key: false,
-    tools: [MPV, missing("ffprobe"), missing("ffmpeg")],
     ...over,
   };
 }
@@ -29,7 +28,7 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
 beforeEach(() => {
   uninstall = installBridge();
   tauri.handle("status", () => status());
-  tauri.handle("detect_tools", () => status().tools);
+  tauri.handle("detect_tools", () => [MPV, missing("ffprobe"), missing("ffmpeg")]);
   tauri.handle("window_is_fullscreen", () => false);
 });
 afterEach(() => {

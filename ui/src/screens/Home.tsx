@@ -15,7 +15,8 @@ import { jobLine } from "@/components/TopBar";
 import { mainAction, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
-import { useItem, useItemSources, useJobStatus, useShelf } from "@/lib/queries";
+import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
+import { openSettings } from "@/nav/Screens";
 
 /** Home's shelves, in order, each shown only when it has items. */
 const SHELVES: Array<{ shelf: ShelfName; limit: number; title: string }> = [
@@ -38,7 +39,8 @@ export function Home() {
     useShelf(SHELVES[2]!.shelf, SHELVES[2]!.limit),
     useShelf(SHELVES[3]!.shelf, SHELVES[3]!.limit),
   ];
-  const job = jobLine(useJobStatus());
+  const job = useJobStatus();
+  const sources = useStatus().data?.sources.length;
 
   // A focus scope settles as it mounts, so the shelves render once all their data is here.
   if (queries.some((q) => q.isPending)) return <Loading />;
@@ -57,15 +59,25 @@ export function Home() {
     (r) => r.items.length > 0,
   );
   if (rows.length === 0) {
+    // Which empty this is waits for the folders to be known.
+    if (sources === undefined) return <Loading />;
     return (
       <Empty
         title="Nothing here yet."
-        body="Exhibit is still looking through your folders."
-        status={job ?? undefined}
+        body={emptyBody(sources, job === null || job.phase !== null)}
+        status={jobLine(job) ?? undefined}
+        action={{ label: "Open Settings", onAction: openSettings }}
       />
     );
   }
   return <Spotlight rows={rows} />;
+}
+
+/** Why Home is empty: no folders yet, the worker still looking through them, or nothing in them. */
+function emptyBody(sources: number, looking: boolean): string {
+  if (sources === 0) return "Add the folders that hold your films and shows in Settings.";
+  if (looking) return "Exhibit is still looking through your folders.";
+  return "Exhibit found nothing to show in your folders. Add another folder in Settings.";
 }
 
 function Spotlight({ rows }: { rows: Row[] }) {
@@ -226,6 +238,3 @@ function Shelves({
     </div>
   );
 }
-
-
-
