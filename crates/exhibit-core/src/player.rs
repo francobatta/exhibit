@@ -192,10 +192,7 @@ fn no_mpv(c: &Connection) -> Result<Error> {
     let key = Tool::Mpv.setting_key();
     Ok(Error::Tool(match db::get_setting(c, &key)? {
         Some(p) => format!("mpv not found at {p}"),
-        None => format!(
-            "mpv not found on PATH or in the usual install folders; \
-             set its location in the `{key}` setting"
-        ),
+        None => "mpv not found on this PC".to_string(),
     }))
 }
 
@@ -755,13 +752,13 @@ mod tests {
     }
 
     #[test]
-    fn play_without_any_mpv_names_the_setting() {
+    fn play_without_any_mpv_says_how_to_get_it() {
         let e = env();
         let id = e.add(ItemKind::Movie, "Heat", None);
         e.file(e.src, id, "Heat.mkv", None, 1);
         match play(&e.c, &e.v, &Tools::default(), id, true) {
             Err(crate::error::Error::Tool(m)) => {
-                assert!(m.contains("PATH") && m.contains("tool.mpv"), "{m}")
+                assert_eq!(m, "mpv not found on this PC")
             }
             other => panic!("{other:?}"),
         }

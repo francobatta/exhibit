@@ -12,6 +12,14 @@ import { useNav, type Route } from "@/nav/stack";
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export const settle = (ms = 80) => act(() => sleep(ms));
+
+/**
+ * Waits up to `ms` for `ready`, one short act at a time. Polling inside a single act never sees
+ * the result: React renders what the act started only once the act ends.
+ */
+export async function until(ready: () => boolean, ms = 1000): Promise<void> {
+  for (let waited = 0; waited < ms && !ready(); waited += 10) await settle(10);
+}
 export const activeKey = () => (document.activeElement as HTMLElement | null)?.dataset.focusKey;
 
 export const press = (key: string) =>

@@ -90,7 +90,7 @@ fn library_flow_through_the_binary() {
     assert_eq!(status["tmdb_key"], false);
     // Detecting the tools runs each one, so they are listed apart from the status.
     assert!(status.get("tools").is_none());
-    assert_eq!(cli.ok(&["tools", "list"]).as_array().unwrap().len(), 3);
+    assert_eq!(cli.ok(&["tools", "list"]).as_array().unwrap().len(), 2);
 }
 
 #[test]

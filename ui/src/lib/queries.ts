@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import * as api from "./api";
 import type {
   ApiError,
+  DownloadStatus,
   Id,
   ItemDetail,
   ItemKind,
@@ -38,6 +39,7 @@ export const keys = {
   ask: (text: string) => ["library", "ask", text] as const,
   // Not under "library": detecting runs each tool, so a library change does not ask again.
   tools: ["tools"] as const,
+  toolsDownload: ["tools-download"] as const,
   fullscreen: ["fullscreen"] as const,
 };
 
@@ -186,6 +188,36 @@ export function useAsk(text: string) {
 /** The media tools, detected afresh each time a screen showing them opens, and after a path is set. */
 export function useTools() {
   return useQuery({ queryKey: keys.tools, queryFn: api.detectTools, staleTime: 0, refetchOnMount: "always" });
+}
+
+/**
+ * The mpv and ffmpeg download, kept current by the `tools-download` event, and `start`. Starting
+ * shows at once, before the command answers. A finished download detects the tools again.
+ */
+export function useToolsDownload() {
+  const client = useQueryClient();
+  const { data } = useQuery({ queryKey: keys.toolsDownload, queryFn: api.toolsDownloadStatus, staleTime: Infinity });
+  useEffect(() => {
+    const off = api.onToolsDownload((s) => {
+      client.setQueryData(keys.toolsDownload, s);
+      if (s.outcome?.kind === "done") void client.invalidateQueries({ queryKey: keys.tools });
+    });
+    return () => {
+      void off.then((f) => f());
+    };
+  }, [client]);
+  const start = useCallback(() => {
+    if (client.getQueryData<DownloadStatus>(keys.toolsDownload)?.running) return;
+    client.setQueryData<DownloadStatus>(keys.toolsDownload, { running: true, step: { step: "checking" }, outcome: null });
+    api.downloadTools().catch((e: unknown) => {
+      client.setQueryData<DownloadStatus>(keys.toolsDownload, {
+        running: false,
+        step: null,
+        outcome: { kind: "failed", message: api.plain(e) },
+      });
+    });
+  }, [client]);
+  return { status: data ?? null, start };
 }
 
 /** Whether the window is full screen, read when asked; `set` changes it and reads it back. */

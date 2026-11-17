@@ -12,6 +12,7 @@ use exhibit_core::{Library, LibraryStatus};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
+use crate::downloads::DownloadStatus;
 use crate::error::{ApiError, ApiResult};
 use crate::folders::{self, Folder};
 use crate::playback;
@@ -146,6 +147,20 @@ pub fn set_tool_path(
         .set_tool_path(tool, path.map(PathBuf::from).as_deref())?;
     state.changed.notify();
     Ok(())
+}
+
+/// Starts downloading mpv and ffmpeg; returns at once, false when a download is already
+/// running. Progress arrives as `tools-download`.
+#[tauri::command(async)]
+pub fn download_tools(app: AppHandle, state: State<'_, AppState>) -> bool {
+    state
+        .downloads
+        .start(app, state.worker.clone(), state.changed.clone())
+}
+
+#[tauri::command(async)]
+pub fn tools_download_status(state: State<'_, AppState>) -> DownloadStatus {
+    state.downloads.status()
 }
 
 /// The secrets the window may set: the TMDB key and the agent key.

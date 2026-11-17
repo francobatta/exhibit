@@ -3,6 +3,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
 import { films, summary } from "../../test/fixtures";
+import { until } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { ItemMenuHost, useItemMenu } from "@/components/ItemMenu";
 import { DEFAULT_VIEW, type WallView } from "@/nav/stack";
@@ -97,9 +98,9 @@ test("selection mode marks every selected work watched, one call each, and ends"
   await act(async () => {
     document.querySelector<HTMLElement>('[data-focus-key="item:1"]')!.focus();
     openMenu();
-    for (let i = 0; i < 100 && byText('[role="menuitem"] span', "Select several") === null; i++) await sleep(10);
-    await sleep(20);
   });
+  await until(() => byText('[role="menuitem"] span', "Select several") !== null);
+  await settle(20);
   await click(byText('[role="menuitem"] span', "Select several")!.closest('[role="menuitem"]'));
   await settle(120);
   await click(document.querySelector('[data-focus-key="item:2"]'));

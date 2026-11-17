@@ -1,7 +1,0 @@
-{
-  "streams": [
-    {"index": 0, "codec_name": "av1", "codec_type": "video", "width": 1920, "height": 1080, "color_transfer": "arib-std-b67"},
-    {"index": 1, "codec_name": "opus", "codec_type": "audio", "channels": 2}
-  ],
-  "format": {"duration": "600.5"}
-}

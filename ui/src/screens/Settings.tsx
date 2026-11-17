@@ -1,5 +1,6 @@
 // Settings: one screen, five parts and nothing else. Folders (each with whether its drive is
-// connected, and Remove), tools (where each was found, or what is missing without it), the TMDB
+// connected, and Remove), tools (where each came from, or what is missing without it, and one
+// download for both), the TMDB
 // key, the agent key, and full screen. Opening it detects the tools again. Opened from the mpv
 // error or Fix match, it lands on the part that fixes it.
 
@@ -11,6 +12,7 @@ import { useBrowse } from "@/components/FolderBrowser";
 import { Lamp } from "@/components/Lamp";
 import { SecretForm } from "@/components/SecretForm";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
+import { DownloadButton, DownloadNote } from "@/components/ToolsDownload";
 import { ErrorState, Loading } from "@/components/states";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
@@ -19,11 +21,18 @@ import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import * as api from "@/lib/api";
 import { keyRejected, plain, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
 import { keys, useFullscreen, useStatus, useTools } from "@/lib/queries";
+import { clearLabel } from "@/lib/tools";
 import type { SettingsPart } from "@/nav/stack";
 
-/** Where focus lands as Settings opens: "Add folder", or the control that fixes what sent the owner here. */
-function settingsLanding(part: SettingsPart | undefined): string {
-  return part === "tools" ? "tool:mpv:set" : part === "tmdb" ? "tmdb:field" : "folders:add";
+/**
+ * Where focus lands as Settings opens: "Add folder", or the control that fixes what sent the owner
+ * here. For mpv, the download when it is missing; its path when one set by hand fails.
+ */
+function settingsLanding(part: SettingsPart | undefined, tools: ToolStatus[]): string {
+  if (part === "tmdb") return "tmdb:field";
+  if (part !== "tools") return "folders:add";
+  const mpv = tools.find((t) => t.tool === "mpv");
+  return mpv?.source === "manual" ? "tool:mpv:set" : "tools:download";
 }
 
 export function Settings({ part }: { part?: SettingsPart }) {
@@ -46,11 +55,13 @@ export function Settings({ part }: { part?: SettingsPart }) {
 
 function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStatus[]; part?: SettingsPart }) {
   // Settings takes focus as it opens, wherever it was opened from (the top bar, a dialog).
+  // Where to land is fixed as Settings opens, so detecting the tools again never moves focus.
+  const [landing] = useState(() => settingsLanding(part, tools));
   useEffect(() => {
-    focusItem(settingsLanding(part));
-  }, [part]);
+    focusItem(landing);
+  }, [landing]);
   return (
-    <FocusScope id="settings" restoreKey={settingsLanding(part)} fallbackKey="folders:add">
+    <FocusScope id="settings" restoreKey={landing} fallbackKey="folders:add">
       {/* The parts scroll under the title, clear of the top bar. */}
       <div className="absolute inset-0 flex flex-col pt-bar">
         <h1 className="px-edge pt-4 pb-6 font-display text-title font-title tracking-title text-label">Settings</h1>
@@ -163,9 +174,9 @@ function Tools({ tools }: { tools: ToolStatus[] }) {
           lines={<ToolLines tool={t} />}
           actions={
             <FocusGroup id={`tool-${t.tool}`} orientation="horizontal" className="flex gap-3">
-              {t.manual && (
-                <FocusButton focusKey={`tool:${t.tool}:detected`} variant="plain" onSelect={() => void set(t.tool, null)}>
-                  Use detected
+              {t.source === "manual" && (
+                <FocusButton focusKey={`tool:${t.tool}:clear`} variant="plain" onSelect={() => void set(t.tool, null)}>
+                  {clearLabel(t)}
                 </FocusButton>
               )}
               <FocusButton focusKey={`tool:${t.tool}:set`} onSelect={() => choose(t.tool)}>
@@ -175,6 +186,10 @@ function Tools({ tools }: { tools: ToolStatus[] }) {
           }
         />
       ))}
+      <FocusGroup id="tools-download" orientation="horizontal" className="flex">
+        <DownloadButton tools={tools} focusKey="tools:download" />
+      </FocusGroup>
+      <DownloadNote />
       {browser}
     </Part>
   );

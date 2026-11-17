@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Migrations in order; `PRAGMA user_version` holds how many have been applied.
-const MIGRATIONS: &[&str] = &[include_str!("migrations/001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/001_init.sql"),
+    include_str!("migrations/002_drop_ffprobe.sql"),
+];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
 pub fn data_dir() -> PathBuf {

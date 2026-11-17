@@ -1,6 +1,6 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { activeKey, press, screens, select, settle, sleep } from "../../test/app";
+import { activeKey, press, screens, select, settle, until } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { SHOW, fakeShow } from "../../test/show";
 import { useItemMenu } from "@/components/ItemMenu";
@@ -38,8 +38,8 @@ test("Mark all as watched on the show's menu marks the show once", async () => {
   expect(activeKey()).toBe(SHOW_KEY);
   await act(async () => {
     openMenu();
-    for (let i = 0; i < 100 && !document.activeElement?.closest('[role="menu"]'); i++) await sleep(10);
   });
+  await until(() => document.activeElement?.closest('[role="menu"]') != null);
   for (let i = 0; i < 12 && !document.activeElement?.textContent?.startsWith("Mark all as watched"); i++) await press("ArrowDown");
   await select();
   await settle(120);

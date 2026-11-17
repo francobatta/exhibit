@@ -126,8 +126,16 @@ enum TasteCmd {
 #[derive(Subcommand)]
 enum ToolsCmd {
     List,
-    Set { tool: ToolArg, path: PathBuf },
-    Clear { tool: ToolArg },
+    Set {
+        tool: ToolArg,
+        path: PathBuf,
+    },
+    Clear {
+        tool: ToolArg,
+    },
+    /// Download the latest mpv and ffmpeg for this PC from shinchiro's builds (unofficial,
+    /// listed first on mpv.io) into Exhibit's tools folder; Windows only
+    Download,
 }
 
 #[derive(Subcommand)]
@@ -208,7 +216,6 @@ enum ShelfArg {
 #[derive(Clone, Copy, ValueEnum)]
 enum ToolArg {
     Mpv,
-    Ffprobe,
     Ffmpeg,
 }
 

@@ -1,6 +1,7 @@
 // First run: three steps, each one screen with one main action and Skip. A folder (added at
 // once, so the library fills in behind the next steps); the media tools that were not found (a
-// step only when one is missing); the TMDB key. Finishing, or skipping the last step, goes Home.
+// step only when one is missing, led by downloading both); the TMDB key. Finishing, or skipping
+// the last step, goes Home.
 // B goes back a step.
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -10,12 +11,13 @@ import { FocusButton } from "@/components/FocusButton";
 import { useBrowse } from "@/components/FolderBrowser";
 import { SecretForm } from "@/components/SecretForm";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
+import { DownloadButton, DownloadNote } from "@/components/ToolsDownload";
 import { toast } from "@/components/ui/toast";
 import { FocusGroup, FocusScope } from "@/focus/react";
 import * as api from "@/lib/api";
 import { plain, type Source, type Tool, type ToolStatus } from "@/lib/api";
 import { easeOut, length, seconds } from "@/lib/motion";
-import { keys, useTools } from "@/lib/queries";
+import { keys, useTools, useToolsDownload } from "@/lib/queries";
 import { toolFound } from "@/lib/tools";
 import { useNav } from "@/nav/stack";
 
@@ -152,41 +154,52 @@ function FolderStep({ added, onAdded, onNext }: { added: Source[]; onAdded: (s: 
 
 function ToolsStep({ missing, tools, onNext }: { missing: Tool[]; tools: ToolStatus[]; onNext: () => void }) {
   const { browser, choose } = useSetToolPath();
+  const { status } = useToolsDownload();
   const shown = tools.filter((t) => missing.includes(t.tool));
   const allFound = shown.every(toolFound);
+  const running = status?.running ?? false;
+  // A finished download is ready at once, before the tools are detected again, so the button
+  // never shows its old words on the way to Continue.
+  const ready = (allFound || status?.outcome?.kind === "done") && !running;
   return (
     <>
       <Heading title="Media tools">
-        <p>Exhibit uses free programs to play your files and read them. {shown.length === 1 ? "This one was" : "These were"} not found on this computer.</p>
+        <p>
+          Exhibit plays your files with mpv and makes thumbnails with ffmpeg, two free programs. {shown.length === 1 ? "This one was" : "These were"} not found on
+          this computer. Exhibit can download both for you.
+        </p>
       </Heading>
       <div className="flex max-w-(--settings-measure) flex-col gap-5">
         {shown.map((t) => (
           <div key={t.tool} className="flex flex-col gap-1">
             <p className="font-display text-lead font-ui text-label">{t.tool}</p>
-            <ToolLines tool={t} extra={t.tool === "mpv" ? "Nothing can play until mpv is set." : undefined} />
+            <ToolLines tool={t} extra={t.tool === "mpv" ? "Nothing can play until mpv is here." : undefined} />
           </div>
         ))}
       </div>
       <Actions step="tools">
-        {allFound ? (
+        {ready ? (
           <FocusButton focusKey="first:tools:main" variant="solid" onSelect={onNext}>
             Continue
           </FocusButton>
         ) : (
           <>
+            <DownloadButton tools={tools} focusKey="first:tools:main" variant="solid" />
             {shown
               .filter((t) => !toolFound(t))
-              .map((t, i) => (
-                <FocusButton key={t.tool} focusKey={i === 0 ? "first:tools:main" : `first:tools:${t.tool}`} variant={i === 0 ? "solid" : "line"} onSelect={() => choose(t.tool)}>
+              .map((t) => (
+                <FocusButton key={t.tool} focusKey={`first:tools:${t.tool}`} onSelect={() => choose(t.tool)}>
                   Set {t.tool} path
                 </FocusButton>
               ))}
+            {/* The download carries on behind the next step, like the folder's scan. */}
             <FocusButton focusKey="first:tools:skip" variant="plain" onSelect={onNext}>
-              Skip
+              {running ? "Continue" : "Skip"}
             </FocusButton>
           </>
         )}
       </Actions>
+      <DownloadNote />
       {browser}
     </>
   );

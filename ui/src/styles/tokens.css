@@ -111,6 +111,8 @@
   --settings-label: 20rem;
   --settings-measure: 56rem;
   --key-field: 28rem;
+  /* The download button, wide enough for its progress ("Downloading, 34 of 63 MB") not to move it. */
+  --download-control: 19rem;
   /* The folder browser's panel. */
   --dialog-browser: 52rem;
   /* The keycap that names the button beside an action ("A", "Enter"). */

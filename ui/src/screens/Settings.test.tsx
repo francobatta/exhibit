@@ -8,8 +8,8 @@ import { keyError } from "./Settings";
 
 let uninstall: () => void = () => {};
 
-const MPV: ToolStatus = { tool: "mpv", path: "C:\\mpv\\mpv.exe", version: "mpv v0.40.0", manual: false };
-const missing = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: null, version: null, manual: false });
+const MPV: ToolStatus = { tool: "mpv", path: "C:\\mpv\\mpv.exe", version: "mpv v0.40.0", source: "detected", release: null, downloaded: false };
+const missing = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: null, version: null, source: null, release: null, downloaded: false });
 
 function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
   return {
@@ -28,8 +28,9 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
 beforeEach(() => {
   uninstall = installBridge();
   tauri.handle("status", () => status());
-  tauri.handle("detect_tools", () => [MPV, missing("ffprobe"), missing("ffmpeg")]);
+  tauri.handle("detect_tools", () => [MPV, missing("ffmpeg")]);
   tauri.handle("window_is_fullscreen", () => false);
+  tauri.handle("tools_download_status", () => ({ running: false, step: null, outcome: null }));
 });
 afterEach(() => {
   cleanup();
@@ -70,10 +71,51 @@ test("a missing tool says what it would supply", async () => {
   screens({ screen: "settings" });
   await settle(120);
   const tools = document.querySelector('section[aria-label="Tools"]')!.textContent!;
-  expect(tools).toContain("Found at C:\\mpv\\mpv.exe, version 0.40.0");
-  expect(tools).toContain("ffprobe reads resolution, HDR and tracks faster; mpv is used instead.");
+  expect(tools).toContain("Found on this PC, version 0.40.0");
+  expect(tools).toContain("C:\\mpv\\mpv.exe");
   expect(tools).toContain("ffmpeg makes thumbnails for Other; mpv is used instead.");
+  expect(tools).not.toContain("ffprobe");
   expect(calls("detect_tools").length).toBeGreaterThan(0);
+});
+
+test("opened for a missing mpv, Settings lands on the download, and a failure says what to do", async () => {
+  tauri.handle("detect_tools", () => [missing("mpv"), missing("ffmpeg")]);
+  tauri.handle("download_tools", () => true);
+  screens({ screen: "settings", part: "tools" });
+  await settle(120);
+  const download = document.querySelector('[data-focus-key="tools:download"]')!;
+  expect(document.activeElement).toBe(download);
+  expect(download.textContent).toBe("Download mpv and ffmpeg");
+
+  await select();
+  await act(() =>
+    tauri.emit("tools-download", {
+      running: false,
+      step: null,
+      outcome: { kind: "failed", message: "provider error: could not reach GitHub (dns error: no such host); check the internet connection, then try again" },
+    }),
+  );
+  await settle();
+  expect(document.querySelector('section[aria-label="Tools"] [role="alert"]')!.textContent).toBe(
+    "Could not reach GitHub. Check the internet connection, then try again.",
+  );
+  expect(document.activeElement).toBe(download);
+});
+
+test("a path set by hand hands back to the download", async () => {
+  tauri.handle("detect_tools", () => [
+    { ...MPV, source: "manual", downloaded: true },
+    { ...missing("ffmpeg"), path: "C:\\x\\ffmpeg.exe", version: "ffmpeg version 8.0", source: "downloaded", release: "20261111", downloaded: true },
+  ]);
+  tauri.handle("set_tool_path", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  const tools = document.querySelector('section[aria-label="Tools"]')!;
+  expect(tools.textContent).toContain("Set by you, version 0.40.0");
+  expect(tools.textContent).toContain("Downloaded by Exhibit, version 8.0, built 11 November 2026");
+  expect(button(tools, "Get the latest")).toBeDefined();
+  await focusAndSelect("tool:mpv:clear");
+  expect(calls("set_tool_path")).toEqual([{ tool: "mpv", path: null }]);
 });
 
 test("saving a TMDB key stores it, starts identifying, and clears the field", async () => {

@@ -15,17 +15,15 @@ const VERSION_TIMEOUT: Duration = Duration::from_secs(3);
 #[serde(rename_all = "lowercase")]
 pub enum Tool {
     Mpv,
-    Ffprobe,
     Ffmpeg,
 }
 
-const ALL: [Tool; 3] = [Tool::Mpv, Tool::Ffprobe, Tool::Ffmpeg];
+const ALL: [Tool; 2] = [Tool::Mpv, Tool::Ffmpeg];
 
 impl Tool {
     fn name(self) -> &'static str {
         match self {
             Tool::Mpv => "mpv",
-            Tool::Ffprobe => "ffprobe",
             Tool::Ffmpeg => "ffmpeg",
         }
     }
@@ -55,18 +53,34 @@ impl Tool {
     }
 }
 
+/// Where the copy in use came from, in the order they win.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolSource {
+    /// A path the owner set by hand. Never replaced.
+    Manual,
+    /// Exhibit's own download, in the tools folder.
+    Downloaded,
+    /// Found on the PATH, in a usual install folder or beside another tool.
+    Detected,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolStatus {
     pub tool: Tool,
     pub path: Option<PathBuf>,
     pub version: Option<String>,
-    pub manual: bool,
+    /// `None` when nothing was found.
+    pub source: Option<ToolSource>,
+    /// The release (`YYYYMMDD`) of the downloaded copy in use.
+    pub release: Option<String>,
+    /// A downloaded copy exists, in use or not: it takes over when a hand-set path is cleared.
+    pub downloaded: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tools {
     pub mpv: Option<PathBuf>,
-    pub ffprobe: Option<PathBuf>,
     pub ffmpeg: Option<PathBuf>,
 }
 
@@ -75,6 +89,20 @@ pub struct Tools {
 pub struct Env {
     pub path_dirs: Vec<PathBuf>,
     pub extra_dirs: Vec<PathBuf>,
+    /// Exhibit's own downloads (`crate::download`); looked in before anywhere else.
+    pub tools_dir: Option<PathBuf>,
+}
+
+/// Exhibit's tools folder: `<EXHIBIT_DATA_DIR>\tools` when that is set (dev, tests), else
+/// `%LOCALAPPDATA%\exhibit\tools`. Not roaming `%APPDATA%`: the tools are large and per machine.
+pub fn default_tools_dir() -> PathBuf {
+    if std::env::var_os("EXHIBIT_DATA_DIR").is_some() {
+        return crate::db::data_dir().join("tools");
+    }
+    match std::env::var_os("LOCALAPPDATA") {
+        Some(l) => PathBuf::from(l).join("exhibit").join("tools"),
+        None => crate::db::data_dir().join("tools"),
+    }
 }
 
 impl Env {
@@ -100,6 +128,7 @@ impl Env {
         Env {
             path_dirs,
             extra_dirs,
+            tools_dir: Some(default_tools_dir()),
         }
     }
 }
@@ -111,45 +140,71 @@ fn find_in(dir: &Path, tool: Tool) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// (tool, path, manual) in enum order. A manual path is returned even when the file is gone.
-fn locate(c: &Connection, env: &Env) -> Result<Vec<(Tool, Option<PathBuf>, bool)>> {
+struct Located {
+    tool: Tool,
+    path: Option<PathBuf>,
+    source: Option<ToolSource>,
+    release: Option<String>,
+    downloaded: bool,
+}
+
+/// One entry per tool, in enum order. A manual path is returned even when the file is gone.
+fn locate(c: &Connection, env: &Env) -> Result<Vec<Located>> {
+    let download = env.tools_dir.as_deref().and_then(crate::download::newest);
     let mut found = Vec::new();
     for tool in ALL {
-        if let Some(manual) = get_setting(c, &tool.setting_key())? {
-            found.push((tool, Some(PathBuf::from(manual)), true));
-            continue;
-        }
-        let path = env
-            .path_dirs
-            .iter()
-            .chain(&env.extra_dirs)
-            .find_map(|d| find_in(d, tool));
-        found.push((tool, path, false));
+        let in_download = download
+            .as_ref()
+            .and_then(|d| Some((find_in(&d.dir, tool)?, d.release.clone())));
+        let downloaded = in_download.is_some();
+        let (path, source, release) = if let Some(manual) = get_setting(c, &tool.setting_key())? {
+            (Some(PathBuf::from(manual)), Some(ToolSource::Manual), None)
+        } else if let Some((path, release)) = in_download {
+            (Some(path), Some(ToolSource::Downloaded), Some(release))
+        } else {
+            let path = env
+                .path_dirs
+                .iter()
+                .chain(&env.extra_dirs)
+                .find_map(|d| find_in(d, tool));
+            let source = path.as_ref().map(|_| ToolSource::Detected);
+            (path, source, None)
+        };
+        found.push(Located {
+            tool,
+            path,
+            source,
+            release,
+            downloaded,
+        });
     }
     // Second pass: look beside the tools that were found.
     let dirs: Vec<PathBuf> = found
         .iter()
-        .filter_map(|(_, p, _)| p.as_ref()?.parent().map(Path::to_path_buf))
+        .filter_map(|l| l.path.as_ref()?.parent().map(Path::to_path_buf))
         .collect();
-    for (tool, path, manual) in &mut found {
-        if path.is_none() && !*manual {
-            *path = dirs.iter().find_map(|d| find_in(d, *tool));
+    for l in &mut found {
+        if l.source.is_none() {
+            l.path = dirs.iter().find_map(|d| find_in(d, l.tool));
+            l.source = l.path.as_ref().map(|_| ToolSource::Detected);
         }
     }
     Ok(found)
 }
 
-/// Always three entries, in enum order.
+/// Always one entry per tool, in enum order.
 pub fn detect(c: &Connection, env: &Env) -> Result<Vec<ToolStatus>> {
     Ok(locate(c, env)?
         .into_iter()
-        .map(|(tool, path, manual)| {
-            let version = path.as_deref().and_then(|p| version_of(tool, p));
+        .map(|l| {
+            let version = l.path.as_deref().and_then(|p| version_of(l.tool, p));
             ToolStatus {
-                tool,
-                path,
+                tool: l.tool,
+                path: l.path,
                 version,
-                manual,
+                source: l.source,
+                release: l.release,
+                downloaded: l.downloaded,
             }
         })
         .collect())
@@ -164,11 +219,10 @@ pub fn set_tool_path(c: &Connection, tool: Tool, path: Option<&Path>) -> Result<
 /// Usable paths only: a manual path that no longer exists is left out.
 pub fn tools(c: &Connection, env: &Env) -> Result<Tools> {
     let mut t = Tools::default();
-    for (tool, path, _) in locate(c, env)? {
-        let path = path.filter(|p| p.is_file());
-        match tool {
+    for l in locate(c, env)? {
+        let path = l.path.filter(|p| p.is_file());
+        match l.tool {
             Tool::Mpv => t.mpv = path,
-            Tool::Ffprobe => t.ffprobe = path,
             Tool::Ffmpeg => t.ffmpeg = path,
         }
     }
@@ -282,11 +336,16 @@ mod tests {
         Env {
             path_dirs: path.iter().map(|p| p.to_path_buf()).collect(),
             extra_dirs: extra.iter().map(|p| p.to_path_buf()).collect(),
+            tools_dir: None,
         }
     }
 
     fn paths(s: &[ToolStatus]) -> Vec<Option<PathBuf>> {
         s.iter().map(|t| t.path.clone()).collect()
+    }
+
+    fn sources(s: &[ToolStatus]) -> Vec<Option<ToolSource>> {
+        s.iter().map(|t| t.source).collect()
     }
 
     #[test]
@@ -295,8 +354,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let mpv = touch(dir.path(), "mpv");
         let s = detect(&c, &env(&[dir.path()], &[])).unwrap();
-        assert_eq!(paths(&s), vec![Some(mpv), None, None]);
-        assert!(!s[0].manual);
+        assert_eq!(paths(&s), vec![Some(mpv), None]);
+        assert_eq!(sources(&s), vec![Some(ToolSource::Detected), None]);
         assert_eq!(s[0].version, None); // zero-byte file: no version lookup
     }
 
@@ -304,9 +363,9 @@ mod tests {
     fn found_in_extra_dirs() {
         let (_d, c) = conn();
         let dir = TempDir::new().unwrap();
-        let ffprobe = touch(dir.path(), "ffprobe");
+        let ffmpeg = touch(dir.path(), "ffmpeg");
         let s = detect(&c, &env(&[], &[dir.path()])).unwrap();
-        assert_eq!(paths(&s), vec![None, Some(ffprobe), None]);
+        assert_eq!(paths(&s), vec![None, Some(ffmpeg)]);
     }
 
     #[test]
@@ -314,12 +373,15 @@ mod tests {
         let (_d, c) = conn();
         let dir = TempDir::new().unwrap();
         let mpv = touch(dir.path(), "mpv");
-        let ffprobe = touch(dir.path(), "ffprobe");
-        // Only mpv is known (set by hand); ffprobe is found beside it.
+        let ffmpeg = touch(dir.path(), "ffmpeg");
+        // Only mpv is known (set by hand); ffmpeg is found beside it.
         set_tool_path(&c, Tool::Mpv, Some(&mpv)).unwrap();
         let s = detect(&c, &Env::default()).unwrap();
-        assert_eq!(paths(&s), vec![Some(mpv), Some(ffprobe), None]);
-        assert!(s[0].manual && !s[1].manual);
+        assert_eq!(paths(&s), vec![Some(mpv), Some(ffmpeg)]);
+        assert_eq!(
+            sources(&s),
+            vec![Some(ToolSource::Manual), Some(ToolSource::Detected)]
+        );
     }
 
     #[test]
@@ -333,13 +395,53 @@ mod tests {
         set_tool_path(&c, Tool::Mpv, Some(&chosen)).unwrap();
         let s = detect(&c, &e).unwrap();
         assert_eq!(s[0].path, Some(chosen.clone()));
-        assert!(s[0].manual);
+        assert_eq!(s[0].source, Some(ToolSource::Manual));
         assert_eq!(tools(&c, &e).unwrap().mpv, Some(chosen));
 
         set_tool_path(&c, Tool::Mpv, None).unwrap();
         let s = detect(&c, &e).unwrap();
-        assert!(!s[0].manual);
+        assert_eq!(s[0].source, Some(ToolSource::Detected));
         assert_eq!(s[0].path, Some(auto.path().join(exe("mpv"))));
+    }
+
+    #[test]
+    fn newest_download_beats_detection_but_not_a_hand_set_path() {
+        let (_d, c) = conn();
+        let found = TempDir::new().unwrap();
+        touch(found.path(), "mpv");
+        touch(found.path(), "ffmpeg");
+        let tools_dir = TempDir::new().unwrap();
+        for release in ["20261001-x86_64", "20261111-x86_64-v3"] {
+            let d = tools_dir.path().join(release);
+            std::fs::create_dir_all(&d).unwrap();
+            touch(&d, "mpv");
+        }
+        // Unfinished, and not a release: never used.
+        let partial = tools_dir.path().join(".partial-20261231-x86_64");
+        std::fs::create_dir_all(&partial).unwrap();
+        touch(&partial, "mpv");
+        let e = Env {
+            tools_dir: Some(tools_dir.path().to_path_buf()),
+            ..env(&[found.path()], &[])
+        };
+        let s = detect(&c, &e).unwrap();
+        let newest = tools_dir.path().join("20261111-x86_64-v3").join(exe("mpv"));
+        assert_eq!(s[0].path, Some(newest.clone()));
+        assert_eq!(s[0].source, Some(ToolSource::Downloaded));
+        assert_eq!(s[0].release.as_deref(), Some("20261111"));
+        assert!(s[0].downloaded);
+        // The download holds no ffmpeg, so detection supplies it.
+        assert_eq!(s[1].source, Some(ToolSource::Detected));
+        assert!(!s[1].downloaded);
+
+        let mine = touch(found.path(), "mine");
+        set_tool_path(&c, Tool::Mpv, Some(&mine)).unwrap();
+        let s = detect(&c, &e).unwrap();
+        assert_eq!(s[0].path, Some(mine));
+        assert_eq!(s[0].source, Some(ToolSource::Manual));
+        assert_eq!(s[0].release, None);
+        // Clearing the path would hand over to the download.
+        assert!(s[0].downloaded);
     }
 
     #[test]
@@ -352,7 +454,7 @@ mod tests {
         set_tool_path(&c, Tool::Mpv, Some(&gone)).unwrap();
         let s = detect(&c, &e).unwrap();
         assert_eq!(s[0].path, Some(gone));
-        assert!(s[0].manual);
+        assert_eq!(s[0].source, Some(ToolSource::Manual));
         assert_eq!(s[0].version, None);
         assert_eq!(tools(&c, &e).unwrap().mpv, None);
     }
@@ -394,12 +496,15 @@ mod tests {
     }
 
     #[test]
-    fn nothing_found_gives_three_empty_entries() {
+    fn nothing_found_gives_empty_entries() {
         let (_d, c) = conn();
         let s = detect(&c, &Env::default()).unwrap();
         let order: Vec<Tool> = s.iter().map(|t| t.tool).collect();
-        assert_eq!(order, vec![Tool::Mpv, Tool::Ffprobe, Tool::Ffmpeg]);
-        assert!(s.iter().all(|t| t.path.is_none() && !t.manual));
+        assert_eq!(order, vec![Tool::Mpv, Tool::Ffmpeg]);
+        assert!(
+            s.iter()
+                .all(|t| t.path.is_none() && t.source.is_none() && !t.downloaded)
+        );
         assert_eq!(tools(&c, &Env::default()).unwrap(), Tools::default());
     }
 }

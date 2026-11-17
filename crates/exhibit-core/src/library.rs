@@ -8,6 +8,7 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
 use crate::db;
+use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
 use crate::error::{Error, Result};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::model::{Candidate, Id, ItemKind, MatchSource, Source};
@@ -182,17 +183,16 @@ impl Library {
             .collect()
     }
 
-    /// Returns (ok, failed); `Error::Tool` when neither ffprobe nor mpv is installed. `on`
-    /// gets each file id and, for a failure, its reason.
+    /// Returns (ok, failed); `Error::Tool` when mpv is not installed. `on` gets each file id
+    /// and, for a failure, its reason.
     pub fn probe_pending(&self, on: &mut dyn FnMut(Id, Option<&str>)) -> Result<(u32, u32)> {
         let tools = tools::tools(&self.conn, &self.env)?;
         probe::probe_pending(&self.conn, &*self.volumes, &tools, on)
     }
 
-    /// True when at least one tool that can probe a file (ffprobe or mpv) is usable.
+    /// True when mpv, which reads files' details, is usable.
     pub fn can_probe(&self) -> Result<bool> {
-        let t = tools::tools(&self.conn, &self.env)?;
-        Ok(t.ffprobe.is_some() || t.mpv.is_some())
+        Ok(tools::tools(&self.conn, &self.env)?.mpv.is_some())
     }
 
     /// True when a tool that can render a thumbnail (ffmpeg or mpv) is usable.
@@ -335,8 +335,24 @@ impl Library {
         player::play(&self.conn, &*self.volumes, &tools, item_id, resume)
     }
 
+    /// Also clears away downloads the newest has replaced, once nothing runs from them.
     pub fn detect_tools(&self) -> Result<Vec<ToolStatus>> {
+        if let Some(dir) = &self.env.tools_dir {
+            download::tidy(dir);
+        }
         tools::detect(&self.conn, &self.env)
+    }
+
+    /// Downloads the latest mpv and ffmpeg for this machine into Exhibit's tools folder, where
+    /// they are used ahead of any found on the PC (a path set by hand still wins). Asks GitHub
+    /// first and fetches nothing when the newest download is already that release.
+    pub fn download_tools(&self, on: &mut dyn FnMut(DownloadEvent)) -> Result<DownloadReport> {
+        let dir = self
+            .env
+            .tools_dir
+            .as_deref()
+            .ok_or_else(|| Error::Invalid("this library has no tools folder".into()))?;
+        download::download(&UreqFetch::new(), dir, on)
     }
 
     /// `None` clears the manual path.
@@ -459,16 +475,18 @@ mod tests {
         let e = env(401);
         e.lib.set_secret(TMDB_KEY, Some("k")).unwrap();
         // A "tool" that cannot start: probing runs and every file fails.
-        let broken = e.drive.path().join("ffprobe.txt");
+        let broken = e.drive.path().join("mpv.txt");
         fs::write(&broken, b"not a program").unwrap();
-        e.lib.set_tool_path(Tool::Ffprobe, Some(&broken)).unwrap();
+        e.lib.set_tool_path(Tool::Mpv, Some(&broken)).unwrap();
         let (phases, r) = refresh(&e.lib);
         assert_eq!(
             phases,
             [
                 RefreshPhase::Scanning,
                 RefreshPhase::Identifying,
-                RefreshPhase::Probing
+                RefreshPhase::Probing,
+                // mpv also makes thumbnails; with nothing probed there is no frame to take.
+                RefreshPhase::Thumbnails
             ]
         );
         assert_eq!(r.identified, None);
@@ -483,19 +501,12 @@ mod tests {
     fn refresh_runs_phases_in_order() {
         let e = env(200);
         e.lib.set_secret(TMDB_KEY, Some("k")).unwrap();
-        // `type` in a batch file needs backslashes.
-        let fixture = ["tests", "fixtures", "ffprobe", "hdr10_2160p.json"]
-            .iter()
-            .fold(PathBuf::from(env!("CARGO_MANIFEST_DIR")), |p, s| p.join(s));
-        let ffprobe = e.drive.path().join("ffprobe.bat");
-        fs::write(&ffprobe, format!("@type \"{}\"\r\n", fixture.display())).unwrap();
+        // An mpv that cannot start: probing runs, reads nothing, so nothing is rescored.
+        let mpv = e.drive.path().join("mpv.txt");
+        fs::write(&mpv, b"not a program").unwrap();
         let ffmpeg = e.drive.path().join("ffmpeg.bat");
-        fs::write(
-            &ffmpeg,
-            "@echo off\r\nfor %%a in (%*) do set \"last=%%~a\"\r\necho jpg> \"%last%\"\r\n",
-        )
-        .unwrap();
-        e.lib.set_tool_path(Tool::Ffprobe, Some(&ffprobe)).unwrap();
+        fs::write(&ffmpeg, "@exit /b 0\r\n").unwrap();
+        e.lib.set_tool_path(Tool::Mpv, Some(&mpv)).unwrap();
         e.lib.set_tool_path(Tool::Ffmpeg, Some(&ffmpeg)).unwrap();
 
         let mut events = Vec::new();
@@ -513,23 +524,16 @@ mod tests {
         use RefreshPhase::*;
         assert_eq!(
             phases,
-            [Scanning, Identifying, Probing, Rescoring, Thumbnails],
+            [Scanning, Identifying, Probing, Thumbnails],
             "{r:?} {events:?}"
         );
         assert!(events.iter().any(|ev| matches!(ev, RefreshEvent::Scan(_))));
-        assert!(
-            events
-                .iter()
-                .any(|ev| matches!(ev, RefreshEvent::File { error: None, .. }))
-        );
-        // TMDB knows nothing, so the item waits for review both times.
+        // TMDB knows nothing, so the item waits for review.
         assert_eq!(r.identified.map(|i| i.needs_review), Some(1));
-        assert_eq!(r.probed, Some((1, 0)));
-        assert_eq!(r.rescored.map(|i| i.needs_review), Some(1));
-        assert_eq!(r.thumbnails, Some((1, 0)));
-        let item = &e.lib.search(&SearchQuery::default()).unwrap()[0];
-        let thumb = item.backdrop.clone().unwrap();
-        assert!(e.lib.image_dir().join(thumb).is_file());
+        assert_eq!(r.probed, Some((0, 1)));
+        assert_eq!(r.rescored, None);
+        // No details, so no frame to take.
+        assert_eq!(r.thumbnails, Some((0, 0)));
 
         // Without the optional steps only scanning and thumbnails remain.
         let mut phases = Vec::new();
@@ -587,8 +591,14 @@ mod tests {
         let back: RefreshEvent =
             serde_json::from_str(&serde_json::to_string(&ev).unwrap()).unwrap();
         assert_eq!(back, ev);
-        let tool: Tool = serde_json::from_str(r#""ffprobe""#).unwrap();
-        assert_eq!(tool, Tool::Ffprobe);
+        let tool: Tool = serde_json::from_str(r#""ffmpeg""#).unwrap();
+        assert_eq!(tool, Tool::Ffmpeg);
+        assert!(serde_json::from_str::<Tool>(r#""ffprobe""#).is_err());
+        let ev = DownloadEvent::Downloading { done: 1, total: 2 };
+        assert_eq!(
+            serde_json::to_string(&ev).unwrap(),
+            r#"{"step":"downloading","done":1,"total":2}"#
+        );
     }
 
     #[test]

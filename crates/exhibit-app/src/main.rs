@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod commands;
+mod downloads;
 mod error;
 mod folders;
 mod playback;
@@ -59,6 +60,8 @@ fn main() {
             commands::list_folders,
             commands::detect_tools,
             commands::set_tool_path,
+            commands::download_tools,
+            commands::tools_download_status,
             commands::set_secret,
             commands::refresh,
             commands::identify,
@@ -87,6 +90,7 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     app.manage(AppState {
         lib: Mutex::new(lib),
         worker,
+        downloads: Default::default(),
         playing: AtomicBool::new(false),
         image_dir,
         changed,

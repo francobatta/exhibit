@@ -1,5 +1,6 @@
 //! One small function per command group; each returns the JSON to print.
 
+use exhibit_core::download::DownloadEvent;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Id, ItemKind};
 use exhibit_core::query::{SearchQuery, Shelf, Sort};
@@ -206,7 +207,6 @@ fn item_kind(kind: MatchKind) -> ItemKind {
 fn tools(lib: &Library, cmd: ToolsCmd) -> Result<Value> {
     let tool = |t: ToolArg| match t {
         ToolArg::Mpv => Tool::Mpv,
-        ToolArg::Ffprobe => Tool::Ffprobe,
         ToolArg::Ffmpeg => Tool::Ffmpeg,
     };
     match cmd {
@@ -215,6 +215,21 @@ fn tools(lib: &Library, cmd: ToolsCmd) -> Result<Value> {
             lib.set_tool_path(tool(t), Some(&path)).and_then(|_| ok())
         }
         ToolsCmd::Clear { tool: t } => lib.set_tool_path(tool(t), None).and_then(|_| ok()),
+        ToolsCmd::Download => {
+            let mut shown = 0;
+            to_json(lib.download_tools(&mut |e| match e {
+                DownloadEvent::Checking => progress("asking GitHub for the latest release".into()),
+                DownloadEvent::Downloading { done, total } => {
+                    // A line per tenth.
+                    let tenth = done * 10 / total.max(1);
+                    if tenth > shown {
+                        shown = tenth;
+                        progress(format!("downloaded {} of {} MB", done >> 20, total >> 20));
+                    }
+                }
+                DownloadEvent::Unpacking => progress("unpacking".into()),
+            })?)
+        }
     }
 }
 

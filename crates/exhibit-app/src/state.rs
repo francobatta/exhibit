@@ -10,12 +10,14 @@ use std::time::Duration;
 use exhibit_core::Library;
 use tauri::{AppHandle, Emitter};
 
+use crate::downloads::Downloads;
 use crate::worker::WorkerHandle;
 
 pub struct AppState {
     /// For quick calls only; long work opens its own connection.
     pub lib: Mutex<Library>,
     pub worker: WorkerHandle,
+    pub downloads: Downloads,
     pub playing: AtomicBool,
     pub image_dir: PathBuf,
     pub changed: Changed,

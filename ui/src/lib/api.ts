@@ -11,7 +11,10 @@ export type MatchState = "unmatched" | "matched" | "needsreview" | "manual";
 export type MatchSource = "nfo" | "lookup" | "agent" | "manual";
 export type Sort = "title" | "added" | "year" | "runtime";
 export type Shelf = "continue_watching" | "recently_added" | "unwatched" | "loved";
-export type Tool = "mpv" | "ffprobe" | "ffmpeg";
+export type Tool = "mpv" | "ffmpeg";
+
+/** Where the copy in use came from: set by hand, Exhibit's own download, or found on the PC. */
+export type ToolSource = "manual" | "downloaded" | "detected";
 export type SecretName = "tmdb" | "agent";
 export type IdentifyScope = "unmatched" | "review" | "unmatched_and_review" | { item: Id };
 export type RefreshPhase = "scanning" | "identifying" | "probing" | "rescoring" | "thumbnails";
@@ -164,7 +167,30 @@ export interface ToolStatus {
   tool: Tool;
   path: string | null;
   version: string | null;
-  manual: boolean;
+  /** `null` when nothing was found. */
+  source: ToolSource | null;
+  /** The release (`YYYYMMDD`) of the downloaded copy in use. */
+  release: string | null;
+  /** A downloaded copy exists: it takes over when a path set by hand is cleared. */
+  downloaded: boolean;
+}
+
+/** A step of downloading mpv and ffmpeg. */
+export type DownloadStep =
+  | { step: "checking" }
+  | { step: "downloading"; done: number; total: number }
+  | { step: "unpacking" };
+
+export type DownloadOutcome =
+  | { kind: "done"; release: string; already_latest: boolean }
+  | { kind: "failed"; message: string };
+
+export interface DownloadStatus {
+  running: boolean;
+  /** The current step while running. */
+  step: DownloadStep | null;
+  /** How the most recent download ended, kept until the next one starts. */
+  outcome: DownloadOutcome | null;
 }
 
 export interface LibraryStatus {
@@ -266,7 +292,7 @@ export function plain(e: unknown): string {
   const stripped = bareMessage(e);
   if (stripped === KEY_REJECTED) return "TMDB rejected the key. Check it in Settings.";
   if (stripped === "") return "Something went wrong.";
-  if (/^(mpv|ffprobe|ffmpeg)\b/.test(stripped)) return stripped;
+  if (/^(mpv|ffmpeg)\b/.test(stripped)) return stripped;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
 }
 
@@ -305,6 +331,9 @@ export const listFolders = (path: string | null, ext: string | null = null) =>
 export const detectTools = () => invoke<ToolStatus[]>("detect_tools");
 export const setToolPath = (tool: Tool, path: string | null) =>
   invoke<void>("set_tool_path", { tool, path });
+/** Starts downloading mpv and ffmpeg; false when a download is already running. Progress arrives as `tools-download`. */
+export const downloadTools = () => invoke<boolean>("download_tools");
+export const toolsDownloadStatus = () => invoke<DownloadStatus>("tools_download_status");
 /** `null` clears it. The value is never sent back. */
 export const setSecret = (name: SecretName, value: string | null) =>
   invoke<void>("set_secret", { name, value });
@@ -324,6 +353,8 @@ export const onLibraryChanged = (cb: () => void): Promise<UnlistenFn> =>
   listen("library-changed", () => cb());
 export const onJobStatus = (cb: (s: JobStatus) => void): Promise<UnlistenFn> =>
   listen<JobStatus>("job-status", (e) => cb(e.payload));
+export const onToolsDownload = (cb: (s: DownloadStatus) => void): Promise<UnlistenFn> =>
+  listen<DownloadStatus>("tools-download", (e) => cb(e.payload));
 export const onPlayEnded = (cb: (p: PlayEnded) => void): Promise<UnlistenFn> =>
   listen<PlayEnded>("play-ended", (e) => cb(e.payload));
 

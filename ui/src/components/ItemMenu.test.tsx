@@ -2,6 +2,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { detail, summary } from "../../test/fixtures";
+import { until } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { installBridge } from "@/focus/bridge";
 import type { ItemSummary } from "@/lib/api";
@@ -63,10 +64,10 @@ function setup(item: ItemSummary) {
 async function open(item: ItemSummary, opener: HTMLElement) {
   await act(async () => {
     openItemMenu(item, opener);
-    // It opens after a short wait for the full record and its dialog's open.
-    for (let i = 0; i < 100 && !document.activeElement?.closest('[role="menu"]'); i++) await sleep(10);
-    await sleep(20);
   });
+  // It opens after a short wait for the full record and its dialog's open.
+  await until(() => document.activeElement?.closest('[role="menu"]') != null);
+  await tick(20);
 }
 
 test("opens on the work's actions with the first one focused, from the full record", async () => {

@@ -1,5 +1,6 @@
-// A media tool as Settings and first run show it: where it was found and which version, or what
-// is missing without it; and setting its path by hand through the folder browser.
+// A media tool as Settings and first run show it: where it came from and which version, then
+// where it is; or what is missing without it. And setting its path by hand through the folder
+// browser.
 
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
@@ -12,13 +13,15 @@ import { toast } from "./ui/toast";
 /** A quiet line of fact under a name. */
 export const line = "font-display text-body text-label-dim [overflow-wrap:anywhere]";
 
-/** A tool's lines: where it is, and what is missing without it. */
+/** A tool's lines: where it came from and its version, then its path; or what is missing without it. */
 export function ToolLines({ tool, extra }: { tool: ToolStatus; extra?: string }) {
   const found = toolFound(tool);
   return (
     <>
       <p className={line}>{toolLine(tool)}</p>
-      {!found && (
+      {found ? (
+        <p className="font-display text-caption text-label-faint [overflow-wrap:anywhere]">{tool.path}</p>
+      ) : (
         <p className="font-reading text-body leading-reading text-label-dim">
           {CONSEQUENCE[tool.tool]}.{extra && ` ${extra}`}
         </p>

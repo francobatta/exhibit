@@ -1,4 +1,5 @@
 pub mod db;
+pub mod download;
 pub mod error;
 pub mod identify;
 mod identify_show;

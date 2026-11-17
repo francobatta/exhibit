@@ -58,7 +58,7 @@ function PlayerProblem() {
       id="player-problem"
       open={problemOpen}
       title="mpv could not start"
-      body={`${problem.message}. Choose where mpv is in Settings.`}
+      body={`${problem.message}. Download it, or choose where it is, in Settings.`}
       actions={[
         {
           label: "Open Settings",
