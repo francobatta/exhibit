@@ -25,6 +25,8 @@ use crate::volume::{SystemVolumes, Volumes};
 const TMDB_KEY: &str = "tmdb";
 const AGENT_KEY: &str = "agent";
 
+/// What the library holds and which keys are set. The media tools are not part of it: detecting
+/// them runs each one, so they are asked for apart (`detect_tools`) when a screen shows them.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct LibraryStatus {
     #[serde(flatten)]
@@ -32,7 +34,6 @@ pub struct LibraryStatus {
     pub sources: Vec<Source>,
     pub tmdb_key: bool,
     pub agent_key: bool,
-    pub tools: Vec<ToolStatus>,
 }
 
 /// The steps of `Library::refresh`, in the order they run.
@@ -358,7 +359,6 @@ impl Library {
             sources: self.list_sources()?,
             tmdb_key: self.has_secret(TMDB_KEY)?,
             agent_key: self.has_secret(AGENT_KEY)?,
-            tools: self.detect_tools()?,
         })
     }
 }
