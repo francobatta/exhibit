@@ -66,9 +66,11 @@ fn library_flow_through_the_binary() {
 
     let id = all[0]["id"].as_i64().unwrap().to_string();
     assert_eq!(cli.ok(&["loved", &id]), serde_json::json!({"ok": true}));
-    let loved = cli.ok(&["shelf", "loved"]);
+    let loved = cli.ok(&["search", "--loved"]);
     assert_eq!(loved.as_array().unwrap().len(), 1);
     assert_eq!(loved[0]["id"].to_string(), id);
+    // Shelves are Home's, and Home leaves Other to its own wall.
+    assert!(cli.ok(&["shelf", "loved"]).as_array().unwrap().is_empty());
 
     let (code, err) = cli.run(&["item", "99999"]);
     assert_eq!(code, 1);

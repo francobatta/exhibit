@@ -17,6 +17,7 @@ import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
+import { useNav } from "@/nav/stack";
 
 /** Home's shelves, in order, each shown only when it has items. */
 const SHELVES: Array<{ shelf: ShelfName; limit: number; title: string }> = [
@@ -40,7 +41,7 @@ export function Home() {
     useShelf(SHELVES[3]!.shelf, SHELVES[3]!.limit),
   ];
   const job = useJobStatus();
-  const sources = useStatus().data?.sources.length;
+  const status = useStatus().data;
 
   // A focus scope settles as it mounts, so the shelves render once all their data is here.
   if (queries.some((q) => q.isPending)) return <Loading />;
@@ -54,28 +55,39 @@ export function Home() {
       />
     );
   }
-  // Recently added holds everything in the library, so when it is empty the library is.
+  // Recently added holds every film and show, so when it is empty there are none; Other has its
+  // own wall and never comes to Home.
   const rows: Row[] = SHELVES.map((s, i) => ({ ...s, items: queries[i]!.data ?? [] })).filter(
     (r) => r.items.length > 0,
   );
   if (rows.length === 0) {
     // Which empty this is waits for the folders to be known.
-    if (sources === undefined) return <Loading />;
+    if (status === undefined) return <Loading />;
+    const sources = status.sources.length;
+    const other = sources > 0 && status.other > 0;
     return (
       <Empty
         title="Nothing here yet."
-        body={emptyBody(sources, job === null || job.phase !== null)}
+        body={emptyBody(sources, other, job === null || job.phase !== null)}
         status={jobLine(job) ?? undefined}
-        action={{ label: "Open Settings", onAction: openSettings }}
+        action={
+          other
+            ? { label: "Open Other", onAction: () => useNav.getState().replaceRoot({ screen: "wall", kind: "other" }) }
+            : { label: "Open Settings", onAction: openSettings }
+        }
       />
     );
   }
   return <Spotlight rows={rows} />;
 }
 
-/** Why Home is empty: no folders yet, the worker still looking through them, or nothing in them. */
-function emptyBody(sources: number, looking: boolean): string {
+/**
+ * Why Home is empty: no folders yet, only videos that belong in Other, the worker still looking
+ * through the folders, or nothing in them.
+ */
+function emptyBody(sources: number, other: boolean, looking: boolean): string {
   if (sources === 0) return "Add the folders that hold your films and shows in Settings.";
+  if (other) return "Home shows films and shows. Everything Exhibit has found so far is in Other.";
   if (looking) return "Exhibit is still looking through your folders.";
   return "Exhibit found nothing to show in your folders. Add another folder in Settings.";
 }

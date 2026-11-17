@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/toast";
 import { installBridge } from "@/focus/bridge";
 import { usePlayback } from "@/lib/playback";
 import { FocusScope } from "@/focus/react";
+import { useNav } from "@/nav/stack";
 import type { ItemSummary, Shelf, Source } from "@/lib/api";
 import { Home } from "./Home";
 
@@ -35,9 +36,9 @@ function shelves(data: Partial<Record<Shelf, ItemSummary[]>>) {
   tauri.handle("shelf", (args) => data[args.shelf as Shelf] ?? []);
 }
 
-function status(sources: Source[]) {
+function status(sources: Source[], other = 0) {
   tauri.handle("status", () => ({
-    movies: 1, shows: 0, other: 0, needs_review: 0, unprobed: 0, tmdb_key: true, agent_key: false, sources,
+    movies: 1, shows: 0, other, needs_review: 0, unprobed: 0, tmdb_key: true, agent_key: false, sources,
   }));
 }
 const MOVIES: Source = { id: 1, path: "D:\\Movies", volume_id: "a", online: true };
@@ -99,6 +100,18 @@ test("with no folders, the empty library says to add one and offers Settings", a
   expect(document.body.textContent).toContain("Add the folders that hold your films and shows in Settings.");
   expect(document.body.textContent).not.toContain("still looking");
   expect(document.activeElement?.textContent).toBe("Open Settings");
+});
+
+test("with only Other videos, the empty Home says where they are and opens Other", async () => {
+  shelves({});
+  status([MOVIES], 12);
+  screens({ screen: "home" });
+  await settle(120);
+  expect(document.body.textContent).toContain("Everything Exhibit has found so far is in Other.");
+  expect(document.activeElement?.textContent).toBe("Open Other");
+  await select();
+  await settle(120);
+  expect(useNav.getState().entries[0]!.route).toEqual({ screen: "wall", kind: "other" });
 });
 
 test("A on a film whose drive is away never plays, and the message names the drive", async () => {

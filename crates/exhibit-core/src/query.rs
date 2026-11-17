@@ -234,6 +234,9 @@ fn fts_query(text: &str) -> Option<String> {
 /// Listings show movies, shows and other items unless a kind is asked for.
 const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
 
+/// Shelves are Home's, and Home is for films and shows: Other has its own wall.
+const SHELF_KINDS: &str = "b.kind IN ('movie', 'show')";
+
 pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
     let mut p = Params::new(&online_sources(c, v)?);
     let mut w = vec![match q.kind {
@@ -359,7 +362,7 @@ pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Ve
     let (wheres, order) = match s {
         Shelf::ContinueWatching => return continue_watching(c, &online, limit),
         Shelf::RecentlyAdded => (
-            vec![DEFAULT_KINDS],
+            vec![SHELF_KINDS],
             // A show rises when an episode arrives.
             "(SELECT max(d.added_at) FROM tree t JOIN items d ON d.id = t.id \
               WHERE t.root_id = b.id) DESC, b.id DESC",
@@ -373,7 +376,7 @@ pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Ve
             "b.added_at DESC, b.id DESC",
         ),
         Shelf::Loved => (
-            vec![DEFAULT_KINDS, "b.loved = 1"],
+            vec![SHELF_KINDS, "b.loved = 1"],
             "b.added_at DESC, b.id DESC",
         ),
     };
@@ -381,15 +384,16 @@ pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Ve
     list(c, Params::new(&online), &wheres, order, limit, 0)
 }
 
-/// Items part-way through, plus the next unwatched episode of each show whose latest played
-/// episode is finished; newest first.
+/// Films and episodes part-way through, plus the next unwatched episode of each show whose
+/// latest played episode is finished; newest first.
 fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<ItemSummary>> {
     let mut picks: Vec<(i64, Id)> = c
         .prepare_cached(
-            "SELECT last_played_at, item_id FROM play_state \
-             WHERE watched = 0 AND position_s > 0 AND duration_s > 0 \
-               AND position_s / duration_s < ?1 \
-             ORDER BY last_played_at DESC, item_id LIMIT ?2",
+            "SELECT p.last_played_at, p.item_id FROM play_state p \
+             JOIN items i ON i.id = p.item_id AND i.kind IN ('movie', 'episode') \
+             WHERE p.watched = 0 AND p.position_s > 0 AND p.duration_s > 0 \
+               AND p.position_s / p.duration_s < ?1 \
+             ORDER BY p.last_played_at DESC, p.item_id LIMIT ?2",
         )?
         .query_map(params![WATCHED_FRACTION, limit], |r| {
             Ok((r.get(0)?, r.get(1)?))
@@ -1134,6 +1138,9 @@ mod tests {
         // A fully watched show lists nothing.
         let (_, _, eps3) = e.show("Finished", 1);
         e.play(eps3[0], 100.0, 100.0, true, 50);
+        // Other stays on its own wall, however recently it was played.
+        let clip = e.with_file(ItemKind::Other, "Holiday clip", None);
+        e.play(clip, 50.0, 100.0, false, 60);
         assert_eq!(
             e.shelf(Shelf::ContinueWatching),
             ["Other ep 2", "Newer", "Series ep 2", "Older"]
@@ -1156,6 +1163,11 @@ mod tests {
             eps[1]
         ));
         e.play(seen, 0.0, 0.0, true, 1);
+        // Other stays on its own wall, however new or loved.
+        let clip = e.with_file(ItemKind::Other, "Holiday clip", None);
+        e.exec(&format!(
+            "UPDATE items SET added_at=400, loved=1 WHERE id={clip}"
+        ));
         // The show rises to the time of its newest episode and appears once.
         assert_eq!(
             e.shelf(Shelf::RecentlyAdded),
