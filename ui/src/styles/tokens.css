@@ -78,6 +78,8 @@
   /* Ask: how far its field sits from the top of the window, and the field's height. */
   --ask-top: 1.5rem;
   --ask-field: 4.5rem;
+  /* A dialog panel's padding; a row of works inside one runs to the panel's edges and keeps this as its edge. */
+  --dialog-pad: 2rem;
   /* A dialog that holds a row of works (the match picker). */
   --dialog-wide: 76rem;
   /* The room the match picker keeps for its results, so the dialog does not jump as they arrive. */

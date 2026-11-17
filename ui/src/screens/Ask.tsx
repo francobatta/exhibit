@@ -17,7 +17,8 @@ import { plain, type ItemSummary } from "@/lib/api";
 import { revealRow } from "@/lib/motion";
 import { useAsk, type AskResult } from "@/lib/queries";
 import { cn } from "@/lib/utils";
-import { closeAsk, useAskOverlay } from "@/nav/stack";
+import { openSettings } from "@/nav/Screens";
+import { closeAsk, leaveAsk, useAskOverlay } from "@/nav/stack";
 
 const PLACEHOLDER = "Search the library";
 const FIELD = "ask:field";
@@ -28,8 +29,14 @@ const DEBOUNCE = 200;
 const RECENT_KEY = "exhibit.ask.recent";
 const RECENT_MAX = 6;
 
+/** None when what is stored cannot be read. */
 export function recentSearches(): string[] {
-  const stored: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+  let stored: unknown;
+  try {
+    stored = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+  } catch {
+    return [];
+  }
   return Array.isArray(stored) ? stored.filter((q): q is string => typeof q === "string") : [];
 }
 
@@ -41,15 +48,15 @@ export function rememberSearch(text: string): void {
   localStorage.setItem(RECENT_KEY, JSON.stringify([q, ...rest].slice(0, RECENT_MAX)));
 }
 
-/** `value`, once it has stopped changing for `ms`; an empty value at once. */
-function useDebounced(value: string, ms: number): string {
+/** `value`, once it has stopped changing for `ms`; an empty value at once. `flush` settles it now. */
+function useDebounced(value: string, ms: number): [settled: string, flush: () => void] {
   const [settled, setSettled] = useState(value);
   useEffect(() => {
     if (value === "") return setSettled("");
     const timer = setTimeout(() => setSettled(value), ms);
     return () => clearTimeout(timer);
   }, [value, ms]);
-  return value === "" ? "" : settled;
+  return [value === "" ? "" : settled, () => setSettled(value)];
 }
 
 const groupId = (title: string) => `ask-${title.toLowerCase()}`;
@@ -81,16 +88,30 @@ export function AskHost() {
 
 export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }) {
   const [text, setText] = useState(() => useAskOverlay.getState().seed);
-  const query = useDebounced(text.trim(), DEBOUNCE);
+  const [query, flush] = useDebounced(text.trim(), DEBOUNCE);
   const results = useAsk(query);
   const [recent] = useState(recentSearches);
 
-  // Enter keeps the search and goes to its first result.
-  const group = results.data?.groups[0];
+  // Enter keeps the search and goes to its first result, once the results are those of the text
+  // as typed (not of what was typed before the pause). Typing on forgets the jump.
+  const [jump, setJump] = useState<string | null>(null);
+  const type = (next: string) => {
+    setText(next);
+    setJump(null);
+  };
   const submit = () => {
     rememberSearch(text);
-    if (query !== "" && group !== undefined) focusItem(itemKey(groupId(group.title), group.items[0]!));
+    if (text.trim() === "") return;
+    flush();
+    setJump(text.trim());
   };
+  const ready = jump !== null && jump === query && !results.isPlaceholderData ? results.data : undefined;
+  useEffect(() => {
+    if (ready === undefined) return;
+    setJump(null);
+    const group = ready.groups[0];
+    if (group !== undefined) focusItem(itemKey(groupId(group.title), group.items[0]!));
+  }, [ready]);
 
   // The results glide into view (lib/motion), as lists elsewhere do.
   const scroller = useRef<HTMLDivElement>(null);
@@ -110,6 +131,8 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       fallbackKey={FIELD}
       onBack={() => closeAsk()}
       onAsk={() => focusItem(FIELD)}
+      // The pad's Menu opens Settings over Ask too.
+      onDone={() => leaveAsk(openSettings)}
       onClosed={onClosed}
       backdropClassName={cn(dialogBackdrop, "bg-wall")}
       className={cn(
@@ -121,7 +144,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
         <TextField
           focusKey={FIELD}
           value={text}
-          onChange={setText}
+          onChange={type}
           onSubmit={submit}
           placeholder={PLACEHOLDER}
           className={cn(
@@ -132,7 +155,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       </FocusGroup>
       <div ref={scroller} className="wall-fade relative min-h-0 flex-1 overflow-y-auto pt-8">
         {query === "" ? (
-          <Recent recent={recent} onChoose={setText} />
+          <Recent recent={recent} onChoose={type} />
         ) : results.isError ? (
           <ErrorState
             message={plain(results.error)}

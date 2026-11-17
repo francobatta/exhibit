@@ -188,8 +188,8 @@ function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) 
           Search
         </FormButton>
       </FocusGroup>
-      {/* The shelf's edge padding is the panel's here, so the works line up with the fields. */}
-      <div className="-mx-8 flex min-h-(--match-results) flex-col justify-center [--space-edge:2rem]">
+      {/* The shelf runs to the panel's edges and keeps the panel's padding as its edge, so the works line up with the fields. */}
+      <div className="-mx-(--dialog-pad) flex min-h-(--match-results) flex-col justify-center [--space-edge:var(--dialog-pad)]">
         {asked.text === "" ? (
           <Note>Type a title to look up.</Note>
         ) : results.isPending ? (
@@ -222,7 +222,7 @@ function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) 
 }
 
 function Note({ children }: { children: ReactNode }) {
-  return <p className="px-8 font-reading text-lead leading-reading text-label-dim">{children}</p>;
+  return <p className="px-(--dialog-pad) font-reading text-lead leading-reading text-label-dim">{children}</p>;
 }
 
 const control = "relative focus-visible:bg-transparent focus:text-label";
