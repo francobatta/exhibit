@@ -61,4 +61,13 @@ describe("plain", () => {
     expect(api.plain("io: the folder could not be read")).toBe("The folder could not be read");
     expect(api.plain({ kind: "db", message: "" })).toBe("Something went wrong.");
   });
+
+  test("a rejected TMDB key, as an error or a job's last error, says to check it in Settings", async () => {
+    const api = await fresh();
+    const advice = "TMDB rejected the key. Check it in Settings.";
+    expect(api.plain({ kind: "invalid", message: `invalid: ${api.KEY_REJECTED}` })).toBe(advice);
+    expect(api.plain(`invalid: ${api.KEY_REJECTED}`)).toBe(advice);
+    // Anything else keeps its own words, whatever its punctuation.
+    expect(api.plain("provider: HTTP 500; try `later`")).toBe("HTTP 500; try `later`");
+  });
 });

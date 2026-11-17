@@ -17,7 +17,7 @@ import { toast } from "@/components/ui/toast";
 import { focusItem } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import * as api from "@/lib/api";
-import { plain, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
+import { keyRejected, plain, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
 import { keys, useFullscreen, useStatus, useTools } from "@/lib/queries";
 import type { SettingsPart } from "@/nav/stack";
 
@@ -208,10 +208,9 @@ function useKeyCheck() {
   return { checking, error, start };
 }
 
-/** The identification's failure as Settings says it: the core's message, then what to do here. */
+/** The identification's failure as Settings says it, beside the key: a rejected key says to check it here. */
 export function keyError(message: string): string {
-  const said = plain(message).replace(/\.$/, "");
-  return `${said}. Check the key, then save it again.`;
+  return keyRejected(message) ? "TMDB rejected the key. Check the key, then save it again." : plain(message);
 }
 
 function TmdbKey({ status }: { status: LibraryStatus }) {
@@ -240,9 +239,12 @@ function Display() {
   const { on, set } = useFullscreen();
   return (
     <Part title="Display">
-      <FocusGroup id="display" orientation="horizontal" className="flex">
-        <FullScreen on={on ?? false} onChange={(next) => set(next).catch((e: unknown) => toast(plain(e)))} />
-      </FocusGroup>
+      {/* The switch appears once the window has said whether it is full screen, never showing a guess. */}
+      {on !== undefined && (
+        <FocusGroup id="display" orientation="horizontal" className="flex">
+          <FullScreen on={on} onChange={(next) => set(next).catch((e: unknown) => toast(plain(e)))} />
+        </FocusGroup>
+      )}
     </Part>
   );
 }

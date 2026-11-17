@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The main window: listening to events, nothing else. App commands need no permission and artwork loads through the runtime-scoped asset protocol.",
+  "description": "The main window: listening to events and reading text from the clipboard (Paste), nothing else. App commands need no permission and artwork loads through the runtime-scoped asset protocol.",
   "windows": ["main"],
-  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten", "clipboard-manager:allow-read-text"]
 }

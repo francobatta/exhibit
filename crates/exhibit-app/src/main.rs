@@ -26,14 +26,16 @@ const WALL: Color = Color(0x0f, 0x11, 0x13, 0xff);
 fn main() {
     // Development and screenshots: a plain 1600x900 window that remembers nothing.
     let windowed = std::env::var_os("EXHIBIT_WINDOWED").is_some_and(|v| v == "1");
-    let mut builder =
-        tauri::Builder::default().plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    let mut builder = tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
             }
-        }));
+        }))
+        // Paste in Settings and first run: WebView2's own clipboard asks with a prompt no pad can answer.
+        .plugin(tauri_plugin_clipboard_manager::init());
     if !windowed {
         builder = builder.plugin(tauri_plugin_window_state::Builder::default().build());
     }

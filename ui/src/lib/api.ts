@@ -242,24 +242,30 @@ export function isApiError(e: unknown): e is ApiError {
 }
 
 /**
+ * The core's message when TMDB refuses the key (`exhibit_core::tmdb::KEY_REJECTED`), whose advice
+ * is for the command line. A test in `crates/exhibit-app` keeps the two the same.
+ */
+export const KEY_REJECTED = "TMDB rejected the key; set a valid one with `exhibit key set tmdb`";
+
+/** The text of an error without the core's kind prefix ("invalid: "), trimmed. */
+function bareMessage(e: unknown): string {
+  const text = isApiError(e) ? e.message : typeof e === "string" ? e : e instanceof Error ? e.message : "";
+  return text.trim().replace(/^[a-z_]+(?: [a-z]+)?: /, "");
+}
+
+/** Whether an error (or a job's `last_error`) is TMDB refusing the key. */
+export const keyRejected = (e: unknown): boolean => bareMessage(e) === KEY_REJECTED;
+
+/**
  * The message of an error as the owner should read it: the core's kind prefix removed ("tool
  * error: ", "source offline: ", "invalid: "), starting with a capital unless it starts with the
- * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe"). Advice
- * meant for the command line ("…; set a valid one with `exhibit key set tmdb`") is left off.
- * Also takes a bare message (such as `JobStatus.last_error`) or anything a promise rejected with.
+ * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe").
+ * A rejected TMDB key says to check it in Settings. Also takes a bare message (such as
+ * `JobStatus.last_error`) or anything a promise rejected with.
  */
 export function plain(e: unknown): string {
-  const text = isApiError(e)
-    ? e.message
-    : typeof e === "string"
-      ? e
-      : e instanceof Error
-        ? e.message
-        : "";
-  const stripped = text
-    .trim()
-    .replace(/^[a-z_]+(?: [a-z]+)?: /, "")
-    .replace(/;[^;]*`[^`]*`[^;]*$/, "");
+  const stripped = bareMessage(e);
+  if (stripped === KEY_REJECTED) return "TMDB rejected the key. Check it in Settings.";
   if (stripped === "") return "Something went wrong.";
   if (/^(mpv|ffprobe|ffmpeg)\b/.test(stripped)) return stripped;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);

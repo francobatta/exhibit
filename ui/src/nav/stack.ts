@@ -104,6 +104,9 @@ export const useNav = create<NavState>()((set, get) => ({
     }),
 }));
 
+/** Whether first run is showing: its own flow, which sections, Settings and Ask stay out of. */
+export const onFirstRun = () => useNav.getState().entries[0]!.route.screen === "firstRun";
+
 // Ask is an overlay over whatever screen is showing, not a place in the stack.
 
 interface AskOverlay {
@@ -117,6 +120,7 @@ interface AskOverlay {
 export const useAskOverlay = create<AskOverlay>()(() => ({ open: false, seed: "", then: null }));
 
 export function openAsk(seed = ""): void {
+  if (onFirstRun()) return;
   useAskOverlay.setState({ open: true, seed, then: null });
 }
 

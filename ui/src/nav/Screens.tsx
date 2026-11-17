@@ -14,7 +14,7 @@ import { Review } from "@/screens/Review";
 import { Settings } from "@/screens/Settings";
 import { Show } from "@/screens/Show";
 import { Wall } from "@/screens/Wall";
-import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
+import { DEFAULT_VIEW, onFirstRun, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [
@@ -23,9 +23,6 @@ const SECTIONS: Route[] = [
   { screen: "wall", kind: "show" },
   { screen: "wall", kind: "other" },
 ];
-
-/** Whether first run is showing: its own flow, which the sections and Settings stay out of. */
-const onFirstRun = () => useNav.getState().entries[0]!.route.screen === "firstRun";
 
 /** Replaces the root with the previous or next section, wrapping; from elsewhere it starts at Home. */
 export function cycleSection(delta: -1 | 1): void {

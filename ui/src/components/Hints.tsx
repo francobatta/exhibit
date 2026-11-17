@@ -4,12 +4,13 @@
 import { useFocusState, type ItemHandlers } from "@/focus/bridge";
 import { useInputMode } from "@/focus/react";
 import { cn } from "@/lib/utils";
+import { useNav } from "@/nav/stack";
 
-export function hints(item: ItemHandlers | null, canBack: boolean): Array<[button: string, label: string]> {
+export function hints(item: ItemHandlers | null, canBack: boolean, canAsk = true): Array<[button: string, label: string]> {
   const out: Array<[string, string]> = [];
   if (item?.onSelect && !item.disabled) out.push(["A", item.hint ?? "Open"]);
   if (item?.onMenu) out.push(["X", "Menu"]);
-  out.push(["Y", "Ask"]);
+  if (canAsk) out.push(["Y", "Ask"]);
   if (canBack) out.push(["B", "Back"]);
   return out;
 }
@@ -32,6 +33,8 @@ export function Hints() {
   const mode = useInputMode();
   const item = useFocusState((s) => s.item);
   const canBack = useFocusState((s) => s.canBack);
+  // First run has no Ask.
+  const canAsk = useNav((s) => s.entries[0]!.route.screen !== "firstRun");
   if (mode !== "pad") return null;
-  return <HintLine pairs={hints(item, canBack)} className="fixed right-edge bottom-8 z-30" />;
+  return <HintLine pairs={hints(item, canBack, canAsk)} className="fixed right-edge bottom-8 z-30" />;
 }

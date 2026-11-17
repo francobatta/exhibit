@@ -3,6 +3,7 @@
 // cleared from here once saved; nothing ever reads it back.
 
 import { useQueryClient } from "@tanstack/react-query";
+import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useState } from "react";
 import { FocusGroup } from "@/focus/react";
 import { plain, setSecret, type SecretName } from "@/lib/api";
@@ -62,7 +63,8 @@ export function SecretForm({
   };
   const fromClipboard = async () => {
     try {
-      const text = (await navigator.clipboard.readText()).trim();
+      // Through the clipboard plugin: WebView2's own clipboard asks with a prompt the pad cannot answer.
+      const text = (await readText()).trim();
       if (text === "") toast("The clipboard is empty. Copy the key, then paste it again.");
       else setValue(text);
     } catch {

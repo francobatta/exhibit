@@ -69,4 +69,16 @@ mod tests {
             serde_json::json!({"kind": "invalid", "message": "invalid: Something is already playing"})
         );
     }
+
+    /// The window recognises a rejected TMDB key by the core's exact message and says what to
+    /// do in its own words; the two copies must stay the same.
+    #[test]
+    fn the_window_knows_the_rejected_key_message() {
+        let api = include_str!("../../../ui/src/lib/api.ts");
+        let line = format!(
+            "export const KEY_REJECTED = \"{}\";",
+            exhibit_core::tmdb::KEY_REJECTED
+        );
+        assert!(api.contains(&line), "ui/src/lib/api.ts lacks {line}");
+    }
 }

@@ -15,7 +15,7 @@ import { FocusGroup, FocusScope } from "@/focus/react";
 import * as api from "@/lib/api";
 import { plain, type Source, type Tool, type ToolStatus } from "@/lib/api";
 import { easeOut, length, seconds } from "@/lib/motion";
-import { keys, useStatus, useTools } from "@/lib/queries";
+import { keys, useTools } from "@/lib/queries";
 import { toolFound } from "@/lib/tools";
 import { useNav } from "@/nav/stack";
 
@@ -28,37 +28,28 @@ const LANDING: Record<Step, string> = {
   tmdb: "first:tmdb:field",
 };
 
-/** The tools step's tools: those not found as the step opens. */
+/** The tools not found. */
 const missingOf = (tools: ToolStatus[]): Tool[] => tools.filter((t) => !toolFound(t)).map((t) => t.tool);
 
 export function FirstRun() {
-  const statusTools = useStatus().data?.tools;
-  // Detected afresh as first run opens; what the library knew at start is used meanwhile.
-  const tools = useTools().data ?? statusTools;
+  // Detected afresh as first run opens.
+  const tools = useTools().data;
   const [step, setStep] = useState<Step>("folder");
-  // Fixed as the tools step opens, so a tool set there stays in view, now found.
-  const [missing, setMissing] = useState<Tool[]>([]);
+  // The tools the tools step offers, fixed by the first detection, so the steps (and their count)
+  // are known from the start and a tool set there stays in view, now found.
+  const [missing, setMissing] = useState<Tool[] | null>(null);
+  if (missing === null && tools !== undefined) setMissing(missingOf(tools));
   const [added, setAdded] = useState<Source[]>([]);
 
+  const steps: Step[] = (missing?.length ?? 0) > 0 ? ["folder", "tools", "tmdb"] : ["folder", "tmdb"];
   const finish = () => useNav.getState().replaceRoot({ screen: "home" });
-  const afterFolder = () => {
-    const now = missingOf(tools ?? []);
-    setMissing(now);
-    setStep(now.length > 0 ? "tools" : "tmdb");
-  };
-  const back = () => {
-    if (step === "tmdb") setStep(missing.length > 0 ? "tools" : "folder");
-    else if (step === "tools") setStep("folder");
-  };
-  // Whether the tools step is among the steps: known for sure once the folder step is done.
-  const withTools = step === "folder" ? missingOf(tools ?? []).length > 0 : missing.length > 0;
-  const steps: Step[] = withTools ? ["folder", "tools", "tmdb"] : ["folder", "tmdb"];
+  const go = (delta: 1 | -1) => setStep(steps[steps.indexOf(step) + delta] ?? step);
 
   return (
-    <FocusScope key={step} id={`first-run-${step}`} restoreKey={LANDING[step]} onBack={step === "folder" ? undefined : back}>
-      <Stage at={steps.indexOf(step) + 1} of={steps.length}>
-        {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={afterFolder} />}
-        {step === "tools" && tools !== undefined && <ToolsStep missing={missing} tools={tools} onNext={() => setStep("tmdb")} />}
+    <FocusScope key={step} id={`first-run-${step}`} restoreKey={LANDING[step]} onBack={step === "folder" ? undefined : () => go(-1)}>
+      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length}>
+        {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={() => go(1)} />}
+        {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={() => go(1)} />}
         {step === "tmdb" && <TmdbStep onDone={finish} />}
       </Stage>
     </FocusScope>
@@ -66,7 +57,7 @@ export function FirstRun() {
 }
 
 /** A step: which of how many, then its own content, rising into place as it opens. */
-function Stage({ at, of, children }: { at: number; of: number; children: ReactNode }) {
+function Stage({ at, of, children }: { at: number; of: number | null; children: ReactNode }) {
   return (
     <motion.div
       className="absolute inset-0 flex flex-col justify-center gap-8 px-edge pb-bar"
@@ -74,9 +65,8 @@ function Stage({ at, of, children }: { at: number; of: number; children: ReactNo
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: seconds("--dur-screen"), ease: easeOut() }}
     >
-      <p className="font-display text-body text-label-faint">
-        Step {at} of {of}
-      </p>
+      {/* The count waits for the tools to be detected, so it never changes under the owner. */}
+      <p className="h-[1lh] font-display text-body text-label-faint">{of !== null && `Step ${at} of ${of}`}</p>
       {children}
     </motion.div>
   );

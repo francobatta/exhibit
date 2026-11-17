@@ -4,7 +4,7 @@ import { activeKey, screens, select, settle } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
-import { useNav } from "@/nav/stack";
+import { openAsk, useAskOverlay, useNav } from "@/nav/stack";
 
 let uninstall: () => void = () => {};
 
@@ -45,7 +45,11 @@ test("with every tool found, the tools step is left out, and skipping every step
   screens({ screen: "firstRun" });
   await settle(120);
   expect(heading()).toBe("Welcome to Exhibit");
+  expect(document.body.textContent).toContain("Step 1 of 2");
   expect(activeKey()).toBe("first:folder:main");
+  // Ask stays out of first run.
+  openAsk();
+  expect(useAskOverlay.getState().open).toBe(false);
 
   await choose("first:folder:skip");
   expect(heading()).toBe("TMDB key");
@@ -63,8 +67,10 @@ test("a missing tool gets its own step, which can be skipped too", async () => {
   screens({ screen: "firstRun" });
   await settle(120);
 
+  expect(document.body.textContent).toContain("Step 1 of 3");
   await choose("first:folder:skip");
   expect(heading()).toBe("Media tools");
+  expect(document.body.textContent).toContain("Step 2 of 3");
   expect(document.body.textContent).toContain("mpv plays your files. Nothing can play until mpv is set.");
   await choose("first:tools:skip");
   expect(heading()).toBe("TMDB key");
