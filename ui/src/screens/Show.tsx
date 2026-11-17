@@ -1,11 +1,14 @@
-// A show: its placard on the left over its backdrop; on the right its seasons, one chosen, and that
-// season's episodes as a list of wide works. On arrival the next unwatched episode has focus and
-// its season is chosen. A plays or resumes an episode; X opens the menu of an episode or a season
-// (a season's marks all its episodes). When an episode ends watched, focus moves on to the next.
+// A show: its placard on the left over its backdrop, a work in its own right (A runs its first
+// action, "Play S1 E3"; X opens its menu); on the right its seasons, one chosen, and that season's
+// episodes as a list of wide works. On arrival the next unwatched episode has focus and its season
+// is chosen; Left goes to the show. A plays or resumes an episode; X opens the menu of an episode
+// or a season (a season's marks all its episodes). When an episode ends watched, focus moves on
+// to the next.
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
+import { ActionLine } from "@/components/ActionLine";
 import { useScreenBackdrop } from "@/components/Backdrop";
-import { openItemMenu } from "@/components/ItemMenu";
+import { openItemMenu, useMenuOpenOnKey } from "@/components/ItemMenu";
 import { Lamp } from "@/components/Lamp";
 import { Placard } from "@/components/Placard";
 import { ErrorState, Loading } from "@/components/states";
@@ -13,16 +16,18 @@ import { Toggle } from "@/components/ui/toggle";
 import { Work } from "@/components/Work";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
-import { runMain, useActionContext } from "@/lib/actions";
+import { itemActions, offlineReason, reasonOf, runAction, runMain, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "@/lib/api";
 import { OFFLINE, WATCHED, count, episodeLabel, facts, runtime, started } from "@/lib/format";
-import { glideScroll, rems, stopGlide } from "@/lib/motion";
+import { rems, revealRow, stopGlide } from "@/lib/motion";
 import { usePlayback } from "@/lib/playback";
-import { useItem } from "@/lib/queries";
+import { useItem, useItemSources, useOfflineDrive } from "@/lib/queries";
 import { useNav } from "@/nav/stack";
 
 export const episodeKey = (id: Id) => `episode:${id}`;
 const seasonKey = (id: Id) => `season:${id}`;
+/** The show's own work, the placard. */
+export const SHOW_KEY = "show";
 
 export function Show({ id }: { id: Id }) {
   const query = useItem(id);
@@ -87,14 +92,6 @@ function Seasons({ show }: { show: ItemDetail }) {
   return (
     // The wheel moves through the episodes and seasons, through the arrow keys (focus/input/wheel.ts).
     <div data-wheel-steps className="absolute inset-0 flex pt-bar">
-      <div className="flex w-(--show-placard) shrink-0 flex-col justify-end px-edge pb-edge">
-        <Placard
-          item={show.item}
-          detail={show}
-          size="hero"
-          more={[seasons.length > 0 ? count(seasons.length, "season", "seasons") : "", facts(show.item.genres)]}
-        />
-      </div>
       <div className="show-scrim flex min-w-0 flex-1 flex-col pr-edge pl-12">
         {/* The list comes first in the page, so the screen's focus settles on an episode; shown below the seasons. */}
         {episodes === null ? (
@@ -105,6 +102,59 @@ function Seasons({ show }: { show: ItemDetail }) {
         {seasons.length > 1 && (
           <SeasonRow seasons={seasons} chosen={season} onChoose={setSeason} />
         )}
+      </div>
+      {/* After the episodes in the page for the same reason; shown on the left. */}
+      <div className="order-first flex w-(--show-placard) shrink-0 flex-col justify-end px-edge pb-edge">
+        <ShowTitle show={show} seasons={seasons.length} />
+      </div>
+    </div>
+  );
+}
+
+function ShowTitle({ show, seasons }: { show: ItemDetail; seasons: number }) {
+  return (
+    <FocusGroup id="show-title" orientation="vertical" aria-label="Show">
+      <ShowWork show={show} seasons={seasons} />
+    </FocusGroup>
+  );
+}
+
+/** The show as a work: its placard and, under it, what A does on it. */
+function ShowWork({ show, seasons }: { show: ItemDetail; seasons: number }) {
+  const ctx = useActionContext();
+  const action = itemActions(show)[0]!;
+  // A show's files are its episodes': a play that cannot run names the next episode's drive.
+  const next = useItem(show.next_episode?.id ?? null).data;
+  const drive = useItemSources(next).find((s) => !s.online)?.path;
+  const { ref, props, focused } = useFocusItem<HTMLDivElement>({
+    key: SHOW_KEY,
+    onSelect: () => {
+      const why = reasonOf(action, drive);
+      if (why !== undefined) ctx.fail(why);
+      else void runAction(action, show, ctx);
+    },
+    onMenu: (el) => openItemMenu(show, el),
+  });
+  // The show stays lit under its menu, as a work does.
+  const menuOpen = useMenuOpenOnKey(SHOW_KEY);
+  const lit = focused || menuOpen;
+  return (
+    <div
+      ref={ref}
+      {...props}
+      role="button"
+      aria-label={show.item.title}
+      className="flex max-w-measure flex-col gap-5 outline-none"
+    >
+      <Placard
+        item={show.item}
+        detail={show}
+        size="hero"
+        more={[seasons > 0 ? count(seasons, "season", "seasons") : "", facts(show.item.genres)]}
+      />
+      <div className="relative w-fit pb-2">
+        <ActionLine action={action} drive={drive} active={lit} />
+        {lit && <Lamp />}
       </div>
     </div>
   );
@@ -126,22 +176,14 @@ function SeasonRow({ seasons, chosen, onChoose }: { seasons: ItemSummary[]; chos
 }
 
 function SeasonTab({ season, chosen, onChoose }: { season: ItemSummary; chosen: boolean; onChoose: () => void }) {
-  const el = useRef<HTMLButtonElement | null>(null);
   // Moving onto a season chooses it; A goes down into its episodes.
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: seasonKey(season.id),
-    onMenu: () => openItemMenu(season, el.current),
+    onMenu: (el) => openItemMenu(season, el),
   });
-  const bind = useCallback(
-    (node: HTMLButtonElement | null) => {
-      el.current = node;
-      return ref(node);
-    },
-    [ref],
-  );
   return (
     <Toggle
-      ref={bind}
+      ref={ref}
       {...props}
       onFocus={(e: FocusEvent<HTMLButtonElement>) => {
         props.onFocus(e);
@@ -157,9 +199,6 @@ function SeasonTab({ season, chosen, onChoose }: { season: ItemSummary; chosen: 
   );
 }
 
-/** Where a focused row sits in the list as it scrolls: this far down from the top, as a share of its height. */
-const BAND = 0.3;
-
 function Episodes({ episodes }: { episodes: ItemSummary[] }) {
   const list = useRef<HTMLDivElement>(null);
   const ctx = useActionContext();
@@ -174,28 +213,30 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
     };
   }, []);
 
-  const open = useCallback((item: ItemSummary) => runMain(item, latest.current), []);
-  // Keys and the pad keep the focused row high in the list; a pointer only brings a row it
-  // touches fully into view, so the list never slides away from under it.
+  // An episode whose drive is away says which drive, and is never handed to the player.
+  const driveOf = useOfflineDrive();
+  const open = useCallback(
+    (item: ItemSummary) => {
+      if (item.available) return runMain(item, latest.current);
+      void driveOf(item.id).then(
+        (drive) => latest.current.fail(offlineReason(drive)),
+        () => latest.current.fail(offlineReason(undefined)),
+      );
+    },
+    [driveOf],
+  );
+  // The list scrolls itself (`reveals`), as the wall does.
   const reveal = useCallback((row: HTMLElement) => {
     const el = list.current;
     if (el === null) return;
-    const top = row.offsetTop;
-    const bottom = top + row.offsetHeight;
-    if (useFocusState.getState().mode !== "pointer") {
-      glideScroll(el, "top", Math.max(0, top - el.clientHeight * BAND));
-    } else if (bottom > el.scrollTop + el.clientHeight) {
-      glideScroll(el, "top", bottom - el.clientHeight);
-    } else if (top < el.scrollTop) {
-      glideScroll(el, "top", top);
-    }
+    revealRow(el, row.offsetTop, row.offsetTop + row.offsetHeight, useFocusState.getState().mode === "pointer");
   }, []);
 
   if (episodes.length === 0) {
     return <p className="pt-light font-display text-body text-label-faint">No episodes in this season yet.</p>;
   }
   return (
-    <div ref={list} className="wall-fade relative min-h-0 flex-1 overflow-y-auto">
+    <div ref={list} onKeyDownCapture={toShow} className="wall-fade relative min-h-0 flex-1 overflow-y-auto">
       <FocusGroup
         id="show-episodes"
         orientation="vertical"
@@ -209,6 +250,15 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
       </FocusGroup>
     </div>
   );
+}
+
+/**
+ * Left from any episode goes to the show. The placard sits low on the left, so from the top of the
+ * list the nearest thing that way would be the top bar.
+ */
+function toShow(event: KeyboardEvent<HTMLDivElement>) {
+  if (event.key !== "ArrowLeft" || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (focusItem(SHOW_KEY)) event.preventDefault();
 }
 
 /** "E4, The We We Are, 53 min" and, under it, how far the owner got. */
@@ -230,23 +280,18 @@ function EpisodeRow({
   onOpen: (item: ItemSummary) => void;
   onReveal: (row: HTMLElement) => void;
 }) {
-  const el = useRef<HTMLButtonElement | null>(null);
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: episodeKey(episode.id),
     onSelect: () => onOpen(episode),
-    onMenu: () => openItemMenu(episode, el.current),
+    onMenu: (el) => openItemMenu(episode, el),
   });
-  const bind = useCallback(
-    (node: HTMLButtonElement | null) => {
-      el.current = node;
-      return ref(node);
-    },
-    [ref],
-  );
+  // The work stays lit under its menu, as on the shelves.
+  const menuOpen = useMenuOpenOnKey(episodeKey(episode.id));
+  const lit = focused || menuOpen;
   const lines = episodeLines(episode);
   return (
     <button
-      ref={bind}
+      ref={ref}
       {...props}
       onFocus={(e: FocusEvent<HTMLButtonElement>) => {
         props.onFocus(e);
@@ -255,9 +300,17 @@ function EpisodeRow({
       type="button"
       className="flex shrink-0 items-center gap-8 pl-4 text-left outline-none"
     >
-      <Work item={episode} shape="wide" focused={focused} size={rems("--show-episode")} light="episode-light" />
+      <Work
+        item={episode}
+        shape="wide"
+        focused={lit}
+        size={rems("--show-episode")}
+        light="episode-light"
+        // The title hangs beside it; with no still, the frame carries the episode's number.
+        mark={episodeLabel(null, episode.episode) || undefined}
+      />
       <span className="flex min-w-0 flex-1 flex-col gap-1 font-display">
-        <span className={focused ? "truncate text-lead font-ui text-label" : "truncate text-lead font-ui text-label-dim"}>
+        <span className={lit ? "truncate text-lead font-ui text-label" : "truncate text-lead font-ui text-label-dim"}>
           {lines.title}
         </span>
         {lines.state && <span className="truncate text-body text-label-dim">{lines.state}</span>}

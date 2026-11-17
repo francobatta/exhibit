@@ -8,6 +8,7 @@ import { toast } from "@/components/ui/toast";
 import { installBridge } from "@/focus/bridge";
 import type { PlayEnded } from "./api";
 import { usePlayback } from "./playback";
+import { useNav } from "@/nav/stack";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -18,7 +19,7 @@ afterEach(() => {
   cleanup();
   uninstall();
   toast.dismiss();
-  usePlayback.setState({ playing: null, follow: null, next: null });
+  usePlayback.setState({ playing: null, follow: null, next: null, failure: null, problem: null, problemOpen: false });
   document.body.innerHTML = "";
 });
 
@@ -32,7 +33,7 @@ function film() {
   tauri.handle("item", () => detail({}, { id: 7 }));
 }
 
-test("a missing player says so, names the path tried, and offers Settings", async () => {
+test("a missing player says so in a dialog, names the path tried, and offers Settings to the pad", async () => {
   film();
   tauri.handle("play", () => {
     throw { kind: "tool", message: "tool error: mpv not found at C:\\mpv\\mpv.exe" };
@@ -40,12 +41,17 @@ test("a missing player says so, names the path tried, and offers Settings", asyn
   screens({ screen: "details", id: 7 });
   await settle();
   await select();
-  await settle();
+  await settle(200);
   expect(usePlayback.getState().playing).toBeNull();
-  const region = document.body.textContent ?? "";
-  expect(region).toContain("mpv could not start");
-  expect(region).toContain("C:\\mpv\\mpv.exe");
-  expect([...document.querySelectorAll("button")].some((b) => b.textContent === "Open Settings")).toBe(true);
+  const dialog = document.querySelector('[role="dialog"]');
+  expect(dialog?.textContent).toContain("mpv could not start");
+  expect(dialog?.textContent).toContain("mpv not found at C:\\mpv\\mpv.exe");
+  // Its first button has focus, a focus item like any other.
+  expect(activeKey()).toBe("player-problem:0");
+  expect(document.activeElement?.textContent).toBe("Open Settings");
+  await select();
+  await settle(200);
+  expect(useNav.getState().current).toEqual({ screen: "settings" });
 });
 
 test("an episode that ends watched moves focus to the next one on its show, and nowhere else", async () => {

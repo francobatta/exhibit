@@ -103,3 +103,28 @@ export function glideScroll(el: HTMLElement, axis: "left" | "top", to: number): 
 export function stopGlide(el: HTMLElement): void {
   glides.get(el)?.stop();
 }
+
+/** Where a vertical list keeps the focused row: between these fractions of its height. */
+const BAND = { top: 0.22, bottom: 0.78 };
+
+/**
+ * Glides the vertical scroller `el` so the row spanning `top` to `bottom` (in its scroll
+ * coordinates) is in view. Keys and the pad keep the row inside the band, so the rows around it
+ * show too (a row taller than the band is centred). A pointer only brings a row it touches fully
+ * into view, so the list never slides away from under it.
+ */
+export function revealRow(el: HTMLElement, top: number, bottom: number, pointer: boolean): void {
+  const h = el.clientHeight;
+  let target = el.scrollTop;
+  if (pointer) {
+    if (bottom > el.scrollTop + h) target = bottom - h;
+    else if (top < el.scrollTop) target = top;
+  } else {
+    const band = { top: h * BAND.top, bottom: h * BAND.bottom };
+    if (bottom - top > band.bottom - band.top) target = top - (h - (bottom - top)) / 2;
+    else if (top - el.scrollTop < band.top) target = top - band.top;
+    else if (bottom - el.scrollTop > band.bottom) target = bottom - band.bottom;
+  }
+  target = Math.max(0, Math.min(target, el.scrollHeight - h));
+  if (Math.abs(target - el.scrollTop) > 1) glideScroll(el, "top", target);
+}

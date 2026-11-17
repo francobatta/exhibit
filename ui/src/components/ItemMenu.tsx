@@ -7,11 +7,12 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import { Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuSeparator, createMenuController } from "@/components/ui/menu";
 import { FocusScope } from "@/focus/react";
-import { itemActions, facetsOf, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
+import { itemActions, facetsOf, reasonOf, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
 import { useQueryClient } from "@tanstack/react-query";
 import * as api from "@/lib/api";
 import { remPx, rems } from "@/lib/motion";
-import { keys } from "@/lib/queries";
+import { keys, useItemSources } from "@/lib/queries";
+import { useNav } from "@/nav/stack";
 
 /** How long the menu waits for the full record before it opens with the summary, in ms. */
 const DETAIL_WAIT = 250;
@@ -44,6 +45,11 @@ const EXTRA = "extra:";
 /** Whether the menu is open from this element: its work stays lit under the menu. */
 export function useMenuOpenOn(el: { current: HTMLElement | null }): boolean {
   return useItemMenu((s) => s.open && s.anchor !== null && s.anchor === el.current);
+}
+
+/** Whether the menu is open from the focus item with `key` (keys are unique on a screen). */
+export function useMenuOpenOnKey(key: string): boolean {
+  return useItemMenu((s) => s.open && s.anchor?.dataset.focusKey === key);
 }
 
 export interface ItemMenuProps {
@@ -155,12 +161,21 @@ export function ItemMenuHost({ fix }: { fix?: (item: ActionItem) => void }) {
     };
   }, [open, item, client]);
 
+  // A play that cannot run names the drive it waits for, once the full record says.
+  const drive = useItemSources(subject !== null && "item" in subject ? subject : undefined).find((s) => !s.online)?.path;
+  // Details of the work whose own screen this is would open the same screen again.
+  const here = useNav((s) => s.current);
   if (item === null || subject === null) return null;
+  const id = facetsOf(subject).id;
+  const onItsScreen = (here.screen === "show" || here.screen === "details") && here.id === id;
+  const actions = itemActions(subject)
+    .filter((a) => !(a.id === "details" && onItsScreen))
+    .map((a) => ({ ...a, disabled: reasonOf(a, drive) }));
   return (
     <ItemMenu
-      key={facetsOf(subject).id}
+      key={id}
       item={subject}
-      actions={itemActions(subject)}
+      actions={actions}
       extra={extra}
       anchor={anchor}
       open={open}

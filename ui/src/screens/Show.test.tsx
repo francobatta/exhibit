@@ -1,11 +1,11 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, press, screens, select, settle, sleep } from "../../test/app";
-import { summary } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { SHOW, fakeShow } from "../../test/show";
-import { openItemMenu, useItemMenu } from "@/components/ItemMenu";
-import { installBridge } from "@/focus/bridge";
+import { useItemMenu } from "@/components/ItemMenu";
+import { focusItem, installBridge, openMenu } from "@/focus/bridge";
+import { SHOW_KEY } from "./Show";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -31,8 +31,13 @@ test("Mark all as watched on the show's menu marks the show once", async () => {
   tauri.handle("set_watched", () => null);
   screens({ screen: "show", id: SHOW });
   await settle(120);
+  // The show's placard is a work: focused, X (`m`) opens its menu.
   await act(async () => {
-    openItemMenu(summary({ id: SHOW, kind: "show", title: "Severance", progress: 0.25, path: null }), document.activeElement as HTMLElement);
+    focusItem(SHOW_KEY);
+  });
+  expect(activeKey()).toBe(SHOW_KEY);
+  await act(async () => {
+    openMenu();
     for (let i = 0; i < 100 && !document.activeElement?.closest('[role="menu"]'); i++) await sleep(10);
   });
   for (let i = 0; i < 12 && !document.activeElement?.textContent?.startsWith("Mark all as watched"); i++) await press("ArrowDown");

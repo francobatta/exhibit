@@ -12,7 +12,7 @@ import {
   type QueryClient,
   type QueryKey,
 } from "@tanstack/react-query";
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import * as api from "./api";
 import type {
   ApiError,
@@ -111,6 +111,22 @@ export function useItemSources(detail: ItemDetail | undefined): Source[] {
     const ids = new Set(detail?.files.map((f) => f.source_id));
     return sources?.filter((s) => ids.has(s.id)) ?? [];
   }, [detail, sources]);
+}
+
+/** The drive a work waits for, read on demand: the folder of its first file on an offline source. */
+export function useOfflineDrive(): (id: Id) => Promise<string | undefined> {
+  const client = useQueryClient();
+  return useCallback(
+    async (id: Id) => {
+      const [detail, status] = await Promise.all([
+        client.fetchQuery({ queryKey: keys.item(id), queryFn: () => api.item(id), staleTime: ITEM_STALE }),
+        client.fetchQuery({ queryKey: keys.status, queryFn: api.status }),
+      ]);
+      const ids = new Set(detail.files.map((f) => f.source_id));
+      return status.sources.find((s) => ids.has(s.id) && !s.online)?.path;
+    },
+    [client],
+  );
 }
 
 export function useNeedsReview() {

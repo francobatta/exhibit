@@ -39,6 +39,11 @@ export function offlineReason(drive: string | undefined): string {
   return drive === undefined ? OFFLINE : `The drive for ${drive} is not connected`;
 }
 
+/** Why `action` cannot run, a missing drive named by `drive`; undefined when it can. */
+export function reasonOf(action: Pick<Action, "disabled">, drive: string | undefined): string | undefined {
+  return action.disabled === OFFLINE ? offlineReason(drive) : action.disabled;
+}
+
 const isDetail = (item: ActionItem): item is ItemDetail => "item" in item;
 
 /** The fields every action needs, from either shape. */

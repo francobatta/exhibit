@@ -89,9 +89,10 @@ const focusGroup = definePrimitive({
     let order: string[] = [];
     const recovery = createFocusRecovery<ItemProps>({
       fallback: (lost) => {
-        // Unbound but still on the page (React binding it again, as StrictMode does on mount):
-        // nothing was lost, so focus stays.
-        if (lost.el.isConnected) return lost.el;
+        // An item back under the same key (its element re-created or re-attached as the list
+        // re-rendered) was not lost: focus goes to it.
+        const back = roving.items().find((i) => i.key === lost.key && i.el.isConnected);
+        if (back !== undefined) return back.el;
         const now = roving.items().filter((i) => i.key !== lost.key && i.el.isConnected);
         const at = order.indexOf(lost.key);
         return (at >= 0 ? now[at] : undefined)?.el ?? now.at(-1)?.el ?? context.options().fallback?.();
@@ -218,8 +219,8 @@ export interface FocusItemOptions {
   key: string;
   /** Enter, click, and the pad's A. */
   onSelect?: () => void;
-  /** `m`, the ContextMenu key, right-click, and the pad's X. */
-  onMenu?: () => void;
+  /** `m`, the ContextMenu key, right-click, and the pad's X; given the item's element, to set the menu beside. */
+  onMenu?: (el: HTMLElement) => void;
   /** Escape or Backspace (B) while this item has focus, before the scope's and the stack's. */
   onBack?: () => void;
   /** Can be focused but not selected. */
@@ -274,7 +275,14 @@ export function useFocusItem<T extends HTMLElement = HTMLElement>(options: Focus
         group.api.recovery.bind(el, part),
         registerItem(el, () => {
           const o = latest.current;
-          return { key: o.key, onSelect: o.onSelect, onMenu: o.onMenu, onBack: o.onBack, disabled: o.disabled };
+          const menu = o.onMenu;
+          return {
+            key: o.key,
+            onSelect: o.onSelect,
+            onMenu: menu && (() => menu(el)),
+            onBack: o.onBack,
+            disabled: o.disabled,
+          };
         }),
       ];
       return () => {

@@ -2,14 +2,13 @@
 // in it, its genres), what can be done to it as a list (the first one has focus on arrival), then
 // what is known about it: its files, how far the owner got, and how it was matched.
 
-import { useCallback, useRef } from "react";
 import { useScreenBackdrop } from "@/components/Backdrop";
 import { openItemMenu } from "@/components/ItemMenu";
 import { Lamp } from "@/components/Lamp";
 import { Placard } from "@/components/Placard";
 import { ErrorState, Loading } from "@/components/states";
 import { FocusGroup, useFocusItem } from "@/focus/react";
-import { OFFLINE, itemActions, offlineReason, runAction, useActionContext, type Action, type ActionId } from "@/lib/actions";
+import { itemActions, reasonOf, runAction, useActionContext, type Action, type ActionId } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type MediaFile, type Source } from "@/lib/api";
 import { bytes, clock, facts, language, listed, resolution, shortDay } from "@/lib/format";
 import { useItem, useItemSources } from "@/lib/queries";
@@ -52,7 +51,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
   // Everything but Details itself; a play that cannot run names the drive it waits for.
   const actions = itemActions(detail)
     .filter((a) => a.id !== "details")
-    .map((a) => (a.disabled === OFFLINE ? { ...a, disabled: offlineReason(drive) } : a));
+    .map((a) => ({ ...a, disabled: reasonOf(a, drive) }));
 
   return (
     // The wheel moves through the actions, through the arrow keys (focus/input/wheel.ts).
@@ -98,24 +97,16 @@ function Actions({ detail, actions }: { detail: ItemDetail; actions: Action[] })
   );
 }
 
-function ActionItem({ action, onRun, onMenu }: { action: Action; onRun: () => void; onMenu: (el: HTMLElement | null) => void }) {
-  const el = useRef<HTMLButtonElement | null>(null);
+function ActionItem({ action, onRun, onMenu }: { action: Action; onRun: () => void; onMenu: (el: HTMLElement) => void }) {
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: `action:${SLOT[action.id]}`,
     onSelect: onRun,
-    onMenu: () => onMenu(el.current),
+    onMenu,
     disabled: action.disabled !== undefined,
   });
-  const bind = useCallback(
-    (node: HTMLButtonElement | null) => {
-      el.current = node;
-      return ref(node);
-    },
-    [ref],
-  );
   return (
     <button
-      ref={bind}
+      ref={ref}
       {...props}
       type="button"
       className="flex flex-col items-start gap-0.5 py-2 text-left font-display text-lead font-ui text-label-dim outline-none transition-colors hover:text-label focus:text-label aria-disabled:text-label-faint"

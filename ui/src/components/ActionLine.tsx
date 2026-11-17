@@ -2,12 +2,13 @@
 // focusable. A disabled action says why instead ("Play, the drive for D:\Movies is not connected").
 
 import { useInputMode } from "@/focus/react";
-import { OFFLINE, offlineReason, type Action } from "@/lib/actions";
+import { reasonOf, type Action } from "@/lib/actions";
 import { facts } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /** Why the main action cannot run, as the second half of the line. */
-function whyNot(reason: string, drive: string | undefined): string {
-  const why = reason === OFFLINE ? offlineReason(drive) : reason;
+function whyNot(action: Pick<Action, "disabled">, drive: string | undefined): string {
+  const why = reasonOf(action, drive) ?? "";
   return why.charAt(0).toLowerCase() + why.slice(1);
 }
 
@@ -20,18 +21,25 @@ export function Keycap({ children }: { children: string }) {
   );
 }
 
-export function ActionLine({ action, drive }: { action: Pick<Action, "label" | "disabled">; drive: string | undefined }) {
+export interface ActionLineProps {
+  action: Pick<Action, "label" | "disabled">;
+  drive: string | undefined;
+  /** Whether A would run it now. A line under a work that does not have focus is quiet and names no key. Default true. */
+  active?: boolean;
+}
+
+export function ActionLine({ action, drive, active = true }: ActionLineProps) {
   const mode = useInputMode();
   if (action.disabled) {
     return (
       <p className="flex h-(--keycap) items-center font-display text-lead text-label-dim">
-        {facts([action.label, whyNot(action.disabled, drive)])}
+        {facts([action.label, whyNot(action, drive)])}
       </p>
     );
   }
-  const key = mode === "pad" ? "A" : mode === "keys" ? "Enter" : null;
+  const key = !active ? null : mode === "pad" ? "A" : mode === "keys" ? "Enter" : null;
   return (
-    <p className="flex h-(--keycap) items-center gap-3 font-display text-lead font-ui text-label">
+    <p className={cn("flex h-(--keycap) items-center gap-3 font-display text-lead font-ui", active ? "text-label" : "text-label-dim")}>
       {key !== null && <Keycap>{key}</Keycap>}
       {action.label}
     </p>

@@ -29,7 +29,7 @@ import {
 } from "react";
 import { markEdge, registerGroup, registerItem, useFocusState, type Box, type Dir } from "@/focus/bridge";
 import type { Id, ItemSummary } from "@/lib/api";
-import { glideScroll, remPx, rems, stopGlide } from "@/lib/motion";
+import { remPx, rems, revealRow, stopGlide } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openItemMenu, useMenuOpenOn } from "./ItemMenu";
 import { ASPECT, Work, workLabel, type WorkShape } from "./Work";
@@ -156,8 +156,6 @@ const Context = createContext<WallContext | null>(null);
 
 /** Rows rendered past each edge of the view. */
 const OVERSCAN = 2;
-/** The focused row is kept between these fractions of the view's height. */
-const BAND = { top: 0.22, bottom: 0.78 };
 /** Rows Page Up and Page Down move. */
 const PAGE_ROWS = 3;
 
@@ -422,20 +420,11 @@ export function WallGrid({
       const row = Math.floor(index / cols);
       focusRow.current = row;
       latest.current.onFocusItem?.(item);
-      if (useFocusState.getState().mode === "pointer") return;
       const el = root.current;
       const v = virtual.items().find((r) => r.index === row);
       if (el === null || v === undefined) return;
       const top = rems("--space-light") * remPx() + v.start;
-      const bottom = top + v.size;
-      const h = el.clientHeight;
-      const band = { top: h * BAND.top, bottom: h * BAND.bottom };
-      let target = el.scrollTop;
-      if (v.size > band.bottom - band.top) target = top - (h - v.size) / 2;
-      else if (top - el.scrollTop < band.top) target = top - band.top;
-      else if (bottom - el.scrollTop > band.bottom) target = bottom - band.bottom;
-      target = Math.max(0, Math.min(target, el.scrollHeight - h));
-      if (Math.abs(target - el.scrollTop) > 1) glideScroll(el, "top", target);
+      revealRow(el, top, top + v.size, useFocusState.getState().mode === "pointer");
     },
     [virtual],
   );

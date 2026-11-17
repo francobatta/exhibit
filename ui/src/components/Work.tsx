@@ -23,6 +23,11 @@ export interface WorkProps {
   light?: string;
   /** Marked as chosen, for walls that pick several. */
   selected?: boolean;
+  /**
+   * What a work with no artwork sets in place of its title, when the title already hangs beside
+   * it (an episode's number on the show screen).
+   */
+  mark?: string;
 }
 
 /** How a work reads aloud and in its tooltip: "Taxi Driver, 1976, Watched". */
@@ -48,7 +53,7 @@ function artwork(item: ItemSummary, shape: WorkShape): string | null {
   return shape === "poster" ? imageUrl(item.poster, "s") : imageUrl(item.backdrop);
 }
 
-function Typographic({ item, shape }: { item: ItemSummary; shape: WorkShape }) {
+function Typographic({ item, shape, mark }: { item: ItemSummary; shape: WorkShape; mark?: string }) {
   return (
     <div
       data-typographic
@@ -58,10 +63,14 @@ function Typographic({ item, shape }: { item: ItemSummary; shape: WorkShape }) {
         className={cn(
           "text-left font-display font-poster text-label [font-stretch:var(--stretch-poster)] tracking-title",
           "[overflow-wrap:anywhere] text-pretty",
-          shape === "poster" ? "line-clamp-6 text-[12cqi] leading-[1.02]" : "line-clamp-3 text-[7cqi] leading-[1.05]",
+          mark !== undefined
+            ? "text-[14cqi] leading-none"
+            : shape === "poster"
+              ? "line-clamp-6 text-[12cqi] leading-[1.02]"
+              : "line-clamp-3 text-[7cqi] leading-[1.05]",
         )}
       >
-        {item.title}
+        {mark ?? item.title}
       </p>
     </div>
   );
@@ -75,7 +84,7 @@ function Check() {
   );
 }
 
-export const Work = memo(function Work({ item, shape, focused, size, light = "work-light", selected }: WorkProps) {
+export const Work = memo(function Work({ item, shape, focused, size, light = "work-light", selected, mark }: WorkProps) {
   const src = artwork(item, shape);
   const [failed, setFailed] = useState<string | null>(null);
   const showArt = src !== null && failed !== src;
@@ -124,7 +133,7 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
             className="absolute inset-0 size-full object-cover"
           />
         ) : (
-          <Typographic item={item} shape={shape} />
+          <Typographic item={item} shape={shape} mark={mark} />
         )}
         {progress !== null && (
           <div className="absolute inset-x-[6cqi] bottom-[5cqi] h-[1.6cqi] overflow-hidden rounded-full bg-wall/70">
