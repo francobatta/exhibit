@@ -166,6 +166,7 @@ function SeasonRow({ seasons, chosen, onChoose }: { seasons: ItemSummary[]; chos
       id="show-seasons"
       orientation="horizontal"
       aria-label="Seasons"
+      onKeyDownCapture={firstToShow}
       className="order-first flex h-(--wall-controls) shrink-0 items-center gap-2 pl-4"
     >
       {seasons.map((s) => (
@@ -259,6 +260,12 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
 function toShow(event: KeyboardEvent<HTMLDivElement>) {
   if (event.key !== "ArrowLeft" || event.altKey || event.ctrlKey || event.metaKey) return;
   if (focusItem(SHOW_KEY)) event.preventDefault();
+}
+
+/** Left from the first season goes to the show, as from an episode (the top bar lies nearer that way). */
+function firstToShow(event: KeyboardEvent<HTMLDivElement>) {
+  if (event.target !== event.currentTarget.querySelector("[data-focus-key]")) return;
+  toShow(event);
 }
 
 /** "E4, The We We Are, 53 min" and, under it, how far the owner got. */
