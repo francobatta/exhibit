@@ -4,3 +4,4 @@ target/
 dist/
 ui/dist/
 crates/exhibit-app/gen/
+docs/superpowers/shots/
