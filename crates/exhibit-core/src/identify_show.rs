@@ -7,8 +7,8 @@
 use crate::db;
 use crate::error::{Error, Result};
 use crate::identify::{
-    Counts, Fill, How, MAX_HITS, Pending, absorb, artwork, candidate, confirm, find_item,
-    insert_item, set_review, sort_candidates,
+    Counts, Fill, How, IdentifyReport, MAX_HITS, Pending, STILL_SIZE, absorb, artwork, candidate,
+    confirm, download, find_item, insert_item, set_review, sort_candidates,
 };
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
@@ -146,26 +146,32 @@ pub(crate) fn identify_group(
         }
     };
     let art = show_artwork(c, p, cache_dir, &show)?;
+    let stills: Vec<Option<String>> = g
+        .members
+        .iter()
+        .map(|m| {
+            let ep = show.episode(m.season, m.episode?)?;
+            still(p, cache_dir, show.meta.tmdb_id, m.season, ep)
+        })
+        .collect();
     let added_at = g.members.iter().map(|m| m.pending.added_at).min();
 
     let tx = db::write_tx(c)?;
     let show_item = ensure_show(&tx, &show, art, how, added_at.unwrap_or(0))?;
     let (mut matched, mut review) = (0, 0);
-    for m in &g.members {
+    for (m, still) in g.members.iter().zip(stills) {
         let item_id = m.pending.item_id;
         let joined = m.joined && how.source == MatchSource::Nfo;
         let m_how = if joined { How::joined() } else { how };
         match m.episode.and_then(|e| show.episode(m.season, e)) {
             Some(ep) => {
-                place(
-                    &tx,
+                let at = Spot {
                     show_item,
-                    m.season,
+                    season: m.season,
                     ep,
-                    m_how,
-                    m.pending.added_at,
-                    item_id,
-                )?;
+                    still,
+                };
+                place(&tx, &at, m_how, m.pending.added_at, item_id)?;
                 matched += 1;
             }
             None => {
@@ -227,9 +233,16 @@ pub(crate) fn apply(
         )));
     };
     let art = show_artwork(c, p, cache_dir, &show)?;
+    let still = still(p, cache_dir, show.meta.tmdb_id, season, ep);
     let tx = db::write_tx(c)?;
     let show_item = ensure_show(&tx, &show, art, how, added_at)?;
-    place(&tx, show_item, season, ep, how, added_at, item_id)?;
+    let at = Spot {
+        show_item,
+        season,
+        ep,
+        still,
+    };
+    place(&tx, &at, how, added_at, item_id)?;
     tx.commit()?;
     Ok(())
 }
@@ -323,17 +336,42 @@ fn ensure_show(
     insert_item(tx, &fill, how, added_at)
 }
 
-/// Moves the files of `from` onto episode `ep` of `season`, creating the season and episode
-/// items when missing, and deletes `from`.
-fn place(
-    tx: &Connection,
+/// Where an episode file goes: episode `ep` of `season` of `show_item`, with its still.
+struct Spot<'a> {
     show_item: Id,
     season: i32,
+    ep: &'a EpisodeMeta,
+    /// The still's cached file name, kept as the episode's backdrop.
+    still: Option<String>,
+}
+
+/// An episode's still, saved as `tv-<show id>-s<season>e<episode>-backdrop.jpg` and returned
+/// by name; `None` when TMDB has none or the download failed, which never fails the match.
+fn still(
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    show_id: i64,
+    season: i32,
     ep: &EpisodeMeta,
-    how: How,
-    added_at: i64,
-    from: Id,
-) -> Result<()> {
+) -> Option<String> {
+    let name = still_name(show_id, season, ep.episode);
+    download(p, cache_dir, ep.still.as_deref()?, STILL_SIZE, &name).ok()?;
+    Some(name)
+}
+
+fn still_name(show_id: i64, season: i32, episode: i32) -> String {
+    format!("tv-{show_id}-s{season}e{episode}-backdrop.jpg")
+}
+
+/// Moves the files of `from` onto the episode at `at`, creating the season and episode items
+/// when missing (an episode without a backdrop takes the still), and deletes `from`.
+fn place(tx: &Connection, at: &Spot, how: How, added_at: i64, from: Id) -> Result<()> {
+    let Spot {
+        show_item,
+        season,
+        ep,
+        ..
+    } = *at;
     let season_id = match child(tx, show_item, ItemKind::Season, season)? {
         Some(id) => id,
         None => {
@@ -352,6 +390,8 @@ fn place(
     let episode_id = match child(tx, season_id, ItemKind::Episode, ep.episode)? {
         Some(id) => {
             confirm(tx, id, how)?;
+            tx.prepare_cached("UPDATE items SET backdrop = COALESCE(backdrop, ?2) WHERE id = ?1")?
+                .execute(params![id, at.still])?;
             id
         }
         None => {
@@ -367,6 +407,7 @@ fn place(
                 episode: Some(ep.episode),
                 overview: &ep.overview,
                 runtime_min: ep.runtime_min,
+                backdrop: at.still.clone(),
                 ..Fill::new(ItemKind::Episode, title)
             };
             insert_item(tx, &fill, how, added_at)?
@@ -386,4 +427,62 @@ fn child(c: &Connection, parent: Id, kind: ItemKind, number: i32) -> Result<Opti
     Ok(c.prepare_cached(sql)?
         .query_row(params![parent, number], |r| r.get(0))
         .optional()?)
+}
+
+/// Gives every episode of an identified show that has no backdrop yet its TMDB still (episodes
+/// identified before stills were kept, or whose still could not be downloaded then). Each season is fetched once. A failure is added to the
+/// report's errors and the run goes on; a rejected key ends it. An episode TMDB has no still
+/// for keeps no backdrop.
+pub(crate) fn episode_stills(
+    c: &Connection,
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    report: &mut IdentifyReport,
+) -> Result<()> {
+    let missing: Vec<(Id, i64, i32, i32)> = c
+        .prepare_cached(
+            "SELECT e.id, s.tmdb_id, e.season, e.episode FROM items e              JOIN items up ON up.id = e.parent_id              JOIN items s ON s.id = CASE WHEN up.kind = 'show' THEN up.id ELSE up.parent_id END              WHERE e.kind = 'episode' AND e.backdrop IS NULL                AND e.season IS NOT NULL AND e.episode IS NOT NULL                AND s.kind = 'show' AND s.tmdb_id IS NOT NULL              ORDER BY s.tmdb_id, e.season, e.episode",
+        )?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // The season in hand, by (show, season number); None when it could not be read.
+    let mut season: Option<((i64, i32), Option<SeasonMeta>)> = None;
+    for (id, show_id, n, episode) in missing {
+        if season.as_ref().is_none_or(|(key, _)| *key != (show_id, n)) {
+            let meta = match p.season(show_id, n) {
+                Ok(meta) => Some(meta),
+                Err(e @ Error::Invalid(_)) => return Err(e),
+                // A season TMDB does not list has no stills to give.
+                Err(Error::NotFound(_)) => None,
+                Err(e) => {
+                    report
+                        .errors
+                        .push(format!("stills of {show_id} season {n}: {e}"));
+                    None
+                }
+            };
+            season = Some(((show_id, n), meta));
+        }
+        let Some((_, Some(meta))) = &season else {
+            continue;
+        };
+        let Some(still) = meta
+            .episodes
+            .iter()
+            .find(|e| e.episode == episode)
+            .and_then(|e| e.still.as_deref())
+        else {
+            continue;
+        };
+        let name = still_name(show_id, n, episode);
+        match download(p, cache_dir, still, STILL_SIZE, &name) {
+            Ok(()) => {
+                c.prepare_cached("UPDATE items SET backdrop = ?2 WHERE id = ?1")?
+                    .execute(params![id, name])?;
+            }
+            Err(e @ Error::Invalid(_)) => return Err(e),
+            Err(e) => report.errors.push(format!("still for {name}: {e}")),
+        }
+    }
+    Ok(())
 }

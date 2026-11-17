@@ -30,6 +30,9 @@ const POSTER_SIZE: &str = "w780";
 /// The small poster, for walls of many works; stored beside the large one with `-s`.
 const POSTER_SMALL_SIZE: &str = "w342";
 const BACKDROP_SIZE: &str = "original";
+/// An episode's still, kept as the episode's backdrop: it is the episode's frame on the show
+/// screen and its backdrop on its details screen, so it is taken at full size like a backdrop.
+pub(crate) const STILL_SIZE: &str = "original";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -168,6 +171,7 @@ pub fn identify(
             on(m.pending.item_id);
         }
     }
+    identify_show::episode_stills(c, p, cache_dir, &mut report)?;
     Ok(report)
 }
 
@@ -686,7 +690,7 @@ fn small_poster(large: &str) -> String {
 }
 
 /// Saves TMDB image `path` at `size` as `cache_dir/name`, unless that file exists.
-fn download(
+pub(crate) fn download(
     p: &dyn MetadataProvider,
     cache_dir: &Path,
     path: &str,
@@ -1013,7 +1017,7 @@ mod tests {
                     title: format!("Episode {e} title"),
                     overview: String::new(),
                     runtime_min: Some(50),
-                    still: None,
+                    still: Some(format!("/s{n}e{e}.jpg")),
                 })
                 .collect(),
         }
@@ -1296,6 +1300,45 @@ mod tests {
         assert_eq!(p.count("search_show"), 1);
         assert_eq!(p.count("season"), 1);
         assert_eq!(p.count("search_movie"), 0);
+    }
+
+    #[test]
+    fn episode_stills_become_episode_backdrops() {
+        let files = [
+            "Severance/Season 02/Severance.S02E01.mkv",
+            "Severance/Season 02/Severance.S02E02.mkv",
+        ];
+        let e = env(&files);
+        let mut p = severance();
+        // TMDB has no still for episode 2 yet.
+        p.seasons[0].1.episodes[1].still = None;
+        run(&e, &p, IdentifyScope::Unmatched);
+        let backdrop = |rel| file_item(&e, rel).backdrop;
+        assert_eq!(
+            backdrop(files[0]).as_deref(),
+            Some("tv-95396-s2e1-backdrop.jpg")
+        );
+        assert_eq!(backdrop(files[1]), None);
+        let still = e.cache().join("tv-95396-s2e1-backdrop.jpg");
+        assert_eq!(fs::read(&still).unwrap(), b"original/s2e1.jpg");
+
+        // An episode identified before stills were kept gets its still on the next identify
+        // of any scope, its season fetched once for all its episodes.
+        fs::remove_file(&still).unwrap();
+        e.c.execute(
+            "UPDATE items SET backdrop = NULL WHERE kind = 'episode'",
+            [],
+        )
+        .unwrap();
+        let seasons = p.count("season");
+        assert_eq!(run(&e, &p, IdentifyScope::Review), report(0, 0, 0));
+        assert_eq!(
+            backdrop(files[0]).as_deref(),
+            Some("tv-95396-s2e1-backdrop.jpg")
+        );
+        assert_eq!(fs::read(&still).unwrap(), b"original/s2e1.jpg");
+        assert_eq!(backdrop(files[1]), None);
+        assert_eq!(p.count("season"), seasons + 1);
     }
 
     #[test]
