@@ -120,9 +120,14 @@ pub fn remove_source(state: State<'_, AppState>, id: Id) -> ApiResult<()> {
     Ok(())
 }
 
+/// Drive roots for no `path`; otherwise its sub-folders, then its files ending `.<ext>` when
+/// `ext` is given (a tool's `exe`).
 #[tauri::command(async)]
-pub fn list_folders(path: Option<String>) -> ApiResult<Vec<Folder>> {
-    Ok(folders::list_folders(path.as_deref().map(Path::new))?)
+pub fn list_folders(path: Option<String>, ext: Option<String>) -> ApiResult<Vec<Folder>> {
+    Ok(folders::list_folders(
+        path.as_deref().map(Path::new),
+        ext.as_deref(),
+    )?)
 }
 
 #[tauri::command(async)]
@@ -207,6 +212,16 @@ pub fn window_fullscreen(app: AppHandle, on: bool) -> ApiResult<()> {
             .map_err(|e| std::io::Error::other(e.to_string()))?;
     }
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn window_is_fullscreen(app: AppHandle) -> ApiResult<bool> {
+    match app.get_webview_window("main") {
+        Some(w) => Ok(w
+            .is_fullscreen()
+            .map_err(|e| std::io::Error::other(e.to_string()))?),
+        None => Ok(false),
+    }
 }
 
 #[cfg(test)]

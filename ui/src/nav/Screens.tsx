@@ -4,18 +4,17 @@
 
 import { AnimatePresence, motion, useIsPresent } from "motion/react";
 import type { ReactNode } from "react";
-import { Empty } from "@/components/states";
-import { Lamp } from "@/components/Lamp";
-import { Button } from "@/components/ui/button";
 import { modalOpen } from "@/focus/bridge";
-import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
+import { FocusScope } from "@/focus/react";
 import { easeOut, length, seconds } from "@/lib/motion";
 import { Details } from "@/screens/Details";
+import { FirstRun } from "@/screens/FirstRun";
 import { Home } from "@/screens/Home";
 import { Review } from "@/screens/Review";
+import { Settings } from "@/screens/Settings";
 import { Show } from "@/screens/Show";
 import { Wall } from "@/screens/Wall";
-import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route } from "./stack";
+import { DEFAULT_VIEW, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [
@@ -25,48 +24,27 @@ const SECTIONS: Route[] = [
   { screen: "wall", kind: "other" },
 ];
 
+/** Whether first run is showing: its own flow, which the sections and Settings stay out of. */
+const onFirstRun = () => useNav.getState().entries[0]!.route.screen === "firstRun";
+
 /** Replaces the root with the previous or next section, wrapping; from elsewhere it starts at Home. */
 export function cycleSection(delta: -1 | 1): void {
   const { entries, replaceRoot } = useNav.getState();
   const root = entries[0]!.route;
+  if (onFirstRun()) return;
   const at = SECTIONS.findIndex((s) => samePlace(s, root));
   const next = at === -1 ? 0 : (at + delta + SECTIONS.length) % SECTIONS.length;
   replaceRoot(SECTIONS[next]!);
 }
 
-/** Opens Settings, unless it is already on top or an overlay is open. */
-export function openSettings(): void {
+/** Opens Settings (on `part`, if given), unless it is already on top, an overlay is open, or first run is showing. */
+export function openSettings(part?: SettingsPart): void {
   const nav = useNav.getState();
-  if (nav.current.screen === "settings" || modalOpen()) return;
-  nav.push({ screen: "settings" });
+  if (nav.current.screen === "settings" || modalOpen() || onFirstRun()) return;
+  nav.push(part === undefined ? { screen: "settings" } : { screen: "settings", part });
 }
 
-function GoBack() {
-  const back = useNav((s) => s.back);
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "stub:back", onSelect: () => back() });
-  return (
-    <Button ref={ref} {...props} variant="line" className="relative focus:border-lamp">
-      Go back
-      {focused && <Lamp />}
-    </Button>
-  );
-}
-
-// Screens not built yet. A pushed one offers a way back, so focus has a place on it.
-function Stub({ title, body, pushed }: { title: string; body: string; pushed: boolean }) {
-  return (
-    <>
-      <Empty title={title} body={body} />
-      {pushed && (
-        <FocusGroup id="stub" orientation="horizontal" className="-mt-4 px-edge">
-          <GoBack />
-        </FocusGroup>
-      )}
-    </>
-  );
-}
-
-function screenFor(entry: Entry, pushed: boolean): ReactNode {
+function screenFor(entry: Entry): ReactNode {
   const route = entry.route;
   switch (route.screen) {
     case "home":
@@ -86,13 +64,13 @@ function screenFor(entry: Entry, pushed: boolean): ReactNode {
     case "review":
       return <Review />;
     case "settings":
-      return <Stub title="Settings" body="This screen is built in a later step." pushed={pushed} />;
+      return <Settings part={route.part} />;
     case "firstRun":
-      return <Empty title="Welcome to Exhibit" body="This screen is built in a later step." />;
+      return <FirstRun />;
   }
 }
 
-function Layer({ entry, top, pushed }: { entry: Entry; top: boolean; pushed: boolean }) {
+function Layer({ entry, top }: { entry: Entry; top: boolean }) {
   const setFocusKey = useNav((s) => s.setFocusKey);
   // A layer leaving after Back keeps its last props while it animates out; it must not hold focus.
   const present = useIsPresent();
@@ -117,7 +95,7 @@ function Layer({ entry, top, pushed }: { entry: Entry; top: boolean; pushed: boo
         active={live}
         onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry, pushed)}
+        {screenFor(entry)}
       </FocusScope>
     </motion.div>
   );
@@ -129,7 +107,7 @@ export function Screens() {
     <main className="relative h-full">
       <AnimatePresence initial={false}>
         {entries.map((e, i) => (
-          <Layer key={e.id} entry={e} top={i === entries.length - 1} pushed={i > 0} />
+          <Layer key={e.id} entry={e} top={i === entries.length - 1} />
         ))}
       </AnimatePresence>
     </main>

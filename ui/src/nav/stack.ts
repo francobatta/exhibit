@@ -26,13 +26,16 @@ export const DEFAULT_VIEW: WallView = {
   genre: null,
 };
 
+/** The part of Settings to land on: the tools (mpv could not start), the TMDB key (Fix match without one). */
+export type SettingsPart = "tools" | "tmdb";
+
 export type Route =
   | { screen: "home" }
   | { screen: "wall"; kind: WallKind; view?: WallView }
   | { screen: "show"; id: Id }
   | { screen: "details"; id: Id }
   | { screen: "review" }
-  | { screen: "settings" }
+  | { screen: "settings"; part?: SettingsPart }
   | { screen: "firstRun" };
 
 /** Whether two routes are the same place, whatever state they carry (a wall's sort and filters). */

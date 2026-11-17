@@ -189,6 +189,8 @@ export interface Boot {
 export interface Folder {
   name: string;
   path: string;
+  /** A file with the asked-for extension (a tool's `.exe`), not a folder. */
+  file: boolean;
 }
 
 export interface JobStatus {
@@ -242,7 +244,8 @@ export function isApiError(e: unknown): e is ApiError {
 /**
  * The message of an error as the owner should read it: the core's kind prefix removed ("tool
  * error: ", "source offline: ", "invalid: "), starting with a capital unless it starts with the
- * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe").
+ * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe"). Advice
+ * meant for the command line ("…; set a valid one with `exhibit key set tmdb`") is left off.
  * Also takes a bare message (such as `JobStatus.last_error`) or anything a promise rejected with.
  */
 export function plain(e: unknown): string {
@@ -253,7 +256,10 @@ export function plain(e: unknown): string {
       : e instanceof Error
         ? e.message
         : "";
-  const stripped = text.trim().replace(/^[a-z_]+(?: [a-z]+)?: /, "");
+  const stripped = text
+    .trim()
+    .replace(/^[a-z_]+(?: [a-z]+)?: /, "")
+    .replace(/;[^;]*`[^`]*`[^;]*$/, "");
   if (stripped === "") return "Something went wrong.";
   if (/^(mpv|ffprobe|ffmpeg)\b/.test(stripped)) return stripped;
   return stripped.charAt(0).toUpperCase() + stripped.slice(1);
@@ -288,8 +294,9 @@ export const lookup = (text: string, kind: ItemKind, year: number | null) =>
 /** Also queues the new folder's first refresh. */
 export const addSource = (path: string) => invoke<Source>("add_source", { path });
 export const removeSource = (id: Id) => invoke<void>("remove_source", { id });
-/** Drive roots for `null`; otherwise visible sub-folders, sorted. */
-export const listFolders = (path: string | null) => invoke<Folder[]>("list_folders", { path });
+/** Drive roots for `null`; otherwise visible sub-folders, sorted, then with `ext` (`"exe"`) the files ending in it. */
+export const listFolders = (path: string | null, ext: string | null = null) =>
+  invoke<Folder[]>("list_folders", { path, ext });
 export const detectTools = () => invoke<ToolStatus[]>("detect_tools");
 export const setToolPath = (tool: Tool, path: string | null) =>
   invoke<void>("set_tool_path", { tool, path });
@@ -304,6 +311,7 @@ export const jobStatus = () => invoke<JobStatus>("job_status");
 /** Resolves once the player has started; the end arrives as `play-ended`. */
 export const play = (id: Id, resume: boolean) => invoke<void>("play", { id, resume });
 export const windowFullscreen = (on: boolean) => invoke<void>("window_fullscreen", { on });
+export const windowIsFullscreen = () => invoke<boolean>("window_is_fullscreen");
 
 // Events. Each returns a promise of its unlisten function.
 

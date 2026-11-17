@@ -107,6 +107,12 @@
   /* Needs review: the width of an entry's file name and actions beside its candidates, and the gap between entries. */
   --review-label: 34rem;
   --review-gap: 3rem;
+  /* Settings: the column naming each part, the measure of its controls, and a key's field. */
+  --settings-label: 20rem;
+  --settings-measure: 56rem;
+  --key-field: 28rem;
+  /* The folder browser's panel. */
+  --dialog-browser: 52rem;
   /* The keycap that names the button beside an action ("A", "Enter"). */
   --keycap: 1.75rem;
   --round-work: 0.125rem;

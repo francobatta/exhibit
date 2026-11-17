@@ -51,7 +51,7 @@ test("a missing player says so in a dialog, names the path tried, and offers Set
   expect(document.activeElement?.textContent).toBe("Open Settings");
   await select();
   await settle(200);
-  expect(useNav.getState().current).toEqual({ screen: "settings" });
+  expect(useNav.getState().current).toEqual({ screen: "settings", part: "tools" });
 });
 
 test("an episode that ends watched moves focus to the next one on its show, and nowhere else", async () => {

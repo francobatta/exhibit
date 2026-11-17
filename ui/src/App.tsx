@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MotionConfig } from "motion/react";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { Backdrop } from "@/components/Backdrop";
 import { ConfirmHost } from "@/components/Dialog";
 import { Hints } from "@/components/Hints";
@@ -25,11 +25,16 @@ const Gallery = gallery ? lazy(() => import("@/screens/Gallery").then((m) => ({ 
 
 function Shell() {
   const boot = useBoot();
-  const firstRun = boot.data?.firstRun;
-
-  useEffect(() => {
-    if (firstRun === true) useNav.getState().replaceRoot({ screen: "firstRun" });
-  }, [firstRun]);
+  const firstRun = boot.data?.firstRun === true;
+  // First run replaces the root before anything paints, so Home never shows under it.
+  const [routed, setRouted] = useState(false);
+  useLayoutEffect(() => {
+    if (!firstRun || routed) return;
+    useNav.getState().replaceRoot({ screen: "firstRun" });
+    setRouted(true);
+  }, [firstRun, routed]);
+  // First run is its own flow: no sections to offer until it is done.
+  const onFirstRun = useNav((s) => s.entries[0]!.route.screen === "firstRun");
 
   if (boot.isPending) return <Loading label="Opening the library" />;
   if (boot.isError) {
@@ -43,6 +48,7 @@ function Shell() {
       </div>
     );
   }
+  if (firstRun && !routed) return null;
   return (
     <>
       {Gallery ? (
@@ -52,7 +58,7 @@ function Shell() {
       ) : (
         <Screens />
       )}
-      <TopBar />
+      {!onFirstRun && <TopBar />}
     </>
   );
 }

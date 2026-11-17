@@ -36,6 +36,8 @@ export const keys = {
   item: (id: Id) => ["library", "item", id] as const,
   needsReview: ["library", "needs-review"] as const,
   ask: (text: string) => ["library", "ask", text] as const,
+  tools: ["library", "tools"] as const,
+  fullscreen: ["fullscreen"] as const,
 };
 
 const PAGE = 500;
@@ -160,6 +162,25 @@ export function useAsk(text: string) {
     enabled: text !== "",
     placeholderData: keepPreviousData,
   });
+}
+
+/** The media tools, detected afresh each time a screen showing them opens (and when the library changes). */
+export function useTools() {
+  return useQuery({ queryKey: keys.tools, queryFn: api.detectTools, staleTime: 0, refetchOnMount: "always" });
+}
+
+/** Whether the window is full screen, read when asked; `set` changes it and reads it back. */
+export function useFullscreen() {
+  const client = useQueryClient();
+  const query = useQuery({ queryKey: keys.fullscreen, queryFn: api.windowIsFullscreen, staleTime: 0 });
+  const set = useCallback(
+    async (on: boolean) => {
+      await api.windowFullscreen(on);
+      await client.invalidateQueries({ queryKey: keys.fullscreen });
+    },
+    [client],
+  );
+  return { on: query.data, set };
 }
 
 export function useNeedsReview() {

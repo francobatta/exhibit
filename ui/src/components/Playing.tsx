@@ -64,7 +64,7 @@ function PlayerProblem() {
           label: "Open Settings",
           primary: true,
           onSelect: () => {
-            then.current = openSettings;
+            then.current = () => openSettings("tools");
             dismiss();
           },
         },

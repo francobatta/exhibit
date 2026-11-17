@@ -63,6 +63,7 @@ fn main() {
             commands::job_status,
             commands::play,
             commands::window_fullscreen,
+            commands::window_is_fullscreen,
         ])
         .run(tauri::generate_context!())
         .expect("Exhibit could not start its window");

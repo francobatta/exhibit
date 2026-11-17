@@ -1,8 +1,9 @@
 // The app's screens as the owner meets them, for screen tests: the navigation stack on a route,
-// with the item menu, the playing layer and the toasts mounted as App mounts them.
+// with the item menu, the confirm dialog, the playing layer and the toasts mounted as App mounts them.
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render } from "@testing-library/react";
+import { ConfirmHost } from "@/components/Dialog";
 import { ItemMenuHost } from "@/components/ItemMenu";
 import { PlaybackHost } from "@/components/Playing";
 import { Toaster } from "@/components/ui/toast";
@@ -33,6 +34,7 @@ export function screens(route: Route) {
     <QueryClientProvider client={client}>
       <Screens />
       <ItemMenuHost />
+      <ConfirmHost />
       <PlaybackHost />
       <Toaster />
     </QueryClientProvider>,

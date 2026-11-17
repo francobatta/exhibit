@@ -114,7 +114,7 @@ export function MatchPicker({ itemId, open, onClose, onClosed }: MatchPickerProp
             label: "Open Settings",
             primary: true,
             onSelect: () => {
-              after.current = () => leaveAsk(openSettings);
+              after.current = () => leaveAsk(() => openSettings("tmdb"));
               onClose();
             },
           },
