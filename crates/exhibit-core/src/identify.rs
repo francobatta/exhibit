@@ -792,7 +792,8 @@ pub(crate) fn download(
 
 /// Downloads the small poster of every movie and show that has a large one but no small
 /// file yet (items identified before small posters existed). A failure is added to the
-/// report's errors and the run goes on; a rejected key ends it.
+/// report's errors and the run goes on; a rejected key ends it. After the first provider
+/// error (TMDB out of reach) the rest wait for the next run, so an outage costs one timeout.
 fn small_posters(
     c: &Connection,
     p: &dyn MetadataProvider,
@@ -829,9 +830,15 @@ fn small_posters(
         match saved {
             Ok(()) => {}
             Err(e @ Error::Invalid(_)) => return Err(e),
-            Err(e) => report
-                .errors
-                .push(format!("small poster for {poster}: {e}")),
+            Err(e) => {
+                let unreachable = matches!(e, Error::Provider(_));
+                report
+                    .errors
+                    .push(format!("small poster for {poster}: {e}"));
+                if unreachable {
+                    break;
+                }
+            }
         }
     }
     Ok(())
@@ -1456,6 +1463,45 @@ mod tests {
         assert_eq!(fs::read(&still).unwrap(), b"original/s2e1.jpg");
         assert_eq!(backdrop(files[1]), None);
         assert_eq!(p.count("season"), seasons + 1);
+    }
+
+    #[test]
+    fn artwork_backfills_stop_at_the_first_outage() {
+        let files = [
+            "The Matrix (1999).mkv",
+            "Heat (1995).mkv",
+            "Severance/Season 02/Severance.S02E01.mkv",
+            "Severance/Season 02/Severance.S02E02.mkv",
+        ];
+        let e = env(&files);
+        let mut p = Fake {
+            movies: vec![
+                movie(603, "The Matrix", 1999, 136),
+                movie(949, "Heat", 1995, 170),
+            ],
+            movie_hits: vec![
+                (
+                    "The Matrix",
+                    vec![hit(603, Movie, "The Matrix", Some(1999))],
+                ),
+                ("Heat", vec![hit(949, Movie, "Heat", Some(1995))]),
+            ],
+            ..severance()
+        };
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(4, 0, 0));
+        // Small posters and stills to backfill, with TMDB out of reach.
+        fs::remove_dir_all(e.cache()).unwrap();
+        e.c.execute(
+            "UPDATE items SET backdrop = NULL WHERE kind = 'episode'",
+            [],
+        )
+        .unwrap();
+        p.images_fail = true;
+        let images = p.count("image");
+        let r = run(&e, &p, IdentifyScope::Review);
+        // One try for the small posters (three missing), one for the stills (two missing).
+        assert_eq!(p.count("image"), images + 2);
+        assert_eq!(r.errors.len(), 2);
     }
 
     #[test]

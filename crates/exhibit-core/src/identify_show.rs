@@ -447,9 +447,11 @@ fn child(c: &Connection, parent: Id, kind: ItemKind, number: i32) -> Result<Opti
 }
 
 /// Gives every episode of an identified show that has no backdrop yet its TMDB still (episodes
-/// identified before stills were kept, or whose still could not be downloaded then). Each season is fetched once. A failure is added to the
-/// report's errors and the run goes on; a rejected key ends it. An episode TMDB has no still
-/// for keeps no backdrop.
+/// identified before stills were kept, or whose still could not be downloaded then). Each
+/// season is fetched once. A failure is added to the report's errors and the run goes on; a
+/// rejected key ends it. After the first provider error (TMDB out of reach) the rest wait for
+/// the next run, so an outage costs one timeout. An episode TMDB has no still for keeps no
+/// backdrop.
 pub(crate) fn episode_stills(
     c: &Connection,
     p: &dyn MetadataProvider,
@@ -458,7 +460,13 @@ pub(crate) fn episode_stills(
 ) -> Result<()> {
     let missing: Vec<(Id, i64, i32, i32)> = c
         .prepare_cached(
-            "SELECT e.id, s.tmdb_id, e.season, e.episode FROM items e              JOIN items up ON up.id = e.parent_id              JOIN items s ON s.id = CASE WHEN up.kind = 'show' THEN up.id ELSE up.parent_id END              WHERE e.kind = 'episode' AND e.backdrop IS NULL                AND e.season IS NOT NULL AND e.episode IS NOT NULL                AND s.kind = 'show' AND s.tmdb_id IS NOT NULL              ORDER BY s.tmdb_id, e.season, e.episode",
+            "SELECT e.id, s.tmdb_id, e.season, e.episode FROM items e \
+             JOIN items up ON up.id = e.parent_id \
+             JOIN items s ON s.id = CASE WHEN up.kind = 'show' THEN up.id ELSE up.parent_id END \
+             WHERE e.kind = 'episode' AND e.backdrop IS NULL \
+               AND e.season IS NOT NULL AND e.episode IS NOT NULL \
+               AND s.kind = 'show' AND s.tmdb_id IS NOT NULL \
+             ORDER BY s.tmdb_id, e.season, e.episode",
         )?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
@@ -472,9 +480,13 @@ pub(crate) fn episode_stills(
                 // A season TMDB does not list has no stills to give.
                 Err(Error::NotFound(_)) => None,
                 Err(e) => {
+                    let unreachable = matches!(e, Error::Provider(_));
                     report
                         .errors
                         .push(format!("stills of {show_id} season {n}: {e}"));
+                    if unreachable {
+                        break;
+                    }
                     None
                 }
             };
@@ -498,7 +510,13 @@ pub(crate) fn episode_stills(
                     .execute(params![id, name])?;
             }
             Err(e @ Error::Invalid(_)) => return Err(e),
-            Err(e) => report.errors.push(format!("still for {name}: {e}")),
+            Err(e) => {
+                let unreachable = matches!(e, Error::Provider(_));
+                report.errors.push(format!("still for {name}: {e}"));
+                if unreachable {
+                    break;
+                }
+            }
         }
     }
     Ok(())
