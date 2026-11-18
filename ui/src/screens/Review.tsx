@@ -169,7 +169,7 @@ function Entry({ entry, source, onReveal }: { entry: ItemDetail; source: Source 
       {/* After the candidates in the page, so focus settles on a candidate first; shown on the left. */}
       <div className="order-first flex w-(--review-label) shrink-0 flex-col gap-3 pl-edge">
         <p className="font-display text-body text-label-faint [overflow-wrap:anywhere]">{folder}</p>
-        <h2 className="-mt-2 line-clamp-2 font-display text-heading font-title tracking-title text-label [overflow-wrap:anywhere]">
+        <h2 className="-mt-2 font-display text-heading font-title tracking-title text-label [overflow-wrap:anywhere]">
           {name}
         </h2>
         <p className="font-display text-body text-label-dim">{guessLine(entry)}</p>

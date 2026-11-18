@@ -8,7 +8,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { flushSync } from "react-dom";
 import { ActionLine } from "@/components/ActionLine";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
-import { Placard } from "@/components/Placard";
+import { Placard, placardLines } from "@/components/Placard";
 import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
@@ -133,9 +133,12 @@ function Spotlight({ rows }: { rows: Row[] }) {
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="flex max-w-measure flex-col gap-5">
             <Placard item={current} detail={detail} size="hero" />
-            {/* Until the full record arrives, its description's two lines are held open. */}
-            {detail === undefined && <p aria-hidden className="h-[2lh] font-reading text-lead leading-reading" />}
-            <ActionLine action={action} drive={drive} />
+            <ActionLine
+              action={action}
+              drive={drive}
+              progress={action.id === "resume" ? placardLines(current, detail).progress : null}
+              onPress={() => open(current)}
+            />
           </div>
         </div>
         <Shelves

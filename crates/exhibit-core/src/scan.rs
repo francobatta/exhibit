@@ -297,7 +297,7 @@ fn scan_with(
     let mut added = Vec::new();
     let tx = db::write_tx(c)?;
     for (file_id, size, mtime) in &changed {
-        tx.prepare_cached("UPDATE files SET size=?2, mtime=?3, probed=0 WHERE id=?1")?
+        tx.prepare_cached("UPDATE files SET size=?2, mtime=?3, probed=0, tech=NULL WHERE id=?1")?
             .execute(params![file_id, size, mtime])?;
     }
     for (file_id, rel) in &moved {
@@ -614,21 +614,23 @@ mod tests {
         let v = vols(e.drive.path());
         let src = add_source(&e.c, &v, &e.drive.path().join("media")).unwrap();
         scan(&e.c, &v, src.id);
-        e.c.execute("UPDATE files SET probed = 1", []).unwrap();
+        e.c.execute("UPDATE files SET probed = 1, tech = '{}'", [])
+            .unwrap();
         write(e.drive.path(), &format!("media/{}", TREE[1]), 2000);
 
         assert_eq!(
             scan(&e.c, &v, src.id),
             report(src.id, true, [0, 1, 0, 0, 2])
         );
-        let (size, probed): (i64, i64) =
+        // Its old details go with it: they described the file as it was.
+        let (size, probed, tech): (i64, i64, Option<String>) =
             e.c.query_row(
-                "SELECT size, probed FROM files WHERE rel_path=?1",
+                "SELECT size, probed, tech FROM files WHERE rel_path=?1",
                 [TREE[1]],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .unwrap();
-        assert_eq!((size, probed), (2000, 0));
+        assert_eq!((size, probed, tech), (2000, 0, None));
         let others: i64 =
             e.c.query_row("SELECT count(*) FROM files WHERE probed = 1", [], |r| {
                 r.get(0)

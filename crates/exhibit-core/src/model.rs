@@ -42,17 +42,40 @@ pub struct Source {
     pub online: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+/// Fields added after files were first probed default when read from an older record.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct AudioTrack {
     pub codec: String,
     pub channels: u32,
     pub lang: Option<String>,
+    /// The codec's profile, when the decoder names one: "DTS-HD MA", "DTS-HD MA + DTS:X",
+    /// "Dolby TrueHD + Dolby Atmos", "Dolby Digital Plus + Dolby Atmos".
+    #[serde(default)]
+    pub profile: Option<String>,
+    /// The track's own name in the file ("Commentary", "Original").
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The file marks it as the track to play.
+    #[serde(default)]
+    pub default: bool,
+    /// The film's own soundtrack, not a dub.
+    #[serde(default)]
+    pub original: bool,
+    /// A commentary, not the film's sound.
+    #[serde(default)]
+    pub commentary: bool,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct SubTrack {
     pub codec: String,
     pub lang: Option<String>,
+    /// Only the lines in another language, or signs.
+    #[serde(default)]
+    pub forced: bool,
+    /// For the deaf and hard of hearing (SDH): sounds and speakers as well as speech.
+    #[serde(default)]
+    pub hearing_impaired: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

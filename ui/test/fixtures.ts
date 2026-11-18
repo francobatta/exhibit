@@ -1,7 +1,7 @@
 // Library records for tests: a plain matched film unless told otherwise.
 
 import { expect } from "bun:test";
-import type { Item, ItemDetail, ItemSummary } from "@/lib/api";
+import type { AudioTrack, Item, ItemDetail, ItemSummary, SubTrack } from "@/lib/api";
 
 export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -82,4 +82,22 @@ export function clean(text: string): void {
   const t = text.trim();
   expect(t.startsWith(",")).toBe(false);
   expect(t.endsWith(",")).toBe(false);
+}
+
+export function audioTrack(over: Partial<AudioTrack> = {}): AudioTrack {
+  return {
+    codec: "ac3",
+    channels: 6,
+    lang: "eng",
+    profile: null,
+    title: null,
+    default: false,
+    original: false,
+    commentary: false,
+    ...over,
+  };
+}
+
+export function subTrack(over: Partial<SubTrack> = {}): SubTrack {
+  return { codec: "subrip", lang: "eng", forced: false, hearing_impaired: false, ...over };
 }

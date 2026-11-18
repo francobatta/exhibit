@@ -1,7 +1,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
-import { CJK, LONG, clean, detail, fullItem, summary } from "../../test/fixtures";
-import { Placard, placardLines } from "./Placard";
+import { CJK, LONG, audioTrack, clean, detail, fullItem, subTrack, summary } from "../../test/fixtures";
+import { Placard, placardLines, splitTitle, trackLines } from "./Placard";
 
 afterEach(cleanup);
 
@@ -41,7 +41,14 @@ describe("placardLines", () => {
     expect(placardLines(d.item, d)).toEqual({
       title: "Taxi Driver",
       credit: "1976, Martin Scorsese",
-      facts: "1 h 54 min, 4K HDR10, Watched",
+      facts: "1 h 54 min, Watched",
+      marks: [
+        { id: "ultra-hd", name: "4K Ultra HD" },
+        { id: "hdr10", name: "HDR10" },
+      ],
+      sound: null,
+      subtitles: "None",
+      progress: null,
       overview: "A mentally unstable veteran works as a night-time taxi driver.",
     });
   });
@@ -49,7 +56,9 @@ describe("placardLines", () => {
   test("a summary alone says what it knows, including time left and offline", () => {
     const lines = placardLines(summary({ progress: 0.5, available: false }));
     expect(lines.credit).toBe("1976");
-    expect(lines.facts).toBe("1 h 54 min, 1080p, 57 min left, Offline");
+    expect(lines.facts).toBe("1 h 54 min, Offline");
+    expect(lines.progress).toEqual({ done: 0.5, left: "57 min left" });
+    expect(lines.marks.map((m) => m.id)).toEqual(["hd-1080p"]);
     expect(lines.overview).toBeNull();
   });
 
@@ -88,5 +97,59 @@ describe("Placard", () => {
     );
     const lines = [...container.querySelectorAll("[data-line]")].map((l) => l.getAttribute("data-line"));
     expect(lines).toEqual(["title"]);
+  });
+});
+
+describe("splitTitle", () => {
+  test("a long title breaks where its poster would", () => {
+    expect(splitTitle("Dr. Strangelove or: How I Learned to Stop Worrying and Love the Bomb")).toEqual({
+      main: "Dr. Strangelove",
+      sub: "or: How I Learned to Stop Worrying and Love the Bomb",
+    });
+    expect(splitTitle("Mission: Impossible – Dead Reckoning Part One")).toEqual({
+      main: "Mission: Impossible",
+      sub: "Dead Reckoning Part One",
+    });
+    expect(splitTitle("The Lord of the Rings: The Fellowship of the Ring")).toEqual({
+      main: "The Lord of the Rings",
+      sub: "The Fellowship of the Ring",
+    });
+  });
+  test("a short title, or one with no break, stays whole", () => {
+    expect(splitTitle("Mission: Impossible")).toEqual({ main: "Mission: Impossible", sub: null });
+    expect(splitTitle("One Battle After Another")).toEqual({ main: "One Battle After Another", sub: null });
+    expect(splitTitle("Harry Potter and the Philosopher's Stone")).toEqual({
+      main: "Harry Potter and the Philosopher's Stone",
+      sub: null,
+    });
+  });
+});
+
+describe("trackLines", () => {
+  const tech = (audio = [audioTrack()], subtitles = [subTrack()]) => ({
+    duration_s: 1, width: 1920, height: 1080, video_codec: "hevc", hdr: null, audio, subtitles,
+  });
+  test("the film's own language first, then the dubs, the rest counted", () => {
+    const lines = trackLines(
+      tech(
+        [
+          audioTrack({ lang: "rus" }),
+          audioTrack({ lang: "ukr" }),
+          audioTrack({ lang: "rus" }),
+          audioTrack({ lang: "eng", original: true }),
+          audioTrack({ lang: "fre" }),
+          audioTrack({ lang: "ger" }),
+          audioTrack({ lang: "eng", commentary: true }),
+        ],
+        [subTrack({ lang: "eng" }), subTrack({ lang: "rus", forced: true }), subTrack({ lang: "spa", hearing_impaired: true })],
+      ),
+    );
+    expect(lines).toEqual({ sound: "English, Russian, Ukrainian and 2 more", subtitles: "English and Spanish" });
+  });
+  test("no subtitles says so; unnamed tracks are counted; an unread file says nothing", () => {
+    expect(trackLines(tech([audioTrack({ lang: null })], [])).subtitles).toBe("None");
+    expect(trackLines(tech([audioTrack({ lang: null })], [])).sound).toBeNull();
+    expect(trackLines(tech(undefined, [subTrack({ lang: null }), subTrack({ lang: "und" })])).subtitles).toBe("2 tracks");
+    expect(trackLines(null)).toEqual({ sound: null, subtitles: null });
   });
 });

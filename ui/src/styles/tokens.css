@@ -35,6 +35,8 @@
   --label: #ece8df;
   --label-dim: #a09b90;
   --label-faint: #6b675f;
+  /* Running text over artwork (a description): brighter than dim, softer than a title. */
+  --label-soft: color-mix(in oklch, var(--label) 70%, var(--label-dim));
 
   /* Type. */
   --type-display: "Archivo Variable", "Archivo", system-ui, sans-serif;
@@ -51,8 +53,20 @@
   --weight-title: 680;
   --weight-title-max: 750;
   --weight-poster: 650;
-  --stretch-title-min: 62%;
+  /* A title narrows only a little before it wraps, and wraps before it steps down in size, a
+     step at a time (see FitTitle). */
+  --stretch-title-min: 88%;
   --stretch-title-max: 100%;
+  --title-step: 0.8;
+  --title-steps: 2;
+  /* A format's mark on a placard's facts line: its height in each placard size, taller for a
+     square mark (HD ready, SD), whose lettering is smaller; and the space between the line's words
+     and each mark. The facts line always stands as high as a tall mark, so marks never move it. */
+  --mark-hero: 1.5rem;
+  --mark-hero-tall: 2.1rem;
+  --mark-panel: 1.2rem;
+  --mark-panel-tall: 1.7rem;
+  --mark-gap: 1.25rem;
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -115,8 +129,15 @@
   --download-control: 19rem;
   /* The folder browser's panel. */
   --dialog-browser: 52rem;
-  /* The keycap that names the button beside an action ("A", "Enter"). */
-  --keycap: 1.75rem;
+  /* A placard's action: the pill that runs it (height, side padding, its play glyph), and the
+     rule beside it that shows how far a started work has got. */
+  --cue-height: 2.75rem;
+  --cue-pad: 1.375rem;
+  --cue-glyph: 0.7rem;
+  --cue-rule: 9rem;
+  --cue-rule-weight: 0.1875rem;
+  --cue-rule-track: color-mix(in oklch, var(--label-faint) 55%, transparent);
+  --cue-lit: color-mix(in oklch, var(--lamp) 12%, transparent);
   --round-work: 0.125rem;
   --round-control: 0.375rem;
   --hairline: 1px;
@@ -134,6 +155,50 @@
   --dur-reduced: 120ms;
   --curve-out: cubic-bezier(0.22, 1, 0.36, 1);
   --shift-screen: 1.5rem;
+
+  /* The intro. The E's height once lit; it spawns from a share of that, turned away in depth
+     (degrees about x, y and z, seen from --intro-depth), out of focus and in the lamp's shade, and
+     swings round on a spring to face the viewer, mostly about its upright axis. */
+  --intro-mark: 11rem;
+  --intro-from: 0.38;
+  --intro-tilt-x: 16;
+  --intro-tilt-y: -72;
+  --intro-tilt-z: -5;
+  --intro-depth: 22rem;
+  --intro-spawn-focus: blur(0.8rem) brightness(0.3);
+  --intro-rest-focus: blur(0rem) brightness(1);
+  --intro-stiffness: 130;
+  --intro-damping: 15;
+  --dur-intro-spawn: 650ms;
+  /* Then it creeps toward the viewer: how far it would get, how long that would take, and how
+     long it creeps at least before it may zoom. */
+  --intro-creep: 1.2;
+  --dur-intro-creep: 3200ms;
+  --dur-intro-creep-min: 450ms;
+  /* The lamp's pool rising behind it, and the glint crossing it. */
+  --dur-intro-pool: 700ms;
+  --delay-intro-glint: 340ms;
+  --dur-intro-glint: 560ms;
+  /* The lit E leaving Home showing through the letter, then the zoom through it. */
+  --dur-intro-reveal: 120ms;
+  --dur-intro-open: 400ms;
+  --curve-intro-open: cubic-bezier(0.7, 0, 0.84, 0);
+  /* The longest the intro waits for the library before it opens onto whatever state Home is in. */
+  --delay-intro-cap: 4000ms;
+  /* The intro's light: a quiet pool from a lamp above, a faint halo, a soft glint. The E's face is
+     paper warmed by the lamp at the top, falling off toward the bottom. The E casts a soft shadow on
+     the wall below it, which follows its turn and drops as it comes away from the wall. */
+  --intro-pool: color-mix(in oklch, var(--lamp) 9%, transparent);
+  --intro-pool-at: 50% 40%;
+  --intro-bloom: blur(1.75rem);
+  --intro-halo: color-mix(in oklch, var(--lamp) 22%, transparent);
+  --intro-glint: color-mix(in oklch, var(--lamp) 38%, transparent);
+  --intro-face-top: color-mix(in oklch, var(--label) 84%, var(--lamp));
+  --intro-face-bottom: color-mix(in oklch, var(--label) 86%, var(--wall));
+  --intro-shadow: color-mix(in oklch, var(--wall) 80%, transparent);
+  --intro-shadow-drop: 0.7rem;
+  --intro-shadow-soft: blur(0.45rem);
+  --intro-shadow-sharp: blur(0.15rem);
 
   /* shadcn's variables, pointed at ours. */
   --background: var(--wall);
@@ -169,6 +234,7 @@
   --color-label: var(--label);
   --color-label-dim: var(--label-dim);
   --color-label-faint: var(--label-faint);
+  --color-label-soft: var(--label-soft);
   --color-transparent: transparent;
   --color-current: currentColor;
 

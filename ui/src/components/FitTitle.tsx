@@ -1,18 +1,20 @@
-// A title that fits its measure: Archivo's width axis condenses a long title, between 100 and 62,
-// so the line meets the right edge instead of wrapping or shrinking. It never expands: a short title
-// stays at width 100. A title too long even at 62 wraps to `maxLines` and ends with an ellipsis.
+// A title that fits its measure without being squeezed. In order, it takes the first of:
+//   one line at its natural width;
+//   one line narrowed a little on Archivo's width axis (down to --stretch-title-min);
+//   up to `maxLines` balanced lines, at the natural width, then narrowed a little;
+//   the same at a smaller size, a step (--title-step) at a time, up to --title-steps steps.
+// A title too long even then takes the lines it needs at the smallest size. It never expands, and
+// it is never cut or clipped: set at a title's tight leading, its descenders and accents reach past
+// its line boxes, so the box must not clip them.
 
 import { useLayoutEffect, useRef, type ElementType } from "react";
+import { numberToken, remPx } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 
-// --stretch-title-min and --stretch-title-max in tokens.css.
-export const STRETCH_MIN = 62;
-export const STRETCH_MAX = 100;
-
-/** The width (font-stretch %) at which text `textWidthAt100` wide at 100% fills `measure`. */
-export function fitWidth(textWidthAt100: number, measure: number): number {
-  if (!(textWidthAt100 > 0) || !(measure > 0)) return 100;
-  return Math.min(STRETCH_MAX, Math.max(STRETCH_MIN, (100 * measure) / textWidthAt100));
+/** The width (font-stretch %) between `min` and `max` at which text `textWidthAtMax` wide fills `measure`. */
+export function fitWidth(textWidthAtMax: number, measure: number, min: number, max = 100): number {
+  if (!(textWidthAtMax > 0) || !(measure > 0)) return max;
+  return Math.min(max, Math.max(min, (max * measure) / textWidthAtMax));
 }
 
 export interface FitTitleProps {
@@ -31,44 +33,61 @@ export function FitTitle({ text, maxLines = 2, className, as: Tag = "h2" }: FitT
     const el = box.current;
     const inner = line.current;
     if (el === null || inner === null) return;
+    const min = numberToken("--stretch-title-min");
+    const max = numberToken("--stretch-title-max");
+    const step = numberToken("--title-step");
+    const steps = numberToken("--title-steps");
+    const width = () => inner.getBoundingClientRect().width;
+    // The line boxes the title's text runs over.
+    const lines = () => inner.getClientRects().length;
+    const set = (stretch: number, wrap: boolean) => {
+      el.style.fontStretch = `${stretch}%`;
+      el.style.whiteSpace = wrap ? "normal" : "nowrap";
+    };
+
     const fit = () => {
-      el.style.whiteSpace = "nowrap";
-      el.style.display = "block";
-      el.style.fontStretch = "100%";
+      el.style.fontSize = "";
+      set(max, false);
       const measure = el.clientWidth;
-      const at100 = inner.getBoundingClientRect().width;
-      let w = fitWidth(at100, measure);
-      el.style.fontStretch = `${w}%`;
-      // The axis is not perfectly linear: a few corrections land it just inside the edge.
-      for (let i = 0; i < 3 && w > STRETCH_MIN; i++) {
-        const now = inner.getBoundingClientRect().width;
-        if (now <= measure) break;
-        w = Math.max(STRETCH_MIN, ((w * measure) / now) * 0.995);
-        el.style.fontStretch = `${w}%`;
+      const natural = width();
+      if (!(natural > 0) || !(measure > 0) || natural <= measure) return;
+
+      // One line, narrowed a little. The axis is not quite linear: a few corrections land it
+      // just inside the edge.
+      let w = fitWidth(natural, measure, min, max);
+      set(w, false);
+      for (let i = 0; i < 3 && width() > measure && w > min; i++) {
+        w = Math.max(min, ((w * measure) / width()) * 0.995);
+        set(w, false);
       }
-      const wraps = at100 > 0 && measure > 0 && inner.getBoundingClientRect().width > measure + 1;
-      if (wraps) {
-        el.style.whiteSpace = "normal";
-        el.style.display = "-webkit-box";
+      if (width() <= measure) return;
+
+      // Balanced lines, then smaller sizes, each at the natural width first.
+      const base = Number.parseFloat(getComputedStyle(el).fontSize) / remPx();
+      for (let s = 0; s <= steps; s++) {
+        if (s > 0) el.style.fontSize = `${base * step ** s}rem`;
+        for (const stretch of [max, (max + min) / 2, min]) {
+          set(stretch, true);
+          if (lines() <= maxLines) return;
+        }
       }
+      // Too long for every size: it stays at the smallest, narrowest, on the lines it needs.
     };
     fit();
-    const observer = new ResizeObserver(fit);
+    // Fitting changes the title's height, never its width: only a new width fits it again.
+    let measured = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === measured) return;
+      measured = el.clientWidth;
+      fit();
+    });
     observer.observe(el);
     void document.fonts.ready.then(fit);
     return () => observer.disconnect();
-  }, [text]);
+  }, [text, maxLines]);
 
   return (
-    <Tag
-      ref={box}
-      title={text}
-      className={cn(
-        "w-full overflow-hidden text-ellipsis [overflow-wrap:anywhere] [-webkit-box-orient:vertical]",
-        className,
-      )}
-      style={{ WebkitLineClamp: maxLines, lineClamp: maxLines }}
-    >
+    <Tag ref={box} className={cn("w-full text-balance [overflow-wrap:anywhere]", className)}>
       <span ref={line}>{text}</span>
     </Tag>
   );

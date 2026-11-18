@@ -1,11 +1,12 @@
-// Settings: one screen, five parts and nothing else. Folders (each with whether its drive is
+// Settings: one screen on the bare wall, five parts and nothing else. Folders (each with whether its drive is
 // connected, and Remove), tools (where each came from, or what is missing without it, and one
-// download for both), the TMDB
-// key, the agent key, and full screen. Opening it detects the tools again. Opened from the mpv
-// error or Fix match, it lands on the part that fixes it.
+// download for both), the TMDB key, the agent key, and the display: full screen and the intro.
+// Opening it detects the tools again. Opened from the mpv error or Fix match, it lands on the part
+// that fixes it.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useScreenBackdrop } from "@/components/Backdrop";
 import { confirm } from "@/components/Dialog";
 import { FocusButton } from "@/components/FocusButton";
 import { useBrowse } from "@/components/FolderBrowser";
@@ -36,6 +37,9 @@ function settingsLanding(part: SettingsPart | undefined, tools: ToolStatus[]): s
 }
 
 export function Settings({ part }: { part?: SettingsPart }) {
+  // Settings stands on the bare wall: no work's picture and no tint behind it. Back gives the
+  // screen beneath its own backdrop again.
+  useScreenBackdrop(null, null);
   const status = useStatus();
   // Detected again as Settings opens, before it shows, so it can land on a tool.
   const tools = useTools();
@@ -73,7 +77,7 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
             <SetLine set={status.agent_key} />
             <SecretForm name="agent" label="Agent key" isSet={status.agent_key} />
           </Part>
-          <Display />
+          <Display intro={status.intro} />
         </div>
       </div>
     </FocusScope>
@@ -251,22 +255,44 @@ function TmdbKey({ status }: { status: LibraryStatus }) {
   );
 }
 
-function Display() {
+function Display({ intro }: { intro: boolean }) {
+  const client = useQueryClient();
   const { on, set } = useFullscreen();
+  const setIntro = (next: boolean) =>
+    api.setIntro(next).then(
+      () => client.invalidateQueries({ queryKey: keys.status }),
+      (e: unknown) => toast(plain(e)),
+    );
   return (
-    <Part title="Display">
-      {/* The switch appears once the window has said whether it is full screen, never showing a guess. */}
-      {on !== undefined && (
-        <FocusGroup id="display" orientation="horizontal" className="flex">
-          <FullScreen on={on} onChange={(next) => set(next).catch((e: unknown) => toast(plain(e)))} />
-        </FocusGroup>
-      )}
+    <Part title="Display" note="The intro plays as Exhibit opens.">
+      <FocusGroup id="display" orientation="vertical" className="flex flex-col items-start gap-6">
+        {/* The switch appears once the window has said whether it is full screen, never showing a guess. */}
+        {on !== undefined && (
+          <SettingSwitch
+            focusKey="display:fullscreen"
+            label="Full screen"
+            on={on}
+            onChange={(next) => set(next).catch((e: unknown) => toast(plain(e)))}
+          />
+        )}
+        <SettingSwitch focusKey="display:intro" label="Intro" on={intro} onChange={(next) => void setIntro(next)} />
+      </FocusGroup>
     </Part>
   );
 }
 
-function FullScreen({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "display:fullscreen" });
+function SettingSwitch({
+  focusKey,
+  label,
+  on,
+  onChange,
+}: {
+  focusKey: string;
+  label: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey });
   // UI SDK's switch turns with Space and a click (the pad's A); here Enter selects, so it clicks too.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === "Enter") {
@@ -279,7 +305,7 @@ function FullScreen({ on, onChange }: { on: boolean; onChange: (on: boolean) => 
   return (
     <label className="flex cursor-pointer items-center gap-6 font-display text-lead font-ui text-label">
       <span className="relative pb-1.5">
-        Full screen
+        {label}
         {focused && <Lamp />}
       </span>
       <Switch ref={ref} {...props} onKeyDown={onKeyDown} checked={on} onCheckedChange={onChange} />

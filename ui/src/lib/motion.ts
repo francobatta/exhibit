@@ -34,14 +34,19 @@ export function focusSpring() {
   };
 }
 
-/** The `cubic-bezier` of `--curve-out` as Motion's four numbers. */
-export function easeOut(): [number, number, number, number] {
-  const n = token("--curve-out")
+/** A `cubic-bezier` token as Motion's four numbers. */
+export function curve(name: string): [number, number, number, number] {
+  const n = token(name)
     .match(/cubic-bezier\(([^)]+)\)/)?.[1]
     ?.split(",")
     .map((x) => Number.parseFloat(x));
-  if (n?.length !== 4 || !n.every(Number.isFinite)) throw new Error("--curve-out is not a cubic-bezier");
+  if (n?.length !== 4 || !n.every(Number.isFinite)) throw new Error(`${name} is not a cubic-bezier`);
   return n as [number, number, number, number];
+}
+
+/** The `cubic-bezier` of `--curve-out` as Motion's four numbers. */
+export function easeOut(): [number, number, number, number] {
+  return curve("--curve-out");
 }
 
 /** A length token as CSS text, for Motion values that need a unit. */
@@ -49,7 +54,7 @@ export function length(name: string): string {
   return token(name);
 }
 
-/** The px size of 1rem now (it follows the window width). */
+/** The px size of 1rem now (it follows the window's short side; see base.css). */
 export function remPx(): number {
   root ??= getComputedStyle(document.documentElement);
   return Number.parseFloat(root.fontSize);

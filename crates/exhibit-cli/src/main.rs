@@ -84,6 +84,10 @@ enum Command {
     Tools(ToolsCmd),
     #[command(subcommand)]
     Key(KeyCmd),
+    /// Whether the window plays the intro as it opens
+    Intro {
+        state: OnOff,
+    },
 }
 
 #[derive(Subcommand)]
@@ -217,6 +221,12 @@ enum ShelfArg {
 enum ToolArg {
     Mpv,
     Ffmpeg,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum OnOff {
+    On,
+    Off,
 }
 
 #[derive(Clone, Copy, ValueEnum)]

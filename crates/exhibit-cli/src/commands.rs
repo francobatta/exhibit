@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use std::io::{BufRead, IsTerminal};
 
 use crate::{
-    Command, KeyCmd, KindArg, MatchKind, ReviewCmd, SearchArgs, ShelfArg, SortArg, SourceCmd,
-    TasteCmd, ToolArg, ToolsCmd,
+    Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ShelfArg, SortArg,
+    SourceCmd, TasteCmd, ToolArg, ToolsCmd,
 };
 
 fn ok() -> Result<Value> {
@@ -67,6 +67,7 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
         Command::Taste(TasteCmd::Get) => to_json(lib.taste_profile()?),
         Command::Taste(TasteCmd::Set { text }) => lib.set_taste_profile(&text).and_then(|_| ok()),
         Command::Tools(c) => tools(lib, c),
+        Command::Intro { state } => lib.set_intro(matches!(state, OnOff::On)).and_then(|_| ok()),
         Command::Key(KeyCmd::Set { name }) => {
             let stdin = std::io::stdin();
             if stdin.is_terminal() {

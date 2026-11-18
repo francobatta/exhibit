@@ -107,6 +107,14 @@ export function codec(name: string | null): string | null {
   return CODECS[c] ?? c.toUpperCase();
 }
 
+/** Profiles that name a richer format than their codec, most specific first. */
+const PROFILES = ["DTS:X", "Dolby Atmos", "DTS-HD MA", "DTS-HD HRA", "DTS-ES", "DTS Express"];
+
+/** A sound track's format as people know it: "DTS-HD MA", "Dolby Atmos", else its codec ("AC-3"). */
+export function soundFormat(codecName: string | null, profile: string | null): string | null {
+  return PROFILES.find((p) => profile?.includes(p)) ?? codec(codecName);
+}
+
 /** "Mono", "Stereo", "5.1", "7.1"; null for none. */
 export function channels(n: number | null): string | null {
   if (!finite(n) || n <= 0) return null;

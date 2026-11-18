@@ -25,6 +25,8 @@ use crate::volume::{SystemVolumes, Volumes};
 
 const TMDB_KEY: &str = "tmdb";
 const AGENT_KEY: &str = "agent";
+/// A setting: `"off"` when the owner turned the intro off.
+const INTRO_KEY: &str = "intro";
 
 /// What the library holds and which keys are set. The media tools are not part of it: detecting
 /// them runs each one, so they are asked for apart (`detect_tools`) when a screen shows them.
@@ -35,6 +37,8 @@ pub struct LibraryStatus {
     pub sources: Vec<Source>,
     pub tmdb_key: bool,
     pub agent_key: bool,
+    /// Whether the window plays the intro as it opens.
+    pub intro: bool,
 }
 
 /// The steps of `Library::refresh`, in the order they run.
@@ -369,12 +373,22 @@ impl Library {
         Ok(self.secrets.get(name)?.is_some())
     }
 
+    /// Whether the window plays the intro as it opens. On unless turned off.
+    pub fn intro(&self) -> Result<bool> {
+        Ok(db::get_setting(&self.conn, INTRO_KEY)?.as_deref() != Some("off"))
+    }
+
+    pub fn set_intro(&self, on: bool) -> Result<()> {
+        db::set_setting(&self.conn, INTRO_KEY, (!on).then_some("off"))
+    }
+
     pub fn status(&self) -> Result<LibraryStatus> {
         Ok(LibraryStatus {
             counts: query::library_counts(&self.conn)?,
             sources: self.list_sources()?,
             tmdb_key: self.has_secret(TMDB_KEY)?,
             agent_key: self.has_secret(AGENT_KEY)?,
+            intro: self.intro()?,
         })
     }
 }
@@ -557,6 +571,17 @@ mod tests {
         let other = db::open(e.data.path()).unwrap();
         db::set_setting(&other, "k", Some("v")).unwrap();
         assert_ne!(e.lib.data_version().unwrap(), before);
+    }
+
+    #[test]
+    fn intro_is_on_until_turned_off() {
+        let e = env(200);
+        assert!(e.lib.intro().unwrap());
+        e.lib.set_intro(false).unwrap();
+        assert!(!e.lib.intro().unwrap());
+        assert!(!e.lib.status().unwrap().intro);
+        e.lib.set_intro(true).unwrap();
+        assert!(e.lib.intro().unwrap());
     }
 
     #[test]

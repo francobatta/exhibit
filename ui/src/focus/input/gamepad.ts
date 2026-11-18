@@ -3,6 +3,7 @@
 // `step` holds all the logic and is pure; the poller around it only reads the pad each frame.
 
 import { useFocusState } from "../bridge";
+import { takeClaim } from "./claim";
 
 /** What one frame of a standard-mapping pad shows. */
 export interface PadSnapshot {
@@ -136,7 +137,7 @@ export function startGamepad(options: { onSettings: () => void }): () => void {
     raf = 0;
     const r = step(state, readPad(), now);
     state = r.state;
-    if (r.actions.length > 0) {
+    if (r.actions.length > 0 && !takeClaim()) {
       useFocusState.getState().setMode("pad");
       for (const a of r.actions) perform(a, options.onSettings);
     }

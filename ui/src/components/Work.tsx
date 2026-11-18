@@ -66,8 +66,8 @@ function Typographic({ item, shape, mark }: { item: ItemSummary; shape: WorkShap
           mark !== undefined
             ? "text-[14cqi] leading-none"
             : shape === "poster"
-              ? "line-clamp-6 text-[12cqi] leading-[1.02]"
-              : "line-clamp-3 text-[7cqi] leading-[1.05]",
+              ? "text-[12cqi] leading-[1.02]"
+              : "text-[7cqi] leading-[1.05]",
         )}
       >
         {mark ?? item.title}

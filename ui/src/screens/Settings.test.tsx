@@ -2,8 +2,10 @@ import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { screens, select, settle } from "../../test/app";
 import { tauri } from "../../test/setup";
+import { useBackdrop } from "@/components/Backdrop";
 import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
+import { useNav } from "@/nav/stack";
 import { keyError } from "./Settings";
 
 let uninstall: () => void = () => {};
@@ -21,6 +23,7 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
     sources: [{ id: 4, path: "D:\\Films", volume_id: "a", online: true }],
     tmdb_key: false,
     agent_key: false,
+    intro: true,
     ...over,
   };
 }
@@ -145,4 +148,27 @@ test("a rejected key says what to do here, not on the command line", () => {
   expect(keyError("invalid: TMDB rejected the key; set a valid one with `exhibit key set tmdb`")).toBe(
     "TMDB rejected the key. Check the key, then save it again.",
   );
+});
+
+test("the intro switch turns the intro off for the next launch", async () => {
+  tauri.handle("set_intro", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(document.querySelector('[data-focus-key="display:intro"]')?.getAttribute("aria-checked")).toBe("true");
+
+  await focusAndSelect("display:intro");
+  expect(calls("set_intro")).toEqual([{ on: false }]);
+});
+
+test("Settings stands on the bare wall, and Back gives the screen beneath its backdrop again", async () => {
+  tauri.handle("home", () => ({ rows: [] }));
+  screens({ screen: "home" });
+  act(() => useBackdrop.getState().show("film-backdrop", "film-poster"));
+  await act(async () => useNav.getState().push({ screen: "settings" }));
+  await settle(120);
+  expect(useBackdrop.getState()).toMatchObject({ image: null, poster: null });
+
+  await act(async () => void useNav.getState().back());
+  await settle(120);
+  expect(useBackdrop.getState()).toMatchObject({ image: "film-backdrop", poster: "film-poster" });
 });

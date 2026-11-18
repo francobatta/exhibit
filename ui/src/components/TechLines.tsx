@@ -3,7 +3,7 @@
 // text, commas between facts, a missing fact leaves no trace.
 
 import type { AudioTrack, ItemDetail, Source, SubTrack } from "@/lib/api";
-import { channels, clock, codec, count, day, facts, language, resolution, WATCHED } from "@/lib/format";
+import { channels, clock, codec, count, day, facts, language, resolution, soundFormat, WATCHED } from "@/lib/format";
 import { useItemSources } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -18,8 +18,17 @@ function more(all: string[]): string {
   return facts([...shown, rest > 0 ? `${rest} more` : null]);
 }
 
+/** The sound tracks, the film's own first: "English 7.1 DTS-HD MA, Russian 5.1 AC-3, English commentary". */
 const audio = (tracks: AudioTrack[]) =>
-  more(tracks.map((t) => [language(t.lang), channels(t.channels), codec(t.codec)].filter(Boolean).join(" ")));
+  more(
+    [...tracks]
+      .sort((a, b) => Number(b.original) - Number(a.original))
+      .map((t) =>
+        t.commentary
+          ? [language(t.lang), "commentary"].filter(Boolean).join(" ")
+          : [language(t.lang), channels(t.channels), soundFormat(t.codec, t.profile)].filter(Boolean).join(" "),
+      ),
+  );
 
 function subtitles(tracks: SubTrack[]): string {
   if (tracks.length === 0) return "None";

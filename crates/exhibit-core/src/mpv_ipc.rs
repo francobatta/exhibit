@@ -37,10 +37,11 @@ pub fn connect(_pipe: &str, _timeout: std::time::Duration) -> Result<std::fs::Fi
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Ask mpv for a property. Event lines and replies to other requests are skipped.
-pub fn get_property(stream: &mut (impl Read + Write), name: &str) -> Result<Value> {
+/// Run an mpv command (`["get_property", "duration"]`) and return its data. Event lines and
+/// replies to other requests are skipped.
+pub fn command(stream: &mut (impl Read + Write), args: Value) -> Result<Value> {
     let id = REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    let cmd = json!({ "command": ["get_property", name], "request_id": id });
+    let cmd = json!({ "command": args, "request_id": id });
     stream.write_all(format!("{cmd}\n").as_bytes())?;
     stream.flush()?;
     loop {
@@ -54,11 +55,21 @@ pub fn get_property(stream: &mut (impl Read + Write), name: &str) -> Result<Valu
         return match msg.get("error").and_then(Value::as_str) {
             Some("success") => Ok(msg.get("data").cloned().unwrap_or(Value::Null)),
             other => Err(Error::Tool(format!(
-                "mpv: cannot read {name}: {}",
+                "mpv: cannot run {args}: {}",
                 other.unwrap_or("no error field")
             ))),
         };
     }
+}
+
+/// Ask mpv for a property.
+pub fn get_property(stream: &mut (impl Read + Write), name: &str) -> Result<Value> {
+    command(stream, json!(["get_property", name]))
+}
+
+/// Set an mpv property.
+pub fn set_property(stream: &mut (impl Read + Write), name: &str, value: Value) -> Result<()> {
+    command(stream, json!(["set_property", name, value])).map(|_| ())
 }
 
 /// `get_property`, retrying while mpv says the property is unavailable (it appears only

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, use
 import { ActionLine } from "@/components/ActionLine";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
 import { openItemMenu } from "@/components/ItemMenu";
-import { Placard } from "@/components/Placard";
+import { Placard, placardLines } from "@/components/Placard";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { TechLines } from "@/components/TechLines";
 import { jobLine } from "@/components/TopBar";
@@ -244,6 +244,8 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   const loaded = useItem(item.id, settled === item.id).data;
   const detail = loaded?.item.id === item.id ? loaded : undefined;
   const drive = useItemSources(detail).find((s) => !s.online)?.path;
+  const ctx = useActionContext();
+  const action = mainAction(detail ?? item);
 
   // The wall takes the work's tint; its picture stays off the wall, which is for the works.
   useEffect(() => {
@@ -253,10 +255,16 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   return (
     <aside aria-label="Focused work" className="flex w-(--wall-panel) shrink-0 flex-col gap-6 pt-light pr-edge">
       <Placard item={item} detail={detail} size="panel" />
-      <ActionLine
-        action={chosen === undefined ? mainAction(detail ?? item) : { label: chosen ? "Remove from selection" : "Select" }}
-        drive={drive}
-      />
+      {chosen === undefined ? (
+        <ActionLine
+          action={action}
+          drive={drive}
+          progress={action.id === "resume" ? placardLines(item, detail).progress : null}
+          onPress={() => runMain(detail ?? item, ctx)}
+        />
+      ) : (
+        <ActionLine action={{ label: chosen ? "Remove from selection" : "Select" }} drive={drive} />
+      )}
       {detail !== undefined && <TechLines detail={detail} className="mt-2" />}
     </aside>
   );

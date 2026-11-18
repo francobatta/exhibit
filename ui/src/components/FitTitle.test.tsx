@@ -6,19 +6,19 @@ afterEach(cleanup);
 
 describe("fitWidth", () => {
   test("a short title stays at the normal width; titles never expand", () => {
-    expect(fitWidth(200, 736)).toBe(100);
+    expect(fitWidth(200, 736, 88)).toBe(100);
   });
   test("a title that fits once narrowed takes the ratio", () => {
-    expect(fitWidth(800, 736)).toBeCloseTo(92, 5);
-    expect(fitWidth(736, 736)).toBe(100);
+    expect(fitWidth(800, 736, 88)).toBeCloseTo(92, 5);
+    expect(fitWidth(736, 736, 88)).toBe(100);
   });
-  test("a very long title goes to the narrowest", () => {
-    expect(fitWidth(4000, 736)).toBe(62);
+  test("a title too long for one line goes no narrower than the least width", () => {
+    expect(fitWidth(4000, 736, 88)).toBe(88);
   });
   test("nothing measured leaves the normal width", () => {
-    expect(fitWidth(0, 736)).toBe(100);
-    expect(fitWidth(300, 0)).toBe(100);
-    expect(fitWidth(Number.NaN, 736)).toBe(100);
+    expect(fitWidth(0, 736, 88)).toBe(100);
+    expect(fitWidth(300, 0, 88)).toBe(100);
+    expect(fitWidth(Number.NaN, 736, 88)).toBe(100);
   });
 });
 

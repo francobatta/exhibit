@@ -47,9 +47,12 @@
 }
 
 @layer base {
-  /* 1rem is 16px at 1920 CSS px wide; every dimension is in rem, so the layout scales. */
+  /* The screens are drawn on a 120 by 67.5rem (16:9) canvas: 1rem is 16px in a 1920x1080 window.
+     Every dimension is in rem, so the layout scales with whichever side of the window is short.
+     A window wider than 16:9 (maximized above a taskbar) gains room at the sides; a taller one,
+     below. Scaled by width alone, a short window pushed the hero up under the top bar. */
   html {
-    font-size: calc(100vw / 120);
+    font-size: min(100vw / 120, 100vh / 67.5);
     background: var(--wall);
     color: var(--label);
     font-family: var(--type-display);

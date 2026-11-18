@@ -4,6 +4,7 @@ import { lazy, Suspense, useLayoutEffect, useState } from "react";
 import { Backdrop } from "@/components/Backdrop";
 import { ConfirmHost } from "@/components/Dialog";
 import { Hints } from "@/components/Hints";
+import { Intro } from "@/components/Intro";
 import { ItemMenuHost } from "@/components/ItemMenu";
 import { MatchPickerHost } from "@/components/MatchPicker";
 import { PlaybackHost } from "@/components/Playing";
@@ -85,6 +86,7 @@ export default function App() {
         <PlaybackHost />
         <Hints />
         <Toaster />
+        <Intro />
       </MotionConfig>
     </QueryClientProvider>
   );

@@ -149,6 +149,14 @@ pub fn set_tool_path(
     Ok(())
 }
 
+/// Takes effect from the next launch.
+#[tauri::command(async)]
+pub fn set_intro(state: State<'_, AppState>, on: bool) -> ApiResult<()> {
+    state.lib().set_intro(on)?;
+    state.changed.notify();
+    Ok(())
+}
+
 /// Starts downloading mpv and ffmpeg; returns at once, false when a download is already
 /// running. Progress arrives as `tools-download`.
 #[tauri::command(async)]

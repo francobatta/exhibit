@@ -1,7 +1,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, screens, select, settle } from "../../test/app";
-import { detail } from "../../test/fixtures";
+import { audioTrack, detail, subTrack } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { installBridge } from "@/focus/bridge";
 import type { LibraryStatus, MediaFile, TechInfo } from "@/lib/api";
@@ -12,8 +12,8 @@ const tech: TechInfo = {
   height: 2160,
   video_codec: "hevc",
   hdr: "HDR10",
-  audio: [{ codec: "truehd", channels: 8, lang: "eng" }, { codec: "ac3", channels: 6, lang: "fre" }],
-  subtitles: [{ codec: "subrip", lang: "eng" }],
+  audio: [audioTrack({ codec: "truehd", channels: 8 }), audioTrack({ codec: "ac3", lang: "fre" })],
+  subtitles: [subTrack()],
 };
 const file = (id: number, source_id: number, rel_path: string): MediaFile => ({
   id,
@@ -38,6 +38,7 @@ function status(online: boolean): LibraryStatus {
     ],
     tmdb_key: true,
     agent_key: false,
+    intro: true,
   };
 }
 

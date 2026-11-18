@@ -26,11 +26,26 @@ fn lang_of(v: &Value) -> Option<String> {
     v.as_str().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
-/// The details from mpv's `track-list` and `video-params` properties.
+/// Whether a track's own name says `word` ("Forced", "English SDH"), as a whole word.
+fn title_says(title: Option<&str>, word: &str) -> bool {
+    title.is_some_and(|t| {
+        t.split(|c: char| !c.is_alphanumeric())
+            .any(|w| w.eq_ignore_ascii_case(word))
+    })
+}
+
+/// Audio codecs whose profile names a richer format (DTS-HD, DTS:X, Atmos). mpv knows a
+/// track's profile only once its decoder has opened, so the probe opens each of these.
+pub const PROFILED_AUDIO: [&str; 3] = ["dts", "truehd", "eac3"];
+
+/// The details from mpv's `track-list` and `video-params` properties. `profiles` holds the
+/// profile of each audio track (by mpv's track id) read after opening its decoder; a track's own
+/// `codec-profile` in the list is used when it is not there.
 pub fn parse_mpv_properties(
     track_list: &Value,
     video_params: &Value,
     duration: f64,
+    profiles: &HashMap<u64, String>,
 ) -> Result<TechInfo> {
     let tracks = track_list.as_array().map_or(&[][..], Vec::as_slice);
     let of_type = |t: &'static str| tracks.iter().filter(move |s| s["type"] == t);
@@ -45,11 +60,17 @@ pub fn parse_mpv_properties(
             .and_then(|n| u32::try_from(n).ok())
             .ok_or_else(|| invalid("no video size"))
     };
-    let hdr = match video_params["gamma"].as_str() {
-        Some("pq") => Some("HDR10"),
-        Some("hlg") => Some("HLG"),
-        _ => None,
+    // Dolby Vision is named by the video track itself; HDR10 and HLG by the picture's curve.
+    let hdr = if video["dolby-vision-profile"].as_u64().is_some() {
+        Some("Dolby Vision")
+    } else {
+        match video_params["gamma"].as_str() {
+            Some("pq") => Some("HDR10"),
+            Some("hlg") => Some("HLG"),
+            _ => None,
+        }
     };
+    let flag = |t: &Value, name: &str| t[name].as_bool().unwrap_or(false);
 
     Ok(TechInfo {
         duration_s: duration,
@@ -58,16 +79,33 @@ pub fn parse_mpv_properties(
         video_codec: video["codec"].as_str().unwrap_or_default().to_string(),
         hdr: hdr.map(str::to_string),
         audio: of_type("audio")
-            .map(|t| AudioTrack {
-                codec: t["codec"].as_str().unwrap_or_default().to_string(),
-                channels: t["demux-channel-count"].as_u64().unwrap_or(0) as u32,
-                lang: lang_of(&t["lang"]),
+            .map(|t| {
+                let title = lang_of(&t["title"]);
+                let profile = t["id"]
+                    .as_u64()
+                    .and_then(|id| profiles.get(&id).cloned())
+                    .or_else(|| lang_of(&t["codec-profile"]));
+                AudioTrack {
+                    codec: t["codec"].as_str().unwrap_or_default().to_string(),
+                    channels: t["demux-channel-count"].as_u64().unwrap_or(0) as u32,
+                    lang: lang_of(&t["lang"]),
+                    profile,
+                    default: flag(t, "default"),
+                    original: flag(t, "original"),
+                    commentary: flag(t, "commentary") || title_says(title.as_deref(), "commentary"),
+                    title,
+                }
             })
             .collect(),
         subtitles: of_type("sub")
-            .map(|t| SubTrack {
-                codec: t["codec"].as_str().unwrap_or_default().to_string(),
-                lang: lang_of(&t["lang"]),
+            .map(|t| {
+                let title = t["title"].as_str();
+                SubTrack {
+                    codec: t["codec"].as_str().unwrap_or_default().to_string(),
+                    lang: lang_of(&t["lang"]),
+                    forced: flag(t, "forced") || title_says(title, "forced"),
+                    hearing_impaired: flag(t, "hearing-impaired") || title_says(title, "sdh"),
+                }
             })
             .collect(),
     })
@@ -114,10 +152,13 @@ pub fn probe_pending(
                 Ok(_) => ok += 1,
                 Err(_) => failed += 1,
             }
-            // A file gone from disk is the scanner's business; it is not marked probed.
+            // A file gone from disk is the scanner's business; it is not marked probed. A file
+            // read again whose new read fails keeps the details it had.
             if tech.is_ok() || path.exists() {
-                c.prepare_cached("UPDATE files SET tech = ?1, probed = 1 WHERE id = ?2")?
-                    .execute(rusqlite::params![tech.as_ref().ok(), id])?;
+                c.prepare_cached(
+                    "UPDATE files SET tech = coalesce(?1, tech), probed = 1 WHERE id = ?2",
+                )?
+                .execute(rusqlite::params![tech.as_ref().ok(), id])?;
             }
             on(id, tech.err().map(|e| e.to_string()).as_deref());
         }
@@ -274,6 +315,7 @@ fn mpv_thumbnail(mpv: &Path, file: &Path, at_s: f64, dest: &Path) -> Result<()> 
 mod mpv_probe {
     use super::*;
     use crate::mpv_ipc;
+    use serde_json::json;
     use std::io::Write;
     use std::process::Stdio;
     use std::time::Instant;
@@ -310,6 +352,12 @@ mod mpv_probe {
         result
     }
 
+    /// How long one audio track's decoder may take to open, and all of them together.
+    const TRACK_OPEN: Duration = Duration::from_millis(1500);
+    const PROFILES_BUDGET: Duration = Duration::from_secs(6);
+    /// How long a profile may follow the decoder's opening.
+    const PROFILE_AFTER_OPEN: Duration = Duration::from_millis(200);
+
     fn query(pipe: &str) -> Result<TechInfo> {
         let mut s = mpv_ipc::connect(pipe, Duration::from_secs(10))?;
         // Properties are unavailable until the file has loaded.
@@ -319,8 +367,56 @@ mod mpv_probe {
             .ok_or_else(|| invalid("duration"))?;
         let tracks = mpv_ipc::get_when_ready(&mut s, "track-list", deadline)?;
         let params = mpv_ipc::get_when_ready(&mut s, "video-params", deadline)?;
+        let profiles = audio_profiles(&mut s, &tracks);
         let _ = writeln!(s, r#"{{"command":["quit"]}}"#);
-        parse_mpv_properties(&tracks, &params, duration)
+        parse_mpv_properties(&tracks, &params, duration, &profiles)
+    }
+
+    /// Opens, one at a time, the decoder of each audio track whose codec may name a richer
+    /// format, and reads the profile it reports. A track whose decoder opens without a profile
+    /// is plain (DTS core, E-AC-3 without Atmos). Tracks left when the budget runs out stay
+    /// unknown; the probe still succeeds.
+    fn audio_profiles(s: &mut std::fs::File, tracks: &Value) -> HashMap<u64, String> {
+        let mut found = HashMap::new();
+        let budget = Instant::now() + PROFILES_BUDGET;
+        let ids: Vec<u64> = tracks
+            .as_array()
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .filter(|t| t["type"] == "audio" && t["codec-profile"].is_null())
+            .filter(|t| PROFILED_AUDIO.contains(&t["codec"].as_str().unwrap_or_default()))
+            .filter_map(|t| t["id"].as_u64())
+            .collect();
+        for id in ids {
+            if Instant::now() >= budget || mpv_ipc::set_property(s, "aid", json!(id)).is_err() {
+                break;
+            }
+            let mut until = (Instant::now() + TRACK_OPEN).min(budget);
+            let mut opened = false;
+            while Instant::now() < until {
+                let Ok(list) = mpv_ipc::get_property(s, "track-list") else {
+                    break;
+                };
+                let track = list
+                    .as_array()
+                    .and_then(|l| l.iter().find(|t| t["type"] == "audio" && t["id"] == id));
+                if let Some(p) = track
+                    .and_then(|t| t["codec-profile"].as_str())
+                    .filter(|p| !p.is_empty())
+                {
+                    found.insert(id, p.to_string());
+                    break;
+                }
+                // `codec-desc` appears as the decoder opens; the profile follows within a few
+                // milliseconds, once it has read a frame, or never, for a plain track.
+                if !opened && track.is_some_and(|t| !t["codec-desc"].is_null()) {
+                    opened = true;
+                    until = until.min(Instant::now() + PROFILE_AFTER_OPEN);
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+        found
     }
 }
 
@@ -347,6 +443,7 @@ mod tests {
             codec: codec.into(),
             channels,
             lang: lang.map(Into::into),
+            ..AudioTrack::default()
         }
     }
 
@@ -354,7 +451,12 @@ mod tests {
         SubTrack {
             codec: codec.into(),
             lang: lang.map(Into::into),
+            ..SubTrack::default()
         }
+    }
+
+    fn none() -> HashMap<u64, String> {
+        HashMap::new()
     }
 
     #[test]
@@ -366,7 +468,7 @@ mod tests {
             {"type": "sub", "codec": "subrip", "lang": "fre"}
         ]);
         let params = json!({"w": 3840, "h": 2160, "gamma": "pq"});
-        let t = parse_mpv_properties(&tracks, &params, 7384.5).unwrap();
+        let t = parse_mpv_properties(&tracks, &params, 7384.5, &none()).unwrap();
         assert_eq!((t.width, t.height), (3840, 2160));
         assert_eq!(t.video_codec, "hevc");
         assert_eq!(t.hdr.as_deref(), Some("HDR10"));
@@ -378,11 +480,66 @@ mod tests {
         assert_eq!(t.subtitles, vec![sub("subrip", Some("fre"))]);
 
         let hlg = json!({"w": 1920, "h": 1080, "gamma": "hlg"});
-        let t = parse_mpv_properties(&tracks, &hlg, 1.0).unwrap();
+        let t = parse_mpv_properties(&tracks, &hlg, 1.0, &none()).unwrap();
         assert_eq!(t.hdr.as_deref(), Some("HLG"));
         let sdr = json!({"w": 1920, "h": 1080, "gamma": "bt.1886"});
-        assert_eq!(parse_mpv_properties(&tracks, &sdr, 1.0).unwrap().hdr, None);
-        assert!(parse_mpv_properties(&json!([]), &sdr, 1.0).is_err());
+        assert_eq!(
+            parse_mpv_properties(&tracks, &sdr, 1.0, &none())
+                .unwrap()
+                .hdr,
+            None
+        );
+        assert!(parse_mpv_properties(&json!([]), &sdr, 1.0, &none()).is_err());
+    }
+
+    #[test]
+    fn richer_formats_and_track_flags() {
+        let tracks = json!([
+            {"type": "video", "id": 1, "codec": "hevc", "demux-w": 3840, "demux-h": 2160,
+             "dolby-vision-profile": 8, "dolby-vision-level": 6},
+            {"type": "audio", "id": 1, "codec": "ac3", "demux-channel-count": 6, "lang": "ru",
+             "default": true, "codec-desc": "ATSC A/52A (AC-3)"},
+            {"type": "audio", "id": 2, "codec": "eac3", "demux-channel-count": 6, "lang": "en",
+             "title": "Original", "original": true},
+            {"type": "audio", "id": 3, "codec": "dts", "demux-channel-count": 8, "lang": "en",
+             "codec-profile": "DTS-HD MA + DTS:X"},
+            {"type": "audio", "id": 4, "codec": "aac", "demux-channel-count": 2, "lang": "en",
+             "title": "Director's Commentary"},
+            {"type": "sub", "id": 1, "codec": "subrip", "lang": "en", "title": "Forced"},
+            {"type": "sub", "id": 2, "codec": "subrip", "lang": "en", "title": "English SDH"},
+            {"type": "sub", "id": 3, "codec": "subrip", "lang": "en", "forced": true,
+             "hearing-impaired": true}
+        ]);
+        let params = json!({"w": 3840, "h": 2160, "gamma": "pq"});
+        let profiles = HashMap::from([(2, "Dolby Digital Plus + Dolby Atmos".to_string())]);
+        let t = parse_mpv_properties(&tracks, &params, 1.0, &profiles).unwrap();
+        // Dolby Vision is named over the HDR10 curve it carries.
+        assert_eq!(t.hdr.as_deref(), Some("Dolby Vision"));
+        let a = &t.audio;
+        assert!(a[0].default && a[0].profile.is_none());
+        // A profile read by opening the decoder, and one already in the list.
+        assert_eq!(
+            a[1].profile.as_deref(),
+            Some("Dolby Digital Plus + Dolby Atmos")
+        );
+        assert!(a[1].original && a[1].title.as_deref() == Some("Original"));
+        assert_eq!(a[2].profile.as_deref(), Some("DTS-HD MA + DTS:X"));
+        assert!(a[3].commentary && !a[2].commentary);
+        let flags: Vec<_> = t
+            .subtitles
+            .iter()
+            .map(|s| (s.forced, s.hearing_impaired))
+            .collect();
+        assert_eq!(flags, [(true, false), (false, true), (true, true)]);
+    }
+
+    #[test]
+    fn records_from_before_the_new_fields_still_read() {
+        let old = r#"{"duration_s":1.0,"width":1920,"height":1080,"video_codec":"h264","hdr":null,
+            "audio":[{"codec":"dts","channels":6,"lang":"eng"}],"subtitles":[{"codec":"subrip","lang":"eng"}]}"#;
+        let t: TechInfo = serde_json::from_str(old).unwrap();
+        assert_eq!(t.audio, vec![audio("dts", 6, Some("eng"))]);
+        assert_eq!(t.subtitles, vec![sub("subrip", Some("eng"))]);
     }
 
     #[test]
@@ -490,6 +647,18 @@ mod tests {
             let why = why.as_deref().unwrap_or_default();
             assert!(!why.is_empty());
         }
+    }
+
+    #[test]
+    fn a_failed_second_read_keeps_the_details() {
+        let l = lib();
+        l.c.execute("UPDATE files SET tech = '{\"old\":1}'", [])
+            .unwrap();
+        assert_eq!(
+            probe_pending(&l.c, &l.v, &broken_tool(&l), &mut |_, _| {}).unwrap(),
+            (0, 2)
+        );
+        assert_eq!(state(&l.c), vec![(1, true), (1, true)]);
     }
 
     /// Gives `file` (by name) an `other` item, and a probed duration when `duration` is set.

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clock, confidence, episodeLabel, facts, resolution, runtime } from "./format";
+import { clock, confidence, episodeLabel, facts, resolution, runtime, soundFormat } from "./format";
 
 describe("runtime", () => {
   test("hours and minutes", () => {
@@ -77,4 +77,19 @@ describe("episodeLabel", () => {
 
 test("a candidate's score reads as Likely from 0.8, Possible from 0.6, else Unlikely", () => {
   expect([0.8, 0.6, 0.59].map(confidence)).toEqual(["Likely", "Possible", "Unlikely"]);
+});
+
+describe("soundFormat", () => {
+  test("a profile that names a richer format wins over the codec", () => {
+    expect(soundFormat("dts", "DTS-HD MA + DTS:X")).toBe("DTS:X");
+    expect(soundFormat("dts", "DTS-HD MA")).toBe("DTS-HD MA");
+    expect(soundFormat("truehd", "Dolby TrueHD + Dolby Atmos")).toBe("Dolby Atmos");
+    expect(soundFormat("eac3", "Dolby Digital Plus + Dolby Atmos")).toBe("Dolby Atmos");
+  });
+  test("otherwise the codec as people know it", () => {
+    expect(soundFormat("dts", "DTS")).toBe("DTS");
+    expect(soundFormat("aac", "LC")).toBe("AAC");
+    expect(soundFormat("ac3", null)).toBe("AC-3");
+    expect(soundFormat(null, null)).toBeNull();
+  });
 });

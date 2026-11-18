@@ -18,7 +18,7 @@ import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { itemActions, runMain, runSelected, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "@/lib/api";
-import { OFFLINE, WATCHED, count, episodeLabel, facts, runtime, started } from "@/lib/format";
+import { OFFLINE, WATCHED, episodeLabel, facts, runtime, started } from "@/lib/format";
 import { rems, revealRow, stopGlide } from "@/lib/motion";
 import { usePlayback } from "@/lib/playback";
 import { useItem, useItemSources } from "@/lib/queries";
@@ -105,22 +105,22 @@ function Seasons({ show }: { show: ItemDetail }) {
       </div>
       {/* After the episodes in the page for the same reason; shown on the left. */}
       <div className="order-first flex w-(--show-placard) shrink-0 flex-col justify-end px-edge pb-edge">
-        <ShowTitle show={show} seasons={seasons.length} />
+        <ShowTitle show={show} />
       </div>
     </div>
   );
 }
 
-function ShowTitle({ show, seasons }: { show: ItemDetail; seasons: number }) {
+function ShowTitle({ show }: { show: ItemDetail }) {
   return (
     <FocusGroup id="show-title" orientation="vertical" aria-label="Show">
-      <ShowWork show={show} seasons={seasons} />
+      <ShowWork show={show} />
     </FocusGroup>
   );
 }
 
 /** The show as a work: its placard and, under it, what A does on it. */
-function ShowWork({ show, seasons }: { show: ItemDetail; seasons: number }) {
+function ShowWork({ show }: { show: ItemDetail }) {
   const ctx = useActionContext();
   const action = itemActions(show)[0]!;
   // A show's files are its episodes': a play that cannot run names the next episode's drive.
@@ -146,7 +146,8 @@ function ShowWork({ show, seasons }: { show: ItemDetail; seasons: number }) {
         item={show.item}
         detail={show}
         size="hero"
-        more={[seasons > 0 ? count(seasons, "season", "seasons") : "", facts(show.item.genres)]}
+        hold={false}
+        more={[facts(show.item.genres)]}
       />
       <div className="relative w-fit pb-2">
         <ActionLine action={action} drive={drive} active={lit} />

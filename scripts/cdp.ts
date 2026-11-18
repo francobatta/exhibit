@@ -1,6 +1,7 @@
 // Drives a dev window started with `scripts/dev.ps1 -Cdp` over WebView2's DevTools protocol.
 //
 //   bun scripts/cdp.ts shot <out.jpg>          1920x1080 JPEG of the page
+//   bun scripts/cdp.ts shot <out.jpg> --window JPEG at the window's own size and scale
 //   bun scripts/cdp.ts keys <key> [<key> ...]  trusted key presses, e.g. ArrowRight Enter Escape m /
 //   bun scripts/cdp.ts eval "<js expression>"  prints the value
 //
@@ -68,16 +69,20 @@ const [cmd, ...args] = process.argv.slice(2);
 const send = await connect();
 
 if (cmd === "shot") {
-  const out = args[0] ?? "shot.jpg";
-  await send("Emulation.setDeviceMetricsOverride", {
-    width: 1920,
-    height: 1080,
-    deviceScaleFactor: 1,
-    mobile: false,
-  });
-  await Bun.sleep(300);
+  const out = args.find((a) => !a.startsWith("--")) ?? "shot.jpg";
+  // --window keeps the window's own size and scale, to see how the layout meets it.
+  const asIs = args.includes("--window");
+  if (!asIs) {
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: 1920,
+      height: 1080,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await Bun.sleep(300);
+  }
   const { data } = await send("Page.captureScreenshot", { format: "jpeg", quality: 85 });
-  await send("Emulation.clearDeviceMetricsOverride");
+  if (!asIs) await send("Emulation.clearDeviceMetricsOverride");
   await Bun.write(out, Buffer.from(data, "base64"));
   console.log(out);
 } else if (cmd === "keys") {

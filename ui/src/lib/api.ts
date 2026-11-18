@@ -62,11 +62,24 @@ export interface AudioTrack {
   codec: string;
   channels: number;
   lang: string | null;
+  /** The decoder's profile when it names more than the codec: "DTS-HD MA + DTS:X", "Dolby TrueHD + Dolby Atmos". */
+  profile: string | null;
+  /** The track's own name in the file ("Original", a dub studio). */
+  title: string | null;
+  /** The file marks it as the track to play. */
+  default: boolean;
+  /** The film's own soundtrack, not a dub. */
+  original: boolean;
+  commentary: boolean;
 }
 
 export interface SubTrack {
   codec: string;
   lang: string | null;
+  /** Only the lines in another language, or signs. */
+  forced: boolean;
+  /** For the deaf and hard of hearing (SDH). */
+  hearing_impaired: boolean;
 }
 
 export interface TechInfo {
@@ -202,6 +215,8 @@ export interface LibraryStatus {
   sources: Source[];
   tmdb_key: boolean;
   agent_key: boolean;
+  /** Whether the window plays the intro as it opens. */
+  intro: boolean;
 }
 
 export interface Boot {
@@ -344,6 +359,8 @@ export const identify = (scope: IdentifyScope) => invoke<void>("identify", { sco
 export const jobStatus = () => invoke<JobStatus>("job_status");
 /** Resolves once the player has started; the end arrives as `play-ended`. */
 export const play = (id: Id, resume: boolean) => invoke<void>("play", { id, resume });
+/** Takes effect from the next launch. */
+export const setIntro = (on: boolean) => invoke<void>("set_intro", { on });
 export const windowFullscreen = (on: boolean) => invoke<void>("window_fullscreen", { on });
 export const windowIsFullscreen = () => invoke<boolean>("window_is_fullscreen");
 
