@@ -67,7 +67,7 @@
   --mark-panel: 1.2rem;
   --mark-panel-tall: 1.7rem;
   /* A service mark set in a line of text stands as tall as the text's capitals. */
-  --mark-line: 1cap;
+  --mark-line: 0.72rem;
   --mark-gap: 1.25rem;
   --stretch-poster: 75%;
   --stretch-mark: 112%;
