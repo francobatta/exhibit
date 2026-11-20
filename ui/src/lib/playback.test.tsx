@@ -36,7 +36,12 @@ function film() {
 test("a missing player says so in a dialog, names the path tried, and offers Settings to the pad", async () => {
   film();
   tauri.handle("play", () => {
-    throw { kind: "tool", message: "tool error: mpv not found at C:\\mpv\\mpv.exe" };
+    throw {
+      kind: "tool",
+      code: "tool.missing_at",
+      params: { tool: "mpv", path: "C:\\mpv\\mpv.exe" },
+      message: "tool error: mpv not found at C:\\mpv\\mpv.exe",
+    };
   });
   screens({ screen: "details", id: 7 });
   await settle();
@@ -45,7 +50,7 @@ test("a missing player says so in a dialog, names the path tried, and offers Set
   expect(usePlayback.getState().playing).toBeNull();
   const dialog = document.querySelector('[role="dialog"]');
   expect(dialog?.textContent).toContain("mpv could not start");
-  expect(dialog?.textContent).toContain("mpv not found at C:\\mpv\\mpv.exe");
+  expect(dialog?.textContent).toContain("mpv was not found at C:\\mpv\\mpv.exe.");
   // Its first button has focus, a focus item like any other.
   expect(activeKey()).toBe("player-problem:0");
   expect(document.activeElement?.textContent).toBe("Open Settings");

@@ -13,9 +13,10 @@ export interface StateAction {
   onAction: () => unknown;
 }
 
-function ActionButton({ id, action }: { id: string; action: StateAction }) {
+// Its key stays the same in every language, so focus finds it again after the words change.
+function ActionButton({ action }: { action: StateAction }) {
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
-    key: `state:${id}`,
+    key: "state:action",
     onSelect: () => void action.onAction(),
   });
   return (
@@ -31,7 +32,7 @@ function Action({ action }: { action: StateAction }) {
   const id = useId();
   return (
     <FocusGroup id={`state-${id}`} orientation="horizontal" className="mt-2">
-      <ActionButton id={id} action={action} />
+      <ActionButton action={action} />
     </FocusGroup>
   );
 }

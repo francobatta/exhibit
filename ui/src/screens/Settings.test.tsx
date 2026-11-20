@@ -7,6 +7,7 @@ import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
 import { useNav } from "@/nav/stack";
 import { keyError } from "./Settings";
+import { t } from "@/i18n";
 
 let uninstall: () => void = () => {};
 
@@ -24,6 +25,8 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
     tmdb_key: false,
     agent_key: false,
     intro: true,
+    language: "en-US",
+    date_format: "auto",
     ...over,
   };
 }
@@ -95,7 +98,7 @@ test("opened for a missing mpv, Settings lands on the download, and a failure sa
     tauri.emit("tools-download", {
       running: false,
       step: null,
-      outcome: { kind: "failed", message: "provider error: could not reach GitHub (dns error: no such host); check the internet connection, then try again" },
+      outcome: { kind: "failed", error: { kind: "provider", code: "download.unreachable", params: {}, message: "provider error: could not reach GitHub" } },
     }),
   );
   await settle();
@@ -115,7 +118,7 @@ test("a path set by hand hands back to the download", async () => {
   await settle(120);
   const tools = document.querySelector('section[aria-label="Tools"]')!;
   expect(tools.textContent).toContain("Set by you, version 0.40.0");
-  expect(tools.textContent).toContain("Downloaded by Exhibit, version 8.0, built 11 November 2026");
+  expect(tools.textContent).toContain("Downloaded by Exhibit, version 8.0, built November 11, 2026");
   expect(button(tools, "Get the latest")).toBeDefined();
   await focusAndSelect("tool:mpv:clear");
   expect(calls("set_tool_path")).toEqual([{ tool: "mpv", path: null }]);
@@ -145,9 +148,8 @@ test("saving a TMDB key stores it, starts identifying, and clears the field", as
 });
 
 test("a rejected key says what to do here, not on the command line", () => {
-  expect(keyError("invalid: TMDB rejected the key; set a valid one with `exhibit key set tmdb`")).toBe(
-    "TMDB rejected the key. Check the key, then save it again.",
-  );
+  const rejected = { kind: "invalid" as const, code: "tmdb.key_rejected", params: {}, message: "invalid: …" };
+  expect(keyError(rejected, t)).toBe("TMDB rejected the key. Check the key, then save it again.");
 });
 
 test("the intro switch turns the intro off for the next launch", async () => {

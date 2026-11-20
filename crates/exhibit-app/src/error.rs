@@ -108,4 +108,54 @@ mod tests {
             None
         );
     }
+
+    /// The codes written in the core and the app, as `Detail::coded("…"`, `Fault::coded(…, "…"`
+    /// and `ApiError::invalid("…"`, outside tests.
+    fn codes_in(dir: &std::path::Path) -> Vec<String> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "rs") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).unwrap();
+            let code = text.split("#[cfg(test)]").next().unwrap_or_default();
+            for marker in ["Detail::coded(", "ApiError::invalid(", "Fault::coded("] {
+                for piece in code.split(marker).skip(1) {
+                    let args = piece.split(')').next().unwrap_or_default();
+                    // The code is the quoted argument with a dot in it.
+                    if let Some(c) = args
+                        .split('"')
+                        .skip(1)
+                        .step_by(2)
+                        .find(|s| s.contains('.') && !s.contains(' '))
+                    {
+                        out.push(c.to_string());
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Every code the window can be sent has English words, so no error ever shows bare.
+    #[test]
+    fn every_error_code_has_words_in_the_window() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let catalogue: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("ui/src/i18n/locales/en-US.json")).unwrap(),
+        )
+        .unwrap();
+        let mut codes = codes_in(&root.join("crates/exhibit-core/src"));
+        codes.extend(codes_in(&root.join("crates/exhibit-app/src")));
+        assert!(codes.len() > 30, "{codes:?}");
+        let missing: Vec<&String> = codes
+            .iter()
+            .filter(|c| {
+                let pointer = format!("/errors/{}", c.replace('.', "/"));
+                !catalogue.pointer(&pointer).is_some_and(|v| v.is_string())
+            })
+            .collect();
+        assert!(missing.is_empty(), "no words for {missing:?}");
+    }
 }

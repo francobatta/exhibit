@@ -85,7 +85,7 @@ test("Back returns focus to the item the previous screen remembered, through the
   });
   await settle();
   expect(useNav.getState().current).toEqual({ screen: "show", id: 2 });
-  expect(activeKey()).toBe("state:Go back");
+  expect(activeKey()).toBe("state:action");
   expect(activeEntry()).not.toBe(home);
 
   await press("Escape");

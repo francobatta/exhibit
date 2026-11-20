@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { tauri } from "../../test/setup";
+import type { ApiError, ErrorKind } from "./api";
 
 // A fresh copy of the module per test, so no test depends on another having called `boot`.
 let copies = 0;
@@ -47,27 +48,36 @@ test("commands send camelCase arguments under their snake_case names", async () 
 });
 
 describe("plain", () => {
-  test("drops the core's kind prefix and starts with a capital", async () => {
-    const api = await fresh();
-    expect(api.plain({ kind: "invalid", message: "invalid: TMDB key not set" })).toBe(
-      "TMDB key not set",
-    );
-    expect(api.plain({ kind: "source_offline", message: "source offline: D:\\ is not connected" })).toBe(
-      "D:\\ is not connected",
-    );
-    expect(api.plain({ kind: "tool", message: "tool error: mpv not found at C:\\mpv\\mpv.exe" })).toBe(
-      "mpv not found at C:\\mpv\\mpv.exe",
-    );
-    expect(api.plain("io: the folder could not be read")).toBe("The folder could not be read");
-    expect(api.plain({ kind: "db", message: "" })).toBe("Something went wrong.");
+  const error = (kind: ErrorKind, code: string | null, params: Record<string, string> = {}): ApiError => ({
+    kind,
+    code,
+    params,
+    message: `${kind}: the core's English`,
   });
 
-  test("a rejected TMDB key, as an error or a job's last error, says to check it in Settings", async () => {
+  test("words an error from its code and parameters, never from the core's English", async () => {
     const api = await fresh();
-    const advice = "TMDB rejected the key. Check it in Settings.";
-    expect(api.plain({ kind: "invalid", message: `invalid: ${api.KEY_REJECTED}` })).toBe(advice);
-    expect(api.plain(`invalid: ${api.KEY_REJECTED}`)).toBe(advice);
-    // Anything else keeps its own words, whatever its punctuation.
-    expect(api.plain("provider: HTTP 500; try `later`")).toBe("HTTP 500; try `later`");
+    expect(api.plain(error("source_offline", "source.offline", { path: "D:\\Films" }))).toBe(
+      "The drive for D:\\Films is not connected.",
+    );
+    expect(api.plain(error("invalid", "tmdb.key_rejected"))).toBe("TMDB rejected the key. Check it in Settings.");
+  });
+
+  test("an error without a known code is worded by its kind", async () => {
+    const api = await fresh();
+    expect(api.plain(error("db", null))).toBe("The library could not be read. Restart Exhibit if it keeps happening.");
+    expect(api.plain(error("io", "no.such.code"))).toBe("Exhibit could not read or write a file.");
+  });
+
+  test("anything else a promise rejected with is something that went wrong", async () => {
+    const api = await fresh();
+    expect(api.plain(new Error("boom"))).toBe("Something went wrong.");
+    expect(api.plain("io: the folder could not be read")).toBe("Something went wrong.");
+  });
+
+  test("a rejected key is known by its code", async () => {
+    const api = await fresh();
+    expect(api.keyRejected(error("invalid", "tmdb.key_rejected"))).toBe(true);
+    expect(api.keyRejected(error("invalid", "tmdb.no_key"))).toBe(false);
   });
 });

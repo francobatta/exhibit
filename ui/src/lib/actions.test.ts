@@ -147,9 +147,9 @@ describe("runAction", () => {
   test("a failure is reported in plain words, not thrown", async () => {
     const ctx = context();
     ctx.play.mockImplementation(async () => {
-      throw { kind: "source_offline", message: "source_offline: D:\\ is not connected" };
+      throw { kind: "source_offline", code: "source.offline", params: { path: "D:\\" }, message: "source offline: D:\\" };
     });
     await runAction({ id: "play", label: "Play" }, summary(), ctx);
-    expect(ctx.fail).toHaveBeenCalledWith("D:\\ is not connected");
+    expect(ctx.fail).toHaveBeenCalledWith("The drive for D:\\ is not connected.");
   });
 });

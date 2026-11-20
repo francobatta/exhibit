@@ -39,6 +39,8 @@ function status(online: boolean): LibraryStatus {
     tmdb_key: true,
     agent_key: false,
     intro: true,
+    language: "en-US",
+    date_format: "auto",
   };
 }
 

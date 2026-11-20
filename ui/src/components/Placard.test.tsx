@@ -144,7 +144,8 @@ describe("trackLines", () => {
         [subTrack({ lang: "eng" }), subTrack({ lang: "rus", forced: true }), subTrack({ lang: "spa", hearing_impaired: true })],
       ),
     );
-    expect(lines).toEqual({ sound: "English, Russian, Ukrainian and 2 more", subtitles: "English and Spanish" });
+    // US English lists with a serial comma.
+    expect(lines).toEqual({ sound: "English, Russian, Ukrainian, and 2 more", subtitles: "English and Spanish" });
   });
   test("no subtitles says so; unnamed tracks are counted; an unread file says nothing", () => {
     expect(trackLines(tech([audioTrack({ lang: null })], [])).subtitles).toBe("None");
