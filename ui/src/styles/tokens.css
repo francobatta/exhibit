@@ -66,7 +66,13 @@
   --mark-hero-tall: 2.1rem;
   --mark-panel: 1.2rem;
   --mark-panel-tall: 1.7rem;
+  /* A service mark set in a line of text stands as tall as the text's capitals. */
+  --mark-line: 0.72rem;
   --mark-gap: 1.25rem;
+  /* The owner's rating as stars on a placard's verdicts line, as tall as a format's mark beside
+     it: on the hero (Home, Details) and on the wall's panel. */
+  --verdict-star: 1.5rem;
+  --verdict-star-panel: 1.2rem;
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -78,6 +84,15 @@
   /* Space and shape. */
   --space-edge: 4.5rem;
   --space-bar: 6rem;
+  /* The bar's first slot: the mark, or Back on a screen stacked over another. Back may run into
+     the gap after it, never into the sections. */
+  --bar-lead: 4.5rem;
+  /* Control hints: a button's glyph (a key cap grows with its name), the space between hints, and
+     the dark pill they stand on, so they read over artwork; its padding keeps the text on the edge. */
+  --hint-glyph: 1.75rem;
+  --hint-gap: 1.75rem;
+  --hint-pad: 1rem;
+  --hint-scrim: color-mix(in oklch, var(--wall) 78%, transparent);
   --placard-measure: 46rem;
   /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
   --space-work-gap: 1.75rem;
@@ -89,8 +104,7 @@
   /* A line under a work on a shelf (a candidate's year and confidence): its height and gap. */
   --shelf-caption: 2.25rem;
   --shelf-caption-gap: 1rem;
-  /* Ask: how far its field sits from the top of the window, and the field's height. */
-  --ask-top: 1.5rem;
+  /* Ask: its field's height, under the row that holds Back. */
   --ask-field: 4.5rem;
   /* A dialog panel's padding; a row of works inside one runs to the panel's edges and keeps this as its edge. */
   --dialog-pad: 2rem;
@@ -98,15 +112,27 @@
   --dialog-wide: 76rem;
   /* The room the match picker keeps for its results, so the dialog does not jump as they arrive. */
   --match-results: 27rem;
-  /* The tallest a list inside a dialog grows (the genres) before it scrolls. */
+  /* The tallest a list inside a dialog grows (a folder's sub-folders) before it scrolls. */
   --dialog-list: 30rem;
+  /* The filter sheet beside a wall, and the room at its foot for the hint line. */
+  --filter-sheet: 40rem;
+  --filter-sheet-foot: 6rem;
+  /* RangeField: the bars' height, the thumbs' row and size, and the track's inset (half a thumb,
+     so a thumb's centre meets the ends). */
+  --range-bars: 4rem;
+  --range-height: 2.5rem;
+  --range-thumb: 1.25rem;
+  --range-inset: calc(var(--range-thumb) / 2);
   /* Home: the space between the hero placard and the shelves' light, the gap between shelves,
      and how much of the next shelf shows below the one in view. */
   --home-placard-foot: 1.5rem;
   --home-shelf-gap: 2.5rem;
   --home-peek: 3.5rem;
-  /* The wall: the details panel's share of the window beside the grid. */
+  /* The wall: the details panel's share of the window beside the grid, a portrait's width in its
+     cast, and the room under the cast for the hint line. */
   --wall-panel: 26%;
+  --wall-portrait: 7rem;
+  --wall-panel-foot: 5.5rem;
   /* The height of the row of controls above a wall. */
   --wall-controls: 3.5rem;
   /* Details, in two movements: the work, then its cast and record. How much of the second shows
@@ -118,6 +144,10 @@
   --details-portrait: 12rem;
   --details-cast-gap: 2rem;
   --details-term: 8.5rem;
+  /* The owner's review, in the reading face: a comfortable line for running text. */
+  --details-review-measure: 44rem;
+  /* A review longer than the window reads in pages: each Down glides this share of the window. */
+  --details-review-page: 0.6;
   /* Show: the share of the window the placard keeps beside the seasons, and an episode's frame in the list. */
   --show-placard: 42%;
   --show-episode: 15rem;

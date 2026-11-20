@@ -13,6 +13,8 @@ export interface FocusButtonProps {
   /** `solid` for the one action that goes ahead, `line` for the others, `plain` for quiet ones. */
   variant?: "solid" | "line" | "plain";
   disabled?: boolean;
+  /** Back (B, Escape) while this button has focus. */
+  onBack?: () => void;
   className?: string;
   children: ReactNode;
 }
@@ -23,8 +25,8 @@ const focusStyle = {
   plain: "focus-visible:bg-transparent focus:text-label",
 };
 
-export function FocusButton({ focusKey, onSelect, variant = "line", disabled, className, children }: FocusButtonProps) {
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey, onSelect, disabled });
+export function FocusButton({ focusKey, onSelect, variant = "line", disabled, onBack, className, children }: FocusButtonProps) {
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey, onSelect, onBack, disabled });
   return (
     <Button ref={ref} {...props} variant={variant} className={cn("relative aria-disabled:opacity-40", focusStyle[variant], className)}>
       {children}

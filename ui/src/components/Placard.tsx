@@ -1,16 +1,19 @@
 // The wall label, read in clusters: the title; then "year, director", "runtime, watched state" with
-// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), and the languages it
-// can be heard and read in; then a line or two of description. Plain text, commas between facts,
+// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), the owner's verdict
+// (their rating as stars, with the mark of the service it came from), and the languages it can be
+// heard and read in; then a line or two of description. Plain text, commas between facts,
 // every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
 // say is left out, except on Home, where the placard keeps its shape (see `hold`).
 
-import type { Item, ItemDetail, ItemSummary, TechInfo } from "@/lib/api";
-import { OFFLINE, WATCHED, count, episodeLabel, facts, language, listed, runtime, started } from "@/lib/format";
+import { t, useT } from "@/i18n";
+import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, TechInfo } from "@/lib/api";
+import { episodeLabel, facts, languageName, listed, number, runtime, started, stars, titleOf } from "@/lib/format";
 import { pictureMarks, soundMark, type Mark } from "@/lib/marks";
 import { cn } from "@/lib/utils";
 import type { Progress } from "./ActionLine";
 import { FitTitle } from "./FitTitle";
 import { FormatMark } from "./FormatMark";
+import { ServiceMark } from "./ServiceMark";
 
 export interface PlacardLines {
   title: string;
@@ -25,6 +28,8 @@ export interface PlacardLines {
   /** How far a started, unwatched work has got; shown beside its action. */
   progress: Progress | null;
   overview: string | null;
+  /** What the owner made of it: their own rating, from the newest service that has one. */
+  verdicts: { mine: Sourced<RatingFact> | null };
 }
 
 /** Languages named before the rest are counted. */
@@ -35,7 +40,7 @@ function named(names: string[]): string | null {
   const all = [...new Set(names)];
   if (all.length === 0) return null;
   const rest = all.length - NAMED;
-  return listed(rest > 0 ? [...all.slice(0, NAMED), `${rest} more`] : all);
+  return listed(rest > 0 ? [...all.slice(0, NAMED), t("units.more", { count: rest })] : all);
 }
 
 /**
@@ -46,10 +51,10 @@ export function trackLines(tech: TechInfo | null): { sound: string | null; subti
   if (tech === null) return { sound: null, subtitles: null };
   const heard = tech.audio.filter((a) => !a.commentary).sort((a, b) => Number(b.original) - Number(a.original));
   const subs = tech.subtitles.filter((s) => !s.forced);
-  const subNames = named(subs.map((s) => language(s.lang)).filter((n) => n !== null));
+  const subNames = named(subs.map((s) => languageName(s.lang)).filter((n) => n !== null));
   return {
-    sound: named(heard.map((a) => language(a.lang)).filter((n) => n !== null)),
-    subtitles: subs.length === 0 ? "None" : (subNames ?? count(subs.length, "track", "tracks")),
+    sound: named(heard.map((a) => languageName(a.lang)).filter((n) => n !== null)),
+    subtitles: subs.length === 0 ? t("placard.none") : (subNames ?? t("units.track", { count: subs.length })),
   };
 }
 
@@ -84,31 +89,36 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   let progress: Progress | null = null;
   if (!watched && play !== null && play.position_s > 0 && play.duration_s > play.position_s) {
     const left = (play.duration_s - play.position_s) / 60;
-    progress = { done: play.position_s / play.duration_s, left: `${runtime(Math.max(1, Math.round(left)))} left` };
+    progress = { done: play.position_s / play.duration_s, left: t("placard.left", { time: runtime(Math.max(1, Math.round(left))) }) };
   } else {
     const done = summary ? started(watched, summary.progress) : null;
     if (done !== null && minutes) {
-      progress = { done, left: `${runtime(Math.max(1, Math.round(minutes * (1 - done))))} left` };
+      progress = { done, left: t("placard.left", { time: runtime(Math.max(1, Math.round(minutes * (1 - done)))) }) };
     }
   }
   const available = detail?.available ?? summary?.available ?? true;
+  // A film on the owner's watchlist that they do not have: it has no runtime or format to speak of.
+  const absent = kind === "movie" && (detail ? detail.files.length === 0 : summary?.in_library === false);
   // A show has no runtime or picture of its own; it says how many seasons it has.
   const seasons = kind === "show" && detail ? detail.children.filter((c) => c.kind === "season").length : 0;
 
   return {
-    title: (full?.title ?? item.title).trim() || "Untitled",
+    title: titleOf(full ?? item),
     credit,
-    facts: facts([
-      seasons > 0 ? count(seasons, "season", "seasons") : null,
-      runtime(minutes),
-      picture.words,
-      watched ? WATCHED : null,
-      available ? null : OFFLINE,
-    ]),
-    marks: sound === null ? picture.marks : [...picture.marks, sound],
+    facts: absent
+      ? facts([t("activity.notInLibrary"), watched ? t("work.watched") : null])
+      : facts([
+          seasons > 0 ? t("units.season", { count: seasons }) : null,
+          runtime(minutes),
+          picture.words,
+          watched ? t("work.watched") : null,
+          available ? null : t("work.offline"),
+        ]),
+    marks: absent ? [] : sound === null ? picture.marks : [...picture.marks, sound],
     ...trackLines(tech),
     progress,
     overview: full?.overview?.trim() || null,
+    verdicts: { mine: detail?.activity.ratings.find((r) => stars(r.value, r.scale) !== "") ?? null },
   };
 }
 
@@ -129,13 +139,28 @@ export function splitTitle(title: string): { main: string; sub: string | null } 
     const s = sub.trim();
     return m.length >= 2 && s.length >= 2 ? { main: m, sub: s } : whole;
   };
-  const or = /\s(or[:,]\s)/i.exec(title);
+  // "or:" in English, "o:" in Spanish.
+  const or = /\s((?:or|o)[:,]\s)/i.exec(title);
   if (or) return at(title.slice(0, or.index), title.slice(or.index + 1));
   const dash = Math.max(title.lastIndexOf(" – "), title.lastIndexOf(" — "), title.lastIndexOf(" - "));
   if (dash > 0) return at(title.slice(0, dash), title.slice(dash + 3));
   const colon = title.indexOf(": ");
   if (colon > 0) return at(title.slice(0, colon), title.slice(colon + 2));
   return whole;
+}
+
+/** A rating as stars on its own scale, named in words for a screen reader ("Rated 4.5 out of 5"). */
+export function Stars({ rating, className }: { rating: RatingFact; className?: string }) {
+  const t = useT();
+  return (
+    <span
+      role="img"
+      aria-label={t("activity.ratedOutOf", { value: number(rating.value), scale: number(rating.scale) })}
+      className={cn("shrink-0 leading-none tracking-[0.06em] whitespace-nowrap text-label", className)}
+    >
+      {stars(rating.value, rating.scale)}
+    </span>
+  );
 }
 
 /** One kind of track and its languages, named quietly before them. */
@@ -162,10 +187,16 @@ export interface PlacardProps {
    * Default: a hero placard with two lines of description (Home, the gallery).
    */
   hold?: boolean;
+  /**
+   * A service with the owner's activity is on: a held placard keeps a line for their verdict too,
+   * so a rating arriving with the record moves nothing. Without one the line does not exist.
+   */
+  holdVerdicts?: boolean;
   className?: string;
 }
 
-export function Placard({ item, detail, size, more = [], full = false, hold: holdProp, className }: PlacardProps) {
+export function Placard({ item, detail, size, more = [], full = false, hold: holdProp, holdVerdicts = false, className }: PlacardProps) {
+  const t = useT();
   const lines = placardLines(item, detail);
   const name = splitTitle(lines.title);
   const after = more.filter((l) => l !== "");
@@ -174,6 +205,8 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
   // (a show has no runtime; a record still loading has no description): only the title, growing
   // upward, changes its height. Its full description (the details screen) is not held.
   const hold = holdProp ?? (hero && !full);
+  const mine = lines.verdicts.mine;
+  const verdicts = mine !== null || (hold && holdVerdicts);
   return (
     <div className={cn("flex w-full flex-col", hero ? "max-w-measure gap-5" : "gap-3", className)}>
       <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
@@ -197,7 +230,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           </p>
         )}
       </hgroup>
-      {(hold || lines.credit || lines.facts || after.length > 0) && (
+      {(hold || lines.credit || lines.facts || verdicts || after.length > 0) && (
         <div className={cn("flex flex-col font-display text-label-dim", hero ? "gap-1 text-lead" : "gap-0.5 text-body")}>
           {(hold || lines.credit) && (
             <p data-line="credit" className="min-h-[1lh] truncate font-ui text-label">
@@ -218,6 +251,18 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               ))}
             </p>
           )}
+          {verdicts && (
+            <p
+              data-line="verdicts"
+              className={cn(
+                "flex items-center gap-3",
+                hero ? "min-h-(--verdict-star) text-(length:--verdict-star)" : "min-h-(--verdict-star-panel) text-(length:--verdict-star-panel)",
+              )}
+            >
+              {mine && <Stars rating={mine} />}
+              {mine && <ServiceMark service={mine.service} size={size} />}
+            </p>
+          )}
           {after.map((l) => (
             <p key={l} className="line-clamp-2">
               {l}
@@ -226,8 +271,8 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           {/* Beside a wall, the panel lists the tracks in full below the placard. */}
           {hero && (hold || lines.sound || lines.subtitles) && (
             <p data-line="tracks" className="mt-1.5 flex min-h-[1lh] gap-8 text-body">
-              {lines.sound && <Tracks name="Sound" value={lines.sound} />}
-              {lines.subtitles && <Tracks name="Subtitles" value={lines.subtitles} />}
+              {lines.sound && <Tracks name={t("placard.sound")} value={lines.sound} />}
+              {lines.subtitles && <Tracks name={t("placard.subtitles")} value={lines.subtitles} />}
             </p>
           )}
         </div>

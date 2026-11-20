@@ -1,13 +1,20 @@
 //! Read side of the library: search, shelves, details, history and the taste profile, plus
 //! the few small writes the UI makes (watched, loved). Every listing hides items that have
-//! no file anywhere beneath them; `item` still returns them.
+//! no file anywhere beneath them, unless it asks for the watchlist films the owner does not
+//! have yet; `item` still returns them.
 
+use crate::activity::{
+    self, Activity, loved_sql, my_rating_sql, on_watchlist_sql, watched_sql, watchlisted_on_sql,
+};
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
+use crate::filter::{self, Filters};
+use crate::lang;
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
-    FILE_COLUMNS, ITEM_COLUMNS, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS, enum_str, item_from_row,
-    media_file_from_row, play_state_from_row, summary_from_row,
+    FILE_COLUMNS, LOCAL_GENRES, LOCAL_POSTER, LOCAL_TITLE, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS,
+    enum_str, item_from_row, local_item_columns, media_file_from_row, play_state_from_row,
+    summary_from_row,
 };
 use crate::scan;
 use crate::volume::Volumes;
@@ -43,6 +50,9 @@ pub struct ItemSummary {
     /// The item's first file (lowest id), relative to its source, as stored; `None` for an item
     /// with no file of its own (a show or season).
     pub path: Option<String>,
+    /// The work has a file; false for a film on the owner's watchlist they do not have yet.
+    /// `available` says whether a file is online now.
+    pub in_library: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -54,15 +64,33 @@ pub struct ItemDetail {
     pub available: bool,
     /// For a show, the episode to play next; `None` for other kinds or when all are watched.
     pub next_episode: Option<ItemSummary>,
+    pub activity: Activity,
 }
 
+/// A listing's order. Works without the value sorted by (no year) come last either way; ties go
+/// by title.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sort {
     Title,
-    Added,
     Year,
+    Added,
     Runtime,
+    /// When it was last played; for a show, any of its episodes.
+    Played,
+    /// The owner's newest rating from a switched-on service, over its scale.
+    MyRating,
+}
+
+impl Sort {
+    /// The direction a listing takes unless asked: titles A to Z, runtimes shortest first, the
+    /// rest newest or highest first.
+    pub fn descending(self) -> bool {
+        matches!(
+            self,
+            Sort::Year | Sort::Added | Sort::Played | Sort::MyRating
+        )
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -70,18 +98,16 @@ pub enum Sort {
 pub struct SearchQuery {
     pub text: Option<String>,
     pub kind: Option<ItemKind>,
-    pub genre: Option<String>,
-    pub year_min: Option<i32>,
-    pub year_max: Option<i32>,
-    pub runtime_max_min: Option<i32>,
-    pub watched: Option<bool>,
-    pub loved: Option<bool>,
-    pub min_width: Option<u32>,
-    pub min_height: Option<u32>,
-    pub available: Option<bool>,
+    #[serde(flatten)]
+    pub filters: Filters,
     pub sort: Option<Sort>,
+    /// `None` takes the sort's own direction (`Sort::descending`).
+    pub descending: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+    /// Also list the films on the owner's watchlist they do not have yet, after the ones they
+    /// have.
+    pub with_wanted: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -91,6 +117,9 @@ pub enum Shelf {
     RecentlyAdded,
     Unwatched,
     Loved,
+    /// On the owner's watchlist and not watched: the films they have, then the others, each
+    /// newest on the watchlist first.
+    Watchlist,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -102,25 +131,28 @@ pub struct HistoryEntry {
 }
 
 /// `tree(root_id, id)`: every item paired with itself and each of its descendants.
-const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
+pub(crate) const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
      UNION ALL SELECT tree.root_id, i.id FROM tree JOIN items i ON i.parent_id = tree.id)";
 
 /// `lib(item_id, avail)`: items with at least one file in their subtree; `avail` is 1 when
 /// one of those files is on a source whose id is in the JSON array bound as `?1`.
-const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
+pub(crate) const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
      max(f.source_id IN (SELECT value FROM json_each(?1))) \
      FROM tree t JOIN files f ON f.item_id = t.id GROUP BY t.root_id)";
 
 /// Bound parameters of one statement; `bind` returns the `?N` placeholder for a value.
-/// `?1` is always the JSON array of online source ids.
-struct Params(Vec<Value>);
+/// `?1` is always the JSON array of online source ids, `?2` the language in effect.
+pub(crate) struct Params(pub(crate) Vec<Value>);
 
 impl Params {
-    fn new(online_sources: &[Id]) -> Params {
-        Params(vec![Value::Text(json_ids(online_sources))])
+    pub(crate) fn new(c: &Connection, online_sources: &[Id]) -> Result<Params> {
+        Ok(Params(vec![
+            Value::Text(json_ids(online_sources)),
+            Value::Text(lang::language(c)?.to_string()),
+        ]))
     }
 
-    fn bind(&mut self, v: impl Into<Value>) -> String {
+    pub(crate) fn bind(&mut self, v: impl Into<Value>) -> String {
         self.0.push(v.into());
         format!("?{}", self.0.len())
     }
@@ -131,7 +163,7 @@ fn json_ids(ids: &[Id]) -> String {
 }
 
 /// Ids of the sources that are online right now, computed once per public call.
-fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>> {
+pub(crate) fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>> {
     Ok(scan::list_sources(c, v)?
         .into_iter()
         .filter(|s| s.online)
@@ -140,10 +172,12 @@ fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>> {
 }
 
 /// Runs the summary listing: one row per visible item with roll-ups for shows and seasons,
-/// narrowed by `wheres` (conditions on the alias `b`) and ordered by `order`.
+/// narrowed by `wheres` (conditions on the alias `b`) and ordered by `order`. `wanted` also
+/// lists the watchlist films with no file.
 fn list(
     c: &Connection,
     mut p: Params,
+    wanted: bool,
     wheres: &[String],
     order: &str,
     limit: u32,
@@ -159,8 +193,9 @@ fn list(
     );
     let seen = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
-         JOIN play_state q ON q.item_id = e.id \
-         WHERE t.root_id = i.id AND e.kind = 'episode' AND q.watched = 1 AND {has_file})"
+         LEFT JOIN play_state q ON q.item_id = e.id \
+         WHERE t.root_id = i.id AND e.kind = 'episode' AND {} AND {has_file})",
+        watched_sql("e", "q")
     );
     // Technical field of the item's first file that has any (any episode's, for a show).
     let tech = |field: &str| {
@@ -177,23 +212,42 @@ fn list(
     };
     let sql = format!(
         "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT {SUMMARY_COLUMNS} FROM (\
-           SELECT i.id, i.kind, i.parent_id, i.title, i.year, i.season, i.episode, \
-             (SELECT s.title FROM tree t JOIN items s ON s.id = t.root_id \
+           SELECT i.id, i.kind, i.parent_id, {LOCAL_TITLE} AS title, i.year, i.season, i.episode, \
+             (SELECT coalesce(nullif(st.title, ''), s.title) FROM tree t \
+                JOIN items s ON s.id = t.root_id \
+                LEFT JOIN item_texts st ON st.item_id = s.id AND st.lang = ?2 \
                 WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = 'show') AS show_title, \
-             i.poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
+             {LOCAL_POSTER} AS poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
              CASE WHEN {container} THEN {total} > 0 AND {seen} = {total} \
-                  ELSE coalesce(p.watched, 0) END AS watched, \
+                  ELSE {watched} END AS watched, \
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
-             i.loved, lib.avail AS available, i.match_state, i.genres, i.added_at, \
-             (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path \
-           FROM items i JOIN lib ON lib.item_id = i.id \
-           LEFT JOIN play_state p ON p.item_id = i.id) b \
+             {loved} AS loved, coalesce(lib.avail, 0) AS available, i.match_state, \
+             {LOCAL_GENRES} AS genres, i.added_at, \
+             nullif((SELECT max(q.last_played_at) FROM tree t JOIN play_state q ON q.item_id = t.id \
+                WHERE t.root_id = i.id), 0) AS played_at, \
+             (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path, \
+             lib.item_id IS NOT NULL AS in_library, i.tmdb_id, {my_rating} AS my_rating \
+           FROM items i {join} lib ON lib.item_id = i.id \
+           LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 \
+           LEFT JOIN play_state p ON p.item_id = i.id {admit}) b \
          WHERE {where_sql} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
         width = tech("width"),
         height = tech("height"),
         hdr = tech("hdr"),
+        watched = watched_sql("i", "p"),
+        loved = loved_sql("i"),
+        my_rating = my_rating_sql("i"),
+        join = if wanted { "LEFT JOIN" } else { "JOIN" },
+        admit = if wanted {
+            format!(
+                "WHERE lib.item_id IS NOT NULL OR (i.wanted = 1 AND {})",
+                on_watchlist_sql("i", &watched_sql("i", "p"))
+            )
+        } else {
+            String::new()
+        },
     );
     let mut s = c.prepare_cached(&sql)?;
     let rows = s
@@ -204,12 +258,12 @@ fn list(
 
 /// Summaries of the visible items among `ids`, in the order of `ids`.
 fn summaries_by_ids(c: &Connection, online: &[Id], ids: &[Id]) -> Result<Vec<ItemSummary>> {
-    let mut p = Params::new(online);
+    let mut p = Params::new(c, online)?;
     let cond = format!(
         "b.id IN (SELECT value FROM json_each({}))",
         p.bind(json_ids(ids))
     );
-    let mut by_id: HashMap<Id, ItemSummary> = list(c, p, &[cond], "b.id", u32::MAX, 0)?
+    let mut by_id: HashMap<Id, ItemSummary> = list(c, p, false, &[cond], "b.id", u32::MAX, 0)?
         .into_iter()
         .map(|s| (s.id, s))
         .collect();
@@ -232,13 +286,13 @@ fn fts_query(text: &str) -> Option<String> {
 }
 
 /// Listings show movies, shows and other items unless a kind is asked for.
-const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
+pub(crate) const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
 
 /// Shelves are Home's, and Home is for films and shows: Other has its own wall.
 const SHELF_KINDS: &str = "b.kind IN ('movie', 'show')";
 
 pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
-    let mut p = Params::new(&online_sources(c, v)?);
+    let mut p = Params::new(c, &online_sources(c, v)?)?;
     let mut w = vec![match q.kind {
         Some(k) => format!("b.kind = {}", p.bind(enum_str(k))),
         None => DEFAULT_KINDS.to_string(),
@@ -251,44 +305,31 @@ pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<It
             p.bind(m)
         ));
     }
-    if let Some(g) = &q.genre {
-        w.push(format!(
-            "EXISTS (SELECT 1 FROM json_each(b.genres) WHERE lower(value) = lower({}))",
-            p.bind(g.clone())
-        ));
-    }
-    if let Some(y) = q.year_min {
-        w.push(format!("b.year >= {}", p.bind(y)));
-    }
-    if let Some(y) = q.year_max {
-        w.push(format!("b.year <= {}", p.bind(y)));
-    }
-    if let Some(r) = q.runtime_max_min {
-        w.push(format!("b.runtime_min <= {}", p.bind(r)));
-    }
-    if let Some(x) = q.watched {
-        w.push(format!("b.watched = {}", p.bind(x)));
-    }
-    if let Some(x) = q.loved {
-        w.push(format!("b.loved = {}", p.bind(x)));
-    }
-    if let Some(width) = q.min_width {
-        w.push(format!("b.width >= {}", p.bind(width)));
-    }
-    if let Some(h) = q.min_height {
-        w.push(format!("b.height >= {}", p.bind(h)));
-    }
-    if let Some(x) = q.available {
-        w.push(format!("b.available = {}", p.bind(x)));
-    }
-    let order = match q.sort.unwrap_or(Sort::Title) {
-        Sort::Title => "b.title COLLATE NOCASE, b.id",
-        Sort::Added => "b.added_at DESC, b.id DESC",
-        Sort::Year => "b.year IS NULL, b.year DESC, b.title COLLATE NOCASE, b.id",
-        Sort::Runtime => "b.runtime_min IS NULL, b.runtime_min, b.title COLLATE NOCASE, b.id",
+    w.extend(filter::conditions(&q.filters, &mut p));
+    let sort = q.sort.unwrap_or(Sort::Title);
+    let dir = if q.descending.unwrap_or(sort.descending()) {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    let by_title = "b.title COLLATE NOCASE, b.id";
+    let by = match sort {
+        Sort::Title => format!("b.title COLLATE NOCASE {dir}, b.id {dir}"),
+        Sort::Year => format!("b.year IS NULL, b.year {dir}, {by_title}"),
+        Sort::Added => format!("b.added_at {dir}, {by_title}"),
+        Sort::Runtime => format!("b.runtime_min IS NULL, b.runtime_min {dir}, {by_title}"),
+        Sort::Played => format!("b.played_at IS NULL, b.played_at {dir}, {by_title}"),
+        Sort::MyRating => format!("b.my_rating IS NULL, b.my_rating {dir}, {by_title}"),
+    };
+    // Films the owner does not have come after the ones they do.
+    let wanted = q.with_wanted || q.filters.watchlist == Some(true);
+    let order = if wanted {
+        format!("NOT b.in_library, {by}")
+    } else {
+        by
     };
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
-    list(c, p, &w, order, limit, q.offset.unwrap_or(0))
+    list(c, p, wanted, &w, &order, limit, q.offset.unwrap_or(0))
 }
 
 /// Full details of one item, hidden or not. Children are the seasons of a show or the
@@ -300,10 +341,16 @@ pub fn item(c: &Connection, v: &dyn Volumes, id: Id) -> Result<ItemDetail> {
 /// `item` with the online sources already known; `children` false leaves the list empty.
 fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<ItemDetail> {
     let item = c
-        .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id = ?1"))?
-        .query_row([id], item_from_row)
+        .prepare_cached(&format!(
+            "SELECT {} FROM items i \
+             LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 WHERE i.id = ?1",
+            local_item_columns()
+        ))?
+        .query_row(params![id, lang::language(c)?], item_from_row)
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     let files = c
         .prepare_cached(&format!(
             "SELECT {FILE_COLUMNS} FROM files WHERE item_id = ?1 ORDER BY id"
@@ -326,11 +373,12 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         )?
         .query_row(params![json_ids(online), id], |r| r.get(0))?;
     let children = if children {
-        let mut p = Params::new(online);
+        let mut p = Params::new(c, online)?;
         let cond = format!("b.parent_id = {}", p.bind(id));
         list(
             c,
             p,
+            false,
             &[cond],
             "b.season IS NULL, b.season, b.episode IS NULL, b.episode, b.title COLLATE NOCASE, b.id",
             u32::MAX,
@@ -346,6 +394,7 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         },
         _ => None,
     };
+    let activity = activity::of_item(c, id)?.unwrap_or_default();
     Ok(ItemDetail {
         item,
         files,
@@ -353,35 +402,57 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         children,
         available,
         next_episode,
+        activity,
     })
 }
 
 pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Vec<ItemSummary>> {
     let online = online_sources(c, v)?;
     let limit = limit.min(MAX_LIMIT);
-    let (wheres, order) = match s {
+    let (wheres, order, wanted) = match s {
         Shelf::ContinueWatching => return continue_watching(c, &online, limit),
         Shelf::RecentlyAdded => (
-            vec![SHELF_KINDS],
+            vec![SHELF_KINDS.to_string()],
             // A show rises when an episode arrives.
             "(SELECT max(d.added_at) FROM tree t JOIN items d ON d.id = t.id \
-              WHERE t.root_id = b.id) DESC, b.id DESC",
+              WHERE t.root_id = b.id) DESC, b.id DESC"
+                .to_string(),
+            false,
         ),
         Shelf::Unwatched => (
             vec![
-                "b.kind = 'movie'",
+                "b.kind = 'movie'".to_string(),
+                "NOT b.watched".to_string(),
                 "NOT EXISTS (SELECT 1 FROM play_state q WHERE q.item_id = b.id \
-                 AND (q.watched = 1 OR q.position_s > 0))",
+                 AND q.position_s > 0)"
+                    .to_string(),
             ],
-            "b.added_at DESC, b.id DESC",
+            "b.added_at DESC, b.id DESC".to_string(),
+            false,
         ),
         Shelf::Loved => (
-            vec![SHELF_KINDS, "b.loved = 1"],
-            "b.added_at DESC, b.id DESC",
+            vec![SHELF_KINDS.to_string(), "b.loved = 1".to_string()],
+            "b.added_at DESC, b.id DESC".to_string(),
+            false,
+        ),
+        Shelf::Watchlist => (
+            vec![SHELF_KINDS.to_string(), on_watchlist_sql("b", "b.watched")],
+            format!(
+                "NOT b.in_library, {} DESC, b.id DESC",
+                watchlisted_on_sql("b")
+            ),
+            true,
         ),
     };
-    let wheres: Vec<String> = wheres.into_iter().map(String::from).collect();
-    list(c, Params::new(&online), &wheres, order, limit, 0)
+    list(
+        c,
+        Params::new(c, &online)?,
+        wanted,
+        &wheres,
+        &order,
+        limit,
+        0,
+    )
 }
 
 /// Films and episodes part-way through, plus the next unwatched episode of each show whose
@@ -444,7 +515,8 @@ pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> 
     let cond = "b.match_state = 'needsreview'".to_string();
     list(
         c,
-        Params::new(&online),
+        Params::new(c, &online)?,
+        false,
         &[cond],
         "b.added_at DESC, b.id DESC",
         u32::MAX,
@@ -500,28 +572,31 @@ pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
 /// (season 0) after the numbered seasons and episodes with no season last; with
 /// `unwatched_only`, the first one not yet watched.
 pub(crate) fn first_episode(c: &Connection, root: Id, unwatched_only: bool) -> Result<Option<Id>> {
-    Ok(c.prepare_cached(
+    Ok(c.prepare_cached(&format!(
         "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
              SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
          SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = 'episode' \
          LEFT JOIN play_state p ON p.item_id = e.id \
-         WHERE (?2 = 0 OR coalesce(p.watched, 0) = 0) \
+         WHERE (?2 = 0 OR NOT {}) \
            AND EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
          ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
-    )?
+        watched_sql("e", "p")
+    ))?
     .query_row(params![root, unwatched_only], |r| r.get(0))
     .optional()?)
 }
 
 /// Marks an item watched or not; on a show or season it applies to every episode below.
-/// Either way the stored position goes back to 0; marking watched creates a play state when
-/// there is none.
+/// It is the owner's choice, which wins over what any service says. Either way the stored
+/// position goes back to 0; marking watched creates a play state when there is none.
 pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     let kind: String = c
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
         .query_row([id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     let targets: Vec<Id> = if kind == "show" || kind == "season" {
         c.prepare_cached(
             "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
@@ -535,6 +610,8 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     };
     let tx = db::write_tx(c)?;
     for t in targets {
+        tx.prepare_cached("UPDATE items SET watched_choice = ?2 WHERE id = ?1")?
+            .execute(params![t, watched])?;
         if watched {
             tx.prepare_cached(
                 "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
@@ -553,12 +630,15 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     Ok(())
 }
 
+/// The owner's choice, which wins over what any service says.
 pub fn set_loved(c: &Connection, id: Id, loved: bool) -> Result<()> {
     let n = c
-        .prepare_cached("UPDATE items SET loved = ?2 WHERE id = ?1")?
+        .prepare_cached("UPDATE items SET loved_choice = ?2 WHERE id = ?1")?
         .execute(params![id, loved])?;
     if n == 0 {
-        return Err(Error::NotFound(format!("item {id}")));
+        return Err(Error::NotFound(
+            Detail::coded("item.not_found", format!("item {id}")).with("id", id),
+        ));
     }
     Ok(())
 }
@@ -607,7 +687,8 @@ pub fn set_taste_profile(c: &Connection, text: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::TechInfo;
+    use crate::filter::{Picture, Resolution, Seen, Sound};
+    use crate::model::{AudioTrack, SubTrack, TechInfo};
     use crate::volume::FakeVolumes;
     use tempfile::TempDir;
 
@@ -675,6 +756,15 @@ mod tests {
                 .unwrap();
         }
 
+        /// A movie with a file, identified as TMDB film `tmdb_id`.
+        fn movie_with_tmdb(&self, title: &str, tmdb_id: i64) -> Id {
+            let id = self.with_file(ItemKind::Movie, title, None);
+            self.exec(&format!(
+                "UPDATE items SET tmdb_id = {tmdb_id} WHERE id = {id}"
+            ));
+            id
+        }
+
         fn n(&self, table: &str) -> i64 {
             self.c
                 .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
@@ -723,6 +813,13 @@ mod tests {
                 .into_iter()
                 .map(|s| s.title)
                 .collect()
+        }
+
+        fn filter(&self, filters: Filters) -> Vec<String> {
+            self.search(&SearchQuery {
+                filters,
+                ..Default::default()
+            })
         }
 
         fn text(&self, t: &str) -> Vec<String> {
@@ -843,29 +940,84 @@ mod tests {
         let c = e.with_file(ItemKind::Movie, "C", None);
         e.exec(&format!(
             "UPDATE items SET year=1990, runtime_min=80, genres='[\"Drama\"]' WHERE id={a};\
-             UPDATE items SET year=2000, runtime_min=120, genres='[\"Comedy\",\"Drama\"]', loved=1 WHERE id={b};\
+             UPDATE items SET year=2000, runtime_min=120, genres='[\"Comedy\",\"Drama\"]', loved_choice=1 WHERE id={b};\
              UPDATE items SET year=2010, runtime_min=200 WHERE id={c};"
         ));
         // Probed files sort after the unprobed one only by id; the first with tech counts.
         e.file(e.src, c, Some(2160));
         e.file(e.src, a, Some(720));
         e.play(a, 0.0, 0.0, true, 1);
+        let d = e.with_file(ItemKind::Movie, "D", None);
+        e.exec(&format!(
+            "UPDATE items SET genres='[\"Comedy\"]' WHERE id={d}"
+        ));
+        e.play(d, 30.0, 100.0, false, 1);
         let q = |f: fn(&mut SearchQuery)| {
             let mut q = SearchQuery::default();
             f(&mut q);
             e.search(&q)
         };
-        assert_eq!(q(|q| q.genre = Some("drama".into())), ["A", "B"]);
-        assert_eq!(q(|q| q.year_min = Some(2000)), ["B", "C"]);
-        assert_eq!(q(|q| q.year_max = Some(2000)), ["A", "B"]);
-        assert_eq!(q(|q| q.runtime_max_min = Some(120)), ["A", "B"]);
-        assert_eq!(q(|q| q.watched = Some(true)), ["A"]);
-        assert_eq!(q(|q| q.watched = Some(false)), ["B", "C"]);
-        assert_eq!(q(|q| q.loved = Some(true)), ["B"]);
-        assert_eq!(q(|q| q.min_height = Some(1080)), ["C"]);
-        assert_eq!(q(|q| q.min_height = Some(720)), ["A", "C"]);
-        assert_eq!(q(|q| q.sort = Some(Sort::Year)), ["C", "B", "A"]);
-        assert_eq!(q(|q| q.sort = Some(Sort::Runtime)), ["A", "B", "C"]);
+        fn genres(g: &[&str]) -> Vec<String> {
+            g.iter().map(|s| s.to_string()).collect()
+        }
+        assert_eq!(q(|q| q.filters.genres = vec!["drama".into()]), ["A", "B"]);
+        assert_eq!(
+            q(|q| q.filters.genres = genres(&["Drama", "Comedy"])),
+            ["B"]
+        );
+        assert_eq!(
+            q(|q| {
+                q.filters.genres = genres(&["Drama", "Comedy"]);
+                q.filters.any_genre = true;
+            }),
+            ["A", "B", "D"]
+        );
+        assert_eq!(
+            q(|q| q.filters.without_genres = genres(&["Comedy"])),
+            ["A", "C"]
+        );
+        assert_eq!(q(|q| q.filters.year_min = Some(2000)), ["B", "C"]);
+        assert_eq!(
+            q(|q| {
+                q.filters.year_min = Some(1995);
+                q.filters.year_max = Some(2005);
+            }),
+            ["B"]
+        );
+        assert_eq!(q(|q| q.filters.runtime_max = Some(120)), ["A", "B"]);
+        assert_eq!(q(|q| q.filters.runtime_min = Some(120)), ["B", "C"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Watched]), ["A"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Started]), ["D"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Unwatched]), ["B", "C"]);
+        assert_eq!(
+            q(|q| q.filters.seen = vec![Seen::Unwatched, Seen::Started]),
+            ["B", "C", "D"]
+        );
+        assert_eq!(q(|q| q.filters.loved = Some(true)), ["B"]);
+        assert_eq!(q(|q| q.filters.resolution = vec![Resolution::Uhd]), ["C"]);
+        assert_eq!(
+            q(|q| q.filters.resolution = vec![Resolution::Uhd, Resolution::Hd]),
+            ["A", "C"]
+        );
+        // Works without the value sorted by come last, in either direction.
+        assert_eq!(q(|q| q.sort = Some(Sort::Year)), ["C", "B", "A", "D"]);
+        assert_eq!(
+            q(|q| {
+                q.sort = Some(Sort::Year);
+                q.descending = Some(false);
+            }),
+            ["A", "B", "C", "D"]
+        );
+        assert_eq!(q(|q| q.sort = Some(Sort::Runtime)), ["A", "B", "C", "D"]);
+        assert_eq!(
+            q(|q| {
+                q.sort = Some(Sort::Runtime);
+                q.descending = Some(true);
+            }),
+            ["C", "B", "A", "D"]
+        );
+        assert_eq!(q(|q| q.descending = Some(true)), ["D", "C", "B", "A"]);
+        assert_eq!(q(|q| q.sort = Some(Sort::Played)), ["A", "D", "B", "C"]);
         assert_eq!(
             q(|q| {
                 q.limit = Some(1);
@@ -873,6 +1025,180 @@ mod tests {
             }),
             ["B"]
         );
+    }
+
+    fn track(lang: &str, codec: &str, profile: Option<&str>, channels: u32) -> AudioTrack {
+        AudioTrack {
+            codec: codec.into(),
+            channels,
+            lang: Some(lang.into()),
+            profile: profile.map(Into::into),
+            ..Default::default()
+        }
+    }
+
+    fn subs(lang: &str) -> SubTrack {
+        SubTrack {
+            codec: "subrip".into(),
+            lang: Some(lang.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Three films and a show, each with what its files hold.
+    fn formats() -> Env {
+        let e = env();
+        let file = |item: Id,
+                    height: u32,
+                    hdr: Option<&str>,
+                    audio: Vec<AudioTrack>,
+                    subtitles: Vec<SubTrack>| {
+            let tech = serde_json::to_string(&TechInfo {
+                duration_s: 100.0,
+                width: height * 16 / 9,
+                height,
+                video_codec: "hevc".into(),
+                hdr: hdr.map(Into::into),
+                audio,
+                subtitles,
+            })
+            .unwrap();
+            e.c.execute(
+                "INSERT INTO files(source_id, rel_path, item_id, tech) VALUES (?1, ?2, ?3, ?4)",
+                params![e.src, format!("t{}.mkv", e.n("files")), item, tech],
+            )
+            .unwrap();
+        };
+        let dune = e.add(ItemKind::Movie, "Dune", None);
+        file(
+            dune,
+            2160,
+            Some("Dolby Vision"),
+            vec![track(
+                "eng",
+                "truehd",
+                Some("Dolby TrueHD + Dolby Atmos"),
+                8,
+            )],
+            vec![subs("spa")],
+        );
+        file(dune, 1080, None, vec![track("ger", "ac3", None, 6)], vec![]);
+        let heat = e.add(ItemKind::Movie, "Heat", None);
+        file(
+            heat,
+            1080,
+            None,
+            vec![
+                track("en", "dts", Some("DTS-HD MA + DTS:X"), 8),
+                track("spa", "ac3", None, 2),
+            ],
+            vec![subs("eng")],
+        );
+        let mut commentary = track("fre", "aac", None, 2);
+        commentary.commentary = true;
+        let old = e.add(ItemKind::Movie, "Old", None);
+        file(
+            old,
+            480,
+            Some("HLG"),
+            vec![track("eng", "aac", None, 2), commentary],
+            vec![],
+        );
+        let show = e.add(ItemKind::Show, "Show", None);
+        let season = e.add(ItemKind::Season, "", Some(show));
+        let ep = e.add(ItemKind::Episode, "", Some(season));
+        file(
+            ep,
+            2160,
+            Some("HDR10"),
+            vec![track("es-419", "flac", None, 2)],
+            vec![],
+        );
+        e
+    }
+
+    #[test]
+    fn technical_filters_match_any_file_beneath_a_work() {
+        let e = formats();
+        let q = |f: fn(&mut Filters)| {
+            let mut filters = Filters::default();
+            f(&mut filters);
+            e.filter(filters)
+        };
+        assert_eq!(
+            q(|f| f.resolution = vec![Resolution::Uhd]),
+            ["Dune", "Show"]
+        );
+        assert_eq!(
+            q(|f| f.resolution = vec![Resolution::FullHd]),
+            ["Dune", "Heat"]
+        );
+        assert_eq!(q(|f| f.resolution = vec![Resolution::Sd]), ["Old"]);
+        assert_eq!(q(|f| f.picture = vec![Picture::DolbyVision]), ["Dune"]);
+        assert_eq!(
+            q(|f| f.picture = vec![Picture::Hdr10, Picture::Hlg]),
+            ["Old", "Show"]
+        );
+        assert_eq!(q(|f| f.picture = vec![Picture::Sdr]), ["Dune", "Heat"]);
+        assert_eq!(q(|f| f.sound = vec![Sound::Atmos]), ["Dune"]);
+        assert_eq!(q(|f| f.sound = vec![Sound::DtsX]), ["Heat"]);
+        assert_eq!(
+            q(|f| f.sound = vec![Sound::Lossless]),
+            ["Dune", "Heat", "Show"]
+        );
+        assert_eq!(q(|f| f.sound = vec![Sound::Surround]), ["Dune", "Heat"]);
+        // "eng", "en" and "ENG" are one language; a commentary is not one the film is heard in.
+        assert_eq!(q(|f| f.audio = vec!["en".into()]), ["Dune", "Heat", "Old"]);
+        assert_eq!(
+            q(|f| f.audio = vec!["de".into(), "es-419".into()]),
+            ["Dune", "Show"]
+        );
+        assert!(q(|f| f.audio = vec!["fr".into()]).is_empty());
+        assert_eq!(q(|f| f.subtitles = vec!["es".into()]), ["Dune"]);
+        // Across facets every choice applies.
+        assert_eq!(
+            q(|f| {
+                f.resolution = vec![Resolution::FullHd];
+                f.audio = vec!["es".into()];
+            }),
+            ["Heat"]
+        );
+    }
+
+    #[test]
+    fn facets_list_what_a_listing_holds() {
+        let e = formats();
+        e.exec(
+            "UPDATE items SET year = 2021, runtime_min = 155, genres = '[\"Drama\",\"Science Fiction\"]' WHERE title = 'Dune';\
+             UPDATE items SET year = 1995, runtime_min = 170, genres = '[\"Drama\",\"Crime\"]' WHERE title = 'Heat';",
+        );
+        let f = filter::facets(&e.c, &e.v, Some(ItemKind::Movie)).unwrap();
+        let said = |list: &[filter::Count<String>]| {
+            list.iter()
+                .map(|c| format!("{} {}", c.value, c.count))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said(&f.genres), ["Drama 2", "Crime 1", "Science Fiction 1"]);
+        assert_eq!(
+            f.years
+                .iter()
+                .map(|c| (c.value, c.count))
+                .collect::<Vec<_>>(),
+            [(1995, 1), (2021, 1)]
+        );
+        assert_eq!(f.runtimes.len(), 2);
+        assert_eq!(said(&f.resolution), ["full_hd 2", "sd 1", "uhd 1"]);
+        assert_eq!(said(&f.picture), ["dolby_vision 1", "hlg 1", "sdr 2"]);
+        assert_eq!(
+            said(&f.sound),
+            ["atmos 1", "dts_x 1", "lossless 2", "surround 2"]
+        );
+        assert_eq!(said(&f.audio), ["en 3", "de 1", "es 1"]);
+        assert_eq!(said(&f.subtitles), ["en 1", "es 1"]);
+        // The show's facets are its episodes'.
+        let shows = filter::facets(&e.c, &e.v, Some(ItemKind::Show)).unwrap();
+        assert_eq!(said(&shows.audio), ["es-419 1"]);
+        assert_eq!(said(&shows.resolution), ["uhd 1"]);
     }
 
     #[test]
@@ -912,7 +1238,7 @@ mod tests {
         let both = e.with_file(ItemKind::Movie, "Both", None);
         e.file(99, both, None);
         let avail = |a| {
-            e.search(&SearchQuery {
+            e.filter(Filters {
                 available: Some(a),
                 ..Default::default()
             })
@@ -941,11 +1267,11 @@ mod tests {
         }
         assert!(e.summary(show).watched);
         assert_eq!(e.summary(show).progress, Some(1.0));
-        let watched = SearchQuery {
-            watched: Some(true),
+        let watched = Filters {
+            seen: vec![Seen::Watched],
             ..Default::default()
         };
-        assert_eq!(e.search(&watched), ["S"]);
+        assert_eq!(e.filter(watched), ["S"]);
         // A movie's progress is position over duration.
         let m = e.with_file(ItemKind::Movie, "M", None);
         e.play(m, 30.0, 120.0, false, 1);
@@ -1037,16 +1363,14 @@ mod tests {
             (e.summary(m).width, e.summary(m).height),
             (Some(3840), Some(1604))
         );
-        let q = |min_width, min_height| {
-            e.search(&SearchQuery {
-                min_width,
-                min_height,
+        let q = |r| {
+            e.filter(Filters {
+                resolution: vec![r],
                 ..Default::default()
             })
         };
-        assert_eq!(q(Some(3800), None), ["Wide"]);
-        assert!(q(None, Some(2160)).is_empty());
-        assert!(q(Some(3841), None).is_empty());
+        assert_eq!(q(Resolution::Uhd), ["Wide"]);
+        assert!(q(Resolution::FullHd).is_empty());
     }
 
     #[test]
@@ -1054,9 +1378,16 @@ mod tests {
         let q: SearchQuery = serde_json::from_str(r#"{"kind":"movie","sort":"year"}"#).unwrap();
         assert_eq!(q.kind, Some(ItemKind::Movie));
         assert_eq!(q.sort, Some(Sort::Year));
-        assert_eq!((q.text, q.limit, q.min_width), (None, None, None));
+        assert_eq!((q.text, q.limit, q.descending), (None, None, None));
+        let q: SearchQuery = serde_json::from_str(
+            r#"{"genres":["Drama"],"resolution":["full_hd"],"sound":["dts_x"]}"#,
+        )
+        .unwrap();
+        assert_eq!(q.filters.genres, ["Drama"]);
+        assert_eq!(q.filters.resolution, [Resolution::FullHd]);
+        assert_eq!(q.filters.sound, [Sound::DtsX]);
         let q: SearchQuery = serde_json::from_str("{}").unwrap();
-        assert_eq!(q.sort, None);
+        assert_eq!(q, SearchQuery::default());
         let shelf: Shelf = serde_json::from_str(r#""continue_watching""#).unwrap();
         assert_eq!(shelf, Shelf::ContinueWatching);
         assert_eq!(
@@ -1157,7 +1488,7 @@ mod tests {
         e.exec(&format!(
             "UPDATE items SET added_at=100 WHERE id={old};\
              UPDATE items SET added_at=300 WHERE id={new};\
-             UPDATE items SET added_at=200, loved=1 WHERE id={seen};\
+             UPDATE items SET added_at=200, loved_choice=1 WHERE id={seen};\
              UPDATE items SET added_at=150 WHERE id={show};\
              UPDATE items SET added_at=250 WHERE id={};",
             eps[1]
@@ -1166,7 +1497,7 @@ mod tests {
         // Other stays on its own wall, however new or loved.
         let clip = e.with_file(ItemKind::Other, "Holiday clip", None);
         e.exec(&format!(
-            "UPDATE items SET added_at=400, loved=1 WHERE id={clip}"
+            "UPDATE items SET added_at=400, loved_choice=1 WHERE id={clip}"
         ));
         // The show rises to the time of its newest episode and appears once.
         assert_eq!(
@@ -1287,6 +1618,420 @@ mod tests {
         assert_eq!(taste_profile(&e.c).unwrap(), "likes slow cinema");
     }
 
+    #[test]
+    fn a_service_watch_counts_and_the_owners_choice_wins() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        e.exec("INSERT INTO service_state(service) VALUES ('svc')");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact, on_day) \
+             VALUES ('svc', 'movie', 103, 'watch', 20000)",
+        );
+        assert!(e.summary(m).watched);
+        set_watched(&e.c, m, false).unwrap();
+        assert!(!e.summary(m).watched, "the choice wins");
+        e.exec("UPDATE service_state SET enabled = 0");
+        assert!(!e.summary(m).watched);
+        e.exec("UPDATE service_state SET enabled = 1");
+        assert!(!e.summary(m).watched, "still the choice");
+        set_watched(&e.c, m, true).unwrap();
+        assert!(e.summary(m).watched);
+    }
+
+    #[test]
+    fn a_service_like_lights_loved_until_the_owner_says_no() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        e.exec("INSERT INTO service_state(service) VALUES ('svc')");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact) \
+             VALUES ('svc', 'movie', 103, 'like')",
+        );
+        assert!(e.summary(m).loved);
+        assert!(item(&e.c, &e.v, m).unwrap().item.loved);
+        assert_eq!(e.shelf(Shelf::Loved), ["Taxi Driver"]);
+        set_loved(&e.c, m, false).unwrap();
+        assert!(!e.summary(m).loved, "the choice wins");
+        assert!(!item(&e.c, &e.v, m).unwrap().item.loved);
+        assert!(e.shelf(Shelf::Loved).is_empty());
+    }
+
+    #[test]
+    fn a_switched_off_service_counts_for_nothing() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        // A show sharing the film's TMDB id is another work.
+        let (show, _, _) = e.show("Show", 1);
+        e.exec(&format!("UPDATE items SET tmdb_id = 103 WHERE id = {show}"));
+        e.exec("INSERT INTO service_state(service, enabled) VALUES ('svc', 0)");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact) \
+             VALUES ('svc', 'movie', 103, 'watch'), ('svc', 'movie', 103, 'like')",
+        );
+        assert!(!e.summary(m).watched);
+        assert!(!e.summary(m).loved);
+        assert_eq!(e.shelf(Shelf::Unwatched), ["Taxi Driver"]);
+        e.exec("UPDATE service_state SET enabled = 1");
+        assert!(e.summary(m).watched);
+        assert!(e.shelf(Shelf::Unwatched).is_empty());
+        assert!(!e.summary(show).watched && !e.summary(show).loved);
+    }
+
+    #[test]
+    fn a_choice_on_an_episode_counts_in_its_show() {
+        let e = env();
+        let (show, season, eps) = e.show("S", 2);
+        set_watched(&e.c, eps[0], true).unwrap();
+        e.exec(&format!(
+            "DELETE FROM play_state; UPDATE items SET watched_choice = 1 WHERE id = {}",
+            eps[1]
+        ));
+        assert!(e.summary(show).watched);
+        assert!(e.summary(season).watched);
+        set_watched(&e.c, show, false).unwrap();
+        let choices: Vec<Option<i64>> = eps
+            .iter()
+            .map(|id| {
+                e.c.query_row(
+                    "SELECT watched_choice FROM items WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(choices, [Some(0), Some(0)]);
+        assert_eq!(e.summary(show).progress, Some(0.0));
+    }
+
+    impl Env {
+        fn service(&self, id: &str, enabled: bool) {
+            self.c
+                .execute(
+                    "INSERT INTO service_state(service, enabled) VALUES (?1, ?2)",
+                    params![id, enabled],
+                )
+                .unwrap();
+        }
+
+        fn fact(&self, service: &str, tmdb_id: i64, fact: &str, on_day: i64, value: &str) {
+            self.c
+                .execute(
+                    "INSERT INTO service_facts(service, kind, tmdb_id, fact, on_day, value) \
+                     VALUES (?1, 'movie', ?2, ?3, ?4, ?5)",
+                    params![service, tmdb_id, fact, on_day, value],
+                )
+                .unwrap();
+        }
+
+        /// A film on the owner's watchlist that has no file.
+        fn wanted(&self, title: &str, tmdb_id: i64) -> Id {
+            let id = self.add(ItemKind::Movie, title, None);
+            self.exec(&format!(
+                "UPDATE items SET tmdb_id = {tmdb_id}, wanted = 1 WHERE id = {id}"
+            ));
+            id
+        }
+
+        fn listed(&self, q: &SearchQuery) -> Vec<(String, bool)> {
+            search(&self.c, &self.v, q)
+                .unwrap()
+                .into_iter()
+                .map(|s| (s.title, s.in_library))
+                .collect()
+        }
+    }
+
+    fn owned(t: &str) -> (String, bool) {
+        (t.to_string(), true)
+    }
+
+    fn not_owned(t: &str) -> (String, bool) {
+        (t.to_string(), false)
+    }
+
+    #[test]
+    fn a_wanted_row_is_hidden_from_every_listing_unless_asked() {
+        let e = env();
+        e.service("svc", true);
+        let heat = e.movie_with_tmdb("Heat", 1);
+        let w = e.wanted("Alphaville", 2);
+        e.exec(&format!(
+            "UPDATE items SET year = 1965, match_state = 'needsreview' WHERE id = {w}; \
+             INSERT INTO play_log(item_id, started_at, ended_at, position_s) VALUES ({w}, 5, 6, 1)"
+        ));
+        e.fact("svc", 1, "watchlisted", 100, "{}");
+        e.fact("svc", 2, "watchlisted", 200, "{}");
+        assert_eq!(e.search(&SearchQuery::default()), ["Heat"]);
+        assert!(e.text("alphaville").is_empty());
+        assert_eq!(e.shelf(Shelf::Unwatched), ["Heat"]);
+        assert!(e.shelf(Shelf::Loved).is_empty());
+        let f = filter::facets(&e.c, &e.v, None).unwrap();
+        assert!(f.years.is_empty());
+        assert!(needs_review(&e.c, &e.v).unwrap().is_empty());
+        assert!(history(&e.c, &e.v, 10).unwrap().is_empty());
+        // The watchlist filter lists it after the owner's films; so does Ask.
+        let on_watchlist = SearchQuery {
+            filters: Filters {
+                watchlist: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            e.listed(&on_watchlist),
+            [owned("Heat"), not_owned("Alphaville")]
+        );
+        let ask = SearchQuery {
+            text: Some("alpha".into()),
+            with_wanted: true,
+            ..Default::default()
+        };
+        assert_eq!(e.listed(&ask), [not_owned("Alphaville")]);
+        let all = search(
+            &e.c,
+            &e.v,
+            &SearchQuery {
+                with_wanted: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(all.len(), 2);
+        let a = all.iter().find(|s| s.id == w).unwrap();
+        assert!(!a.in_library && !a.available);
+        assert!(
+            all.iter()
+                .any(|s| s.id == heat && s.in_library && s.available)
+        );
+        // Not in the library is not offline.
+        let offline = SearchQuery {
+            with_wanted: true,
+            filters: Filters {
+                available: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(e.listed(&offline).is_empty());
+        // A switched-off service's watchlist is not shown.
+        e.exec("UPDATE service_state SET enabled = 0");
+        assert!(e.listed(&ask).is_empty());
+        let q: SearchQuery =
+            serde_json::from_str(r#"{"with_wanted":true,"watchlist":true}"#).unwrap();
+        assert!(q.with_wanted);
+        assert_eq!(q.filters.watchlist, Some(true));
+    }
+
+    #[test]
+    fn activity_filters_and_my_rating_sort() {
+        let e = env();
+        e.service("svc", true);
+        e.service("other", true);
+        e.service("off", false);
+        e.movie_with_tmdb("Alien", 1);
+        e.movie_with_tmdb("Brazil", 2);
+        let c = e.movie_with_tmdb("Casablanca", 3);
+        // The newest rating counts; a switched-off service counts for nothing.
+        e.fact("other", 1, "rating", 100, r#"{"value":1.0,"scale":5}"#);
+        e.fact("svc", 1, "rating", 200, r#"{"value":4.5,"scale":5}"#);
+        e.fact("svc", 2, "rating", 100, r#"{"value":2,"scale":5}"#);
+        e.fact("off", 2, "rating", 300, r#"{"value":5,"scale":5}"#);
+        e.fact("off", 3, "rating", 300, r#"{"value":5,"scale":5}"#);
+        e.fact(
+            "svc",
+            1,
+            "review",
+            200,
+            r#"{"text":"Yes.","spoiler":false}"#,
+        );
+        e.fact("off", 2, "review", 200, r#"{"text":"No.","spoiler":false}"#);
+        e.fact("svc", 2, "watch", 100, r#"{"rewatch":false}"#);
+        // Exhibit's own play is not a log.
+        e.play(c, 0.0, 0.0, true, 50);
+        let q = |f: fn(&mut SearchQuery)| {
+            let mut q = SearchQuery::default();
+            f(&mut q);
+            e.search(&q)
+        };
+        assert_eq!(
+            q(|q| q.sort = Some(Sort::MyRating)),
+            ["Alien", "Brazil", "Casablanca"]
+        );
+        assert_eq!(
+            q(|q| {
+                q.sort = Some(Sort::MyRating);
+                q.descending = Some(false);
+            }),
+            ["Brazil", "Alien", "Casablanca"]
+        );
+        assert_eq!(q(|q| q.filters.rated = Some(true)), ["Alien", "Brazil"]);
+        assert_eq!(q(|q| q.filters.rated = Some(false)), ["Casablanca"]);
+        assert_eq!(q(|q| q.filters.reviewed = Some(true)), ["Alien"]);
+        assert_eq!(q(|q| q.filters.logged = Some(true)), ["Brazil"]);
+        assert_eq!(
+            q(|q| q.filters.logged = Some(false)),
+            ["Alien", "Casablanca"]
+        );
+        assert!(q(|q| q.filters.watchlist = Some(true)).is_empty());
+        assert_eq!(
+            serde_json::to_string(&Sort::MyRating).unwrap(),
+            r#""my_rating""#
+        );
+    }
+
+    #[test]
+    fn detail_lists_activity_newest_first_with_exhibits_own_watch() {
+        let e = env();
+        e.service("svc", true);
+        e.service("other", true);
+        e.service("off", false);
+        let m = e.movie_with_tmdb("Heat", 1);
+        e.fact("svc", 1, "watch", 100, r#"{"rewatch":false}"#);
+        e.fact("svc", 1, "watch", 300, r#"{"rewatch":true}"#);
+        e.fact("svc", 1, "watch", 0, r#"{"rewatch":false}"#);
+        e.fact("off", 1, "watch", 500, r#"{"rewatch":false}"#);
+        e.fact("svc", 1, "rating", 100, r#"{"value":4,"scale":5}"#);
+        e.fact("other", 1, "rating", 300, r#"{"value":3.5,"scale":5}"#);
+        e.fact(
+            "svc",
+            1,
+            "review",
+            300,
+            r#"{"text":"Long.","spoiler":true}"#,
+        );
+        e.fact("svc", 1, "like", 0, "{}");
+        e.fact("off", 1, "like", 0, "{}");
+        e.fact("svc", 1, "watchlisted", 50, "{}");
+        e.play(m, 0.0, 0.0, true, 200);
+        let a = item(&e.c, &e.v, m).unwrap().activity;
+        let watches: Vec<_> = a
+            .watches
+            .iter()
+            .map(|w| (w.service.as_str(), w.on, w.fact.rewatch))
+            .collect();
+        assert_eq!(
+            watches,
+            [
+                ("svc", Some(300), true),
+                (crate::service::EXHIBIT, Some(200), false),
+                ("svc", Some(100), false),
+                ("svc", None, false),
+            ]
+        );
+        let ratings: Vec<_> = a
+            .ratings
+            .iter()
+            .map(|r| (r.service.as_str(), r.on, r.fact.value, r.fact.scale))
+            .collect();
+        assert_eq!(
+            ratings,
+            [("other", Some(300), 3.5, 5.0), ("svc", Some(100), 4.0, 5.0)]
+        );
+        assert_eq!(a.reviews.len(), 1);
+        assert_eq!(
+            (a.reviews[0].fact.text.as_str(), a.reviews[0].fact.spoiler),
+            ("Long.", true)
+        );
+        assert_eq!(a.liked_by, ["svc"]);
+        assert_eq!(a.watchlisted_by, ["svc"]);
+        assert!(a.watched && a.loved);
+        assert_eq!((a.watched_choice, a.loved_choice), (None, None));
+        let json = serde_json::to_value(&a.ratings[0]).unwrap();
+        assert_eq!(
+            json,
+            serde_json::json!({"service":"other","on":300,"value":3.5,"scale":5.0})
+        );
+        set_loved(&e.c, m, false).unwrap();
+        let a = item(&e.c, &e.v, m).unwrap().activity;
+        assert_eq!(a.loved_choice, Some(false));
+        assert!(!a.loved);
+        // A work with nothing said about it has an empty activity.
+        let (show, _, eps) = e.show("S", 1);
+        let a = item(&e.c, &e.v, show).unwrap().activity;
+        assert!(a.watches.is_empty() && a.ratings.is_empty() && a.liked_by.is_empty());
+        assert!(!a.watched);
+        e.play(eps[0], 0.0, 0.0, true, 1);
+        assert!(item(&e.c, &e.v, show).unwrap().activity.watched);
+    }
+
+    #[test]
+    fn watchlist_shelf_puts_owned_first() {
+        let e = env();
+        e.service("svc", true);
+        e.service("off", false);
+        e.movie_with_tmdb("Alien", 1);
+        e.movie_with_tmdb("Brazil", 2);
+        e.movie_with_tmdb("Casablanca", 3);
+        e.movie_with_tmdb("Dune", 4);
+        e.movie_with_tmdb("Eraserhead", 5);
+        e.wanted("Fargo", 6);
+        e.wanted("Gattaca", 7);
+        e.fact("svc", 1, "watchlisted", 100, "{}");
+        e.fact("svc", 2, "watchlisted", 300, "{}");
+        // Watched is off the watchlist; so is what a switched-off service says.
+        e.fact("svc", 3, "watchlisted", 500, "{}");
+        e.fact("svc", 3, "watch", 600, r#"{"rewatch":false}"#);
+        e.fact("off", 5, "watchlisted", 500, "{}");
+        e.fact("svc", 6, "watchlisted", 200, "{}");
+        e.fact("svc", 7, "watchlisted", 400, "{}");
+        let got: Vec<_> = shelf(&e.c, &e.v, Shelf::Watchlist, 50)
+            .unwrap()
+            .into_iter()
+            .map(|s| (s.title, s.in_library))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                owned("Brazil"),
+                owned("Alien"),
+                not_owned("Gattaca"),
+                not_owned("Fargo")
+            ]
+        );
+        assert_eq!(
+            serde_json::to_string(&Shelf::Watchlist).unwrap(),
+            r#""watchlist""#
+        );
+    }
+
+    #[test]
+    fn facets_count_activity_only_for_enabled_services() {
+        let e = env();
+        e.service("svc", true);
+        e.service("off", false);
+        e.movie_with_tmdb("Alien", 1);
+        e.movie_with_tmdb("Brazil", 2);
+        e.movie_with_tmdb("Casablanca", 3);
+        e.wanted("Fargo", 6);
+        e.wanted("Gattaca", 7);
+        e.fact("svc", 1, "rating", 100, r#"{"value":4,"scale":5}"#);
+        e.fact("svc", 1, "review", 100, r#"{"text":"x","spoiler":false}"#);
+        e.fact("svc", 1, "watch", 100, r#"{"rewatch":false}"#);
+        e.fact("off", 2, "rating", 100, r#"{"value":4,"scale":5}"#);
+        e.fact("off", 2, "review", 100, r#"{"text":"x","spoiler":false}"#);
+        e.fact("off", 2, "watch", 100, r#"{"rewatch":false}"#);
+        e.fact("svc", 3, "watchlisted", 100, "{}");
+        e.fact("svc", 6, "watchlisted", 100, "{}");
+        e.fact("off", 7, "watchlisted", 100, "{}");
+        let counts = |kind| filter::facets(&e.c, &e.v, kind).unwrap().activity;
+        let want = filter::ActivityCounts {
+            rated: 1,
+            reviewed: 1,
+            logged: 1,
+            watchlist: 2,
+            not_in_library: 1,
+        };
+        assert_eq!(counts(None), want);
+        assert_eq!(counts(Some(ItemKind::Movie)), want);
+        assert_eq!(
+            counts(Some(ItemKind::Show)),
+            filter::ActivityCounts::default()
+        );
+        let json = serde_json::to_value(filter::facets(&e.c, &e.v, None).unwrap()).unwrap();
+        assert_eq!(json["activity"]["not_in_library"], 1);
+    }
+
     /// Run with `cargo test --release -p exhibit-core scale_5000_items -- --ignored --nocapture`.
     #[test]
     #[ignore]
@@ -1299,8 +2044,11 @@ mod tests {
             height: 1080,
             video_codec: "hevc".into(),
             hdr: None,
-            audio: vec![],
-            subtitles: vec![],
+            audio: vec![
+                track("eng", "dts", Some("DTS-HD MA"), 6),
+                track("spa", "ac3", None, 6),
+            ],
+            subtitles: vec![subs("eng"), subs("spa")],
         })
         .unwrap();
         let mut n = 0;
@@ -1389,6 +2137,48 @@ mod tests {
         for (i, &id) in first_eps.iter().enumerate() {
             play(id, 100.0, true, 1000 + i as i64);
         }
+        // A service with half the films rated, a fifth logged and reviewed, and a watchlist
+        // of 500 the owner has and 200 they do not.
+        tx.execute("INSERT INTO service_state(service) VALUES ('svc')", [])
+            .unwrap();
+        let fact = |tmdb: i64, fact: &str, day: i64, value: &str| {
+            tx.execute(
+                "INSERT INTO service_facts(service, kind, tmdb_id, fact, on_day, value) \
+                 VALUES ('svc', 'movie', ?1, ?2, ?3, ?4)",
+                params![tmdb, fact, day, value],
+            )
+            .unwrap();
+        };
+        for (i, &m) in movies.iter().enumerate() {
+            let tmdb = 10_000 + i as i64;
+            tx.execute(
+                "UPDATE items SET tmdb_id = ?2 WHERE id = ?1",
+                params![m, tmdb],
+            )
+            .unwrap();
+            let day = i as i64 * 86_400;
+            if i % 2 == 0 {
+                let rating = format!(r#"{{"value":{},"scale":5}}"#, (i % 10) as f32 / 2.0);
+                fact(tmdb, "rating", day, &rating);
+            }
+            if i % 5 == 0 {
+                fact(tmdb, "watch", day, r#"{"rewatch":false}"#);
+                fact(tmdb, "review", day, r#"{"text":"x","spoiler":false}"#);
+            }
+            if i % 8 == 1 {
+                fact(tmdb, "watchlisted", day, "{}");
+            }
+        }
+        for i in 0..200 {
+            let tmdb = 50_000 + i;
+            tx.execute(
+                "INSERT INTO items(kind, title, tmdb_id, match_state, added_at, wanted) \
+                 VALUES ('movie', ?1, ?2, 'matched', 0, 1)",
+                params![format!("Wanted {i}"), tmdb],
+            )
+            .unwrap();
+            fact(tmdb, "watchlisted", i, "{}");
+        }
         // Shows and seasons hold no file of their own, only their episodes do.
         tx.execute(
             "DELETE FROM files WHERE item_id IN (SELECT id FROM items WHERE kind IN (?1, ?2))",
@@ -1396,7 +2186,7 @@ mod tests {
         )
         .unwrap();
         tx.commit().unwrap();
-        assert_eq!(e.n("items"), 4000 + 50 * 23 + 300);
+        assert_eq!(e.n("items"), 4000 + 50 * 23 + 300 + 200);
 
         let time = |name: &str, f: &dyn Fn()| {
             let t = std::time::Instant::now();
@@ -1423,11 +2213,83 @@ mod tests {
             Shelf::RecentlyAdded,
             Shelf::Unwatched,
             Shelf::Loved,
+            Shelf::Watchlist,
         ] {
             time(&format!("shelf {s:?}"), &|| {
                 shelf(&e.c, &e.v, s, 50).unwrap();
             });
         }
+        time("search (your activity, by your rating)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    rated: Some(true),
+                    reviewed: Some(true),
+                    logged: Some(true),
+                    ..Default::default()
+                },
+                sort: Some(Sort::MyRating),
+                limit: Some(500),
+                ..Default::default()
+            };
+            assert_eq!(search(&e.c, &e.v, &q).unwrap().len(), 400);
+        });
+        time("search (on the watchlist, by your rating)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    watchlist: Some(true),
+                    ..Default::default()
+                },
+                sort: Some(Sort::MyRating),
+                limit: Some(500),
+                ..Default::default()
+            };
+            // 396 the owner has and has not watched, then the first of those they do not have.
+            let page = search(&e.c, &e.v, &q).unwrap();
+            assert_eq!(page.iter().filter(|s| s.in_library).count(), 396);
+            assert_eq!(page.len(), 500);
+        });
+        time("search (every filter, by year)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    genres: vec!["Drama".into()],
+                    without_genres: vec!["Horror".into()],
+                    year_min: Some(1995),
+                    seen: vec![Seen::Unwatched],
+                    resolution: vec![Resolution::FullHd],
+                    picture: vec![Picture::Sdr],
+                    sound: vec![Sound::Surround],
+                    audio: vec!["en".into()],
+                    subtitles: vec!["es".into()],
+                    rated: Some(true),
+                    reviewed: Some(false),
+                    logged: Some(false),
+                    watchlist: Some(false),
+                    ..Default::default()
+                },
+                sort: Some(Sort::Year),
+                limit: Some(500),
+                ..Default::default()
+            };
+            search(&e.c, &e.v, &q).unwrap();
+        });
+        time("search (audio language, all pages)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    audio: vec!["en".into()],
+                    ..Default::default()
+                },
+                limit: Some(500),
+                ..Default::default()
+            };
+            assert_eq!(search(&e.c, &e.v, &q).unwrap().len(), 500);
+        });
+        time("facets (movies)", &|| {
+            filter::facets(&e.c, &e.v, Some(ItemKind::Movie)).unwrap();
+        });
         time("item (show)", &|| {
             assert_eq!(item(&e.c, &e.v, a_show).unwrap().children.len(), 2);
         });

@@ -7,6 +7,7 @@ import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
 import { useNav } from "@/nav/stack";
 import { keyError } from "./Settings";
+import { t } from "@/i18n";
 
 let uninstall: () => void = () => {};
 
@@ -24,6 +25,8 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
     tmdb_key: false,
     agent_key: false,
     intro: true,
+    language: "en-US",
+    date_format: "auto",
     ...over,
   };
 }
@@ -95,7 +98,7 @@ test("opened for a missing mpv, Settings lands on the download, and a failure sa
     tauri.emit("tools-download", {
       running: false,
       step: null,
-      outcome: { kind: "failed", message: "provider error: could not reach GitHub (dns error: no such host); check the internet connection, then try again" },
+      outcome: { kind: "failed", error: { kind: "provider", code: "download.unreachable", params: {}, message: "provider error: could not reach GitHub" } },
     }),
   );
   await settle();
@@ -115,7 +118,7 @@ test("a path set by hand hands back to the download", async () => {
   await settle(120);
   const tools = document.querySelector('section[aria-label="Tools"]')!;
   expect(tools.textContent).toContain("Set by you, version 0.40.0");
-  expect(tools.textContent).toContain("Downloaded by Exhibit, version 8.0, built 11 November 2026");
+  expect(tools.textContent).toContain("Downloaded by Exhibit, version 8.0, built November 11, 2026");
   expect(button(tools, "Get the latest")).toBeDefined();
   await focusAndSelect("tool:mpv:clear");
   expect(calls("set_tool_path")).toEqual([{ tool: "mpv", path: null }]);
@@ -145,9 +148,8 @@ test("saving a TMDB key stores it, starts identifying, and clears the field", as
 });
 
 test("a rejected key says what to do here, not on the command line", () => {
-  expect(keyError("invalid: TMDB rejected the key; set a valid one with `exhibit key set tmdb`")).toBe(
-    "TMDB rejected the key. Check the key, then save it again.",
-  );
+  const rejected = { kind: "invalid" as const, code: "tmdb.key_rejected", params: {}, message: "invalid: …" };
+  expect(keyError(rejected, t)).toBe("TMDB rejected the key. Check the key, then save it again.");
 });
 
 test("the intro switch turns the intro off for the next launch", async () => {
@@ -171,4 +173,122 @@ test("Settings stands on the bare wall, and Back gives the screen beneath its ba
   await act(async () => void useNav.getState().back());
   await settle(120);
   expect(useBackdrop.getState()).toMatchObject({ image: "film-backdrop", poster: "film-poster" });
+});
+
+// Services
+
+const STATE = { service: "letterboxd", enabled: true, username: null as string | null, export_name: null, export_at: null as number | null, synced_at: null, error: null as string | null, unmatched: 0 };
+const service = (state: Partial<typeof STATE> = {}) => ({
+  id: "letterboxd",
+  name: "Letterboxd",
+  markSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>',
+  provides: ["activity"],
+  needs: ["username", "export_file"],
+  exportPage: "https://example.test/export",
+  state: { ...STATE, ...state },
+});
+const typeInto = (key: string, text: string) =>
+  act(async () => {
+    const field = document.querySelector<HTMLInputElement>(`[data-focus-key="${key}"]`)!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+const servicesPart = () => document.querySelector('section[aria-label="Services"]');
+
+test("services_part_shows_each_service_from_the_registry", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = servicesPart()!;
+  expect(part.textContent).toContain("Letterboxd");
+  expect(part.querySelector('[data-focus-key="service:letterboxd:enabled"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(button(part, "Bring in your whole history")).toBeDefined();
+});
+
+test("with_no_services_registered_the_part_is_absent", async () => {
+  tauri.handle("services", () => []);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(servicesPart()).toBeNull();
+  expect(document.querySelector('section[aria-label="TMDB key"]')).not.toBeNull();
+});
+
+test("saving_a_username_says_what_was_found", async () => {
+  tauri.handle("services", () => [service()]);
+  tauri.handle("connect_service", () => 12);
+  screens({ screen: "settings" });
+  await settle(120);
+  await focusAndSelect("service:letterboxd:username");
+  await typeInto("service:letterboxd:username", "ana");
+  await focusAndSelect("service:letterboxd:connect");
+  expect(calls("connect_service")).toEqual([{ id: "letterboxd", username: "ana" }]);
+  expect(servicesPart()!.textContent).toContain("Found @ana: 12 recent diary entries.");
+});
+
+test("a_found_export_is_offered_and_imported", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("find_service_export", () => ({ path: "C:\Downloads\export.zip", name: "export.zip", modified: 1 }));
+  tauri.handle("import_service_export", () => null);
+  tauri.handle("open_export_page", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(calls("find_service_export")).toEqual([]);
+  await focusAndSelect("service:letterboxd:history");
+  await settle(120);
+  await focusAndSelect("service:letterboxd:open");
+  expect(calls("open_export_page")).toEqual([{ id: "letterboxd" }]);
+  expect(servicesPart()!.textContent).toContain("Your Letterboxd export from today is in Downloads.");
+  await focusAndSelect("service:letterboxd:bring");
+  expect(calls("import_service_export")).toEqual([{ id: "letterboxd", path: "C:\Downloads\export.zip" }]);
+  expect(document.querySelector('[data-focus-key="service:letterboxd:bring"]')).toBeNull();
+});
+
+test("a_service_error_is_worded_from_its_code", async () => {
+  tauri.handle("services", () => [service({ username: "ana", error: "service.unreachable" })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(servicesPart()!.textContent).toContain("Exhibit could not reach the service.");
+});
+
+test("forgetting_asks_first", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("forget_service", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  await focusAndSelect("service:letterboxd:forget");
+  const dialog = document.querySelector('[data-focus-scope="confirm"]')!;
+  expect(dialog.textContent).toContain("in Exhibit only");
+  expect(calls("forget_service")).toEqual([]);
+  await act(async () => {
+    button(dialog, "Forget")!.click();
+  });
+  await settle();
+  expect(calls("forget_service")).toEqual([{ id: "letterboxd" }]);
+});
+
+test("an_import_report_leaves_out_what_is_zero", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("job_status", () => ({
+    phase: null,
+    done: 0,
+    last_error: null,
+    last_import: { logged: 49, rated: 40, reviewed: 1, liked: 0, watchlisted: 0, not_in_library: 0, unmatched: 0 },
+  }));
+  screens({ screen: "settings" });
+  await settle(160);
+  const text = servicesPart()!.textContent!;
+  expect(text).toContain("49 films logged, 40 rated, 1 review.");
+  expect(text).not.toContain("watchlist (");
+  expect(text).not.toContain("on your watchlist");
+});
+
+test("an_old_export_says_to_download_a_new_one", async () => {
+  const old = Math.floor(Date.now() / 1000) - 60 * 24 * 3600;
+  tauri.handle("services", () => [service({ username: "ana", export_at: old })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  const text = servicesPart()!.textContent!;
+  expect(text).toContain("Download a new export from Letterboxd");
+  expect(text).not.toContain("Watchlist from");
+  expect(calls("find_service_export")).toEqual([]);
 });

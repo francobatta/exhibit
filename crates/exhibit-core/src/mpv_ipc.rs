@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 
 /// Open mpv's IPC pipe (`\.\pipe\name`), retrying until it exists or `timeout` passes.
 #[cfg(windows)]
@@ -21,7 +21,10 @@ pub fn connect(pipe: &str, timeout: std::time::Duration) -> Result<std::fs::File
         {
             Ok(f) => return Ok(f),
             Err(e) if std::time::Instant::now() >= deadline => {
-                return Err(Error::Tool(format!("cannot connect to mpv at {pipe}: {e}")));
+                return Err(Error::Tool(Detail::coded(
+                    "tool.mpv_unreachable",
+                    format!("cannot connect to mpv at {pipe}: {e}"),
+                )));
             }
             Err(_) => std::thread::sleep(std::time::Duration::from_millis(50)),
         }
@@ -54,10 +57,13 @@ pub fn command(stream: &mut (impl Read + Write), args: Value) -> Result<Value> {
         }
         return match msg.get("error").and_then(Value::as_str) {
             Some("success") => Ok(msg.get("data").cloned().unwrap_or(Value::Null)),
-            other => Err(Error::Tool(format!(
-                "mpv: cannot run {args}: {}",
-                other.unwrap_or("no error field")
-            ))),
+            other => Err(Error::Tool(
+                format!(
+                    "mpv: cannot run {args}: {}",
+                    other.unwrap_or("no error field")
+                )
+                .into(),
+            )),
         };
     }
 }
@@ -95,7 +101,10 @@ fn read_line(stream: &mut impl Read) -> Result<String> {
     let mut b = [0u8; 1];
     loop {
         if stream.read(&mut b)? == 0 {
-            return Err(Error::Tool("mpv closed the connection".into()));
+            return Err(Error::Tool(Detail::coded(
+                "tool.mpv_unreachable",
+                "mpv closed the connection",
+            )));
         }
         if b[0] == b'\n' {
             return Ok(String::from_utf8_lossy(&line).into_owned());

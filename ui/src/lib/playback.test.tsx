@@ -1,7 +1,7 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, screens, select, settle } from "../../test/app";
-import { detail } from "../../test/fixtures";
+import { detail, mediaFile } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { SHOW, fakeShow } from "../../test/show";
 import { toast } from "@/components/ui/toast";
@@ -30,13 +30,18 @@ const ended = (p: Partial<PlayEnded>) =>
 
 function film() {
   tauri.handle("status", () => ({ movies: 1, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: true, agent_key: false }));
-  tauri.handle("item", () => detail({}, { id: 7 }));
+  tauri.handle("item", () => detail({ files: [mediaFile({ item_id: 7 })] }, { id: 7 }));
 }
 
 test("a missing player says so in a dialog, names the path tried, and offers Settings to the pad", async () => {
   film();
   tauri.handle("play", () => {
-    throw { kind: "tool", message: "tool error: mpv not found at C:\\mpv\\mpv.exe" };
+    throw {
+      kind: "tool",
+      code: "tool.missing_at",
+      params: { tool: "mpv", path: "C:\\mpv\\mpv.exe" },
+      message: "tool error: mpv not found at C:\\mpv\\mpv.exe",
+    };
   });
   screens({ screen: "details", id: 7 });
   await settle();
@@ -45,7 +50,7 @@ test("a missing player says so in a dialog, names the path tried, and offers Set
   expect(usePlayback.getState().playing).toBeNull();
   const dialog = document.querySelector('[role="dialog"]');
   expect(dialog?.textContent).toContain("mpv could not start");
-  expect(dialog?.textContent).toContain("mpv not found at C:\\mpv\\mpv.exe");
+  expect(dialog?.textContent).toContain("mpv was not found at C:\\mpv\\mpv.exe.");
   // Its first button has focus, a focus item like any other.
   expect(activeKey()).toBe("player-problem:0");
   expect(document.activeElement?.textContent).toBe("Open Settings");

@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::model::{Id, MediaFile, PlayState};
 use crate::rows::{FILE_COLUMNS, PLAY_STATE_COLUMNS, media_file_from_row, play_state_from_row};
 use crate::tools::{Tool, Tools};
@@ -99,7 +99,15 @@ pub fn play(
     let file = choose_file(c, v, id)?;
     let start = start_position(c, id, resume)?;
     let previous = outcome(id, play_state(c, id)?);
-    let cannot_start = |e| Error::Tool(format!("cannot start {}: {e}", player.display()));
+    let cannot_start = |e| {
+        Error::Tool(
+            Detail::coded(
+                "tool.cannot_start",
+                format!("cannot start {}: {e}", player.display()),
+            )
+            .with("path", player.display()),
+        )
+    };
     let is_mpv = player
         .file_name()
         .is_some_and(|n| n.to_string_lossy().to_lowercase().starts_with("mpv"));
@@ -121,7 +129,8 @@ pub fn play(
 }
 
 /// Saves one play session: the resume state (watched at `WATCHED_FRACTION`, which resets the
-/// position; an item already watched stays watched) and a `play_log` row ending now.
+/// position; an item already watched stays watched, and the owner's "not watched" is cleared)
+/// and a `play_log` row ending now.
 pub fn record(
     c: &Connection,
     item_id: Id,
@@ -133,7 +142,9 @@ pub fn record(
         .prepare_cached("SELECT 1 FROM items WHERE id = ?1")?
         .exists([item_id])?
     {
-        return Err(Error::NotFound(format!("item {item_id}")));
+        return Err(Error::NotFound(
+            Detail::coded("item.not_found", format!("item {item_id}")).with("id", item_id),
+        ));
     }
     let finished = duration_s > 0.0 && position_s / duration_s >= WATCHED_FRACTION;
     let now = db::now();
@@ -163,6 +174,13 @@ pub fn record(
         "INSERT INTO play_log(item_id, started_at, ended_at, position_s) VALUES (?1, ?2, ?3, ?4)",
     )?
     .execute(params![item_id, started_at, now, position_s])?;
+    if finished {
+        // Watching it to the end is a newer answer than having unmarked it.
+        tx.prepare_cached(
+            "UPDATE items SET watched_choice = NULL WHERE id = ?1 AND watched_choice = 0",
+        )?
+        .execute([item_id])?;
+    }
     tx.commit()?;
     Ok(PlayOutcome {
         item_id,
@@ -191,8 +209,10 @@ fn pipe_name() -> String {
 fn no_mpv(c: &Connection) -> Result<Error> {
     let key = Tool::Mpv.setting_key();
     Ok(Error::Tool(match db::get_setting(c, &key)? {
-        Some(p) => format!("mpv not found at {p}"),
-        None => "mpv not found on this PC".to_string(),
+        Some(p) => Detail::coded("tool.missing_at", format!("mpv not found at {p}"))
+            .with("tool", "mpv")
+            .with("path", p),
+        None => Detail::coded("tool.missing", "mpv not found on this PC").with("tool", "mpv"),
     }))
 }
 
@@ -217,14 +237,20 @@ fn target(c: &Connection, id: Id) -> Result<Id> {
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
         .query_row([id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     if kind != "show" && kind != "season" {
         return Ok(id);
     }
     match query::next_episode(c, id)? {
         Some(next) => Ok(next),
-        None => query::first_episode(c, id, false)?
-            .ok_or_else(|| Error::NotFound(format!("no episode with a file under item {id}"))),
+        None => query::first_episode(c, id, false)?.ok_or_else(|| {
+            Error::NotFound(Detail::coded(
+                "play.no_episode",
+                format!("no episode with a file under item {id}"),
+            ))
+        }),
     }
 }
 
@@ -255,8 +281,16 @@ fn choose_file(c: &Connection, v: &dyn Volumes, id: Id) -> Result<PathBuf> {
         .iter()
         .find_map(|f| source_of(f).filter(|s| !s.online))
     {
-        Some(s) => Err(Error::SourceOffline(s.path.display().to_string())),
-        None => Err(Error::NotFound(format!("no playable file for item {id}"))),
+        Some(s) => {
+            let path = s.path.display().to_string();
+            Err(Error::SourceOffline(
+                Detail::coded("source.offline", path.clone()).with("path", path),
+            ))
+        }
+        None => Err(Error::NotFound(Detail::coded(
+            "play.no_file",
+            format!("no playable file for item {id}"),
+        ))),
     }
 }
 
@@ -545,6 +579,16 @@ mod tests {
                 .ok()
         }
 
+        fn watched_choice(&self, id: Id) -> Option<bool> {
+            self.c
+                .query_row(
+                    "SELECT watched_choice FROM items WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        }
+
         fn log(&self) -> Vec<(Id, i64, i64, f64)> {
             let mut s = self
                 .c
@@ -603,6 +647,24 @@ mod tests {
         assert!(out.watched);
         assert!(e.state(id).unwrap().2);
         assert_eq!(e.log().len(), 1);
+    }
+
+    #[test]
+    fn record_to_the_end_clears_a_no_choice() {
+        let e = env();
+        let id = e.add(ItemKind::Movie, "Heat", None);
+        e.file(e.src, id, "heat.mkv", None, 1);
+        crate::query::set_watched(&e.c, id, false).unwrap();
+        record(&e.c, id, 1, 300.0, 6000.0).unwrap();
+        assert_eq!(
+            e.watched_choice(id),
+            Some(false),
+            "a part-way play keeps the no"
+        );
+        record(&e.c, id, 1, 5700.0, 6000.0).unwrap();
+        assert_eq!(e.watched_choice(id), None);
+        let shown = crate::query::search(&e.c, &e.v, &Default::default()).unwrap();
+        assert!(shown.iter().find(|s| s.id == id).unwrap().watched);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { detail, summary } from "../../test/fixtures";
-import { itemActions, runAction, type ActionContext } from "./actions";
+import { activity, detail, mediaFile, service, summary } from "../../test/fixtures";
+import { facetsOf, hasActivity, itemActions, mainAction, runAction, runMain, type ActionContext } from "./actions";
 
 const labels = (list: ReturnType<typeof itemActions>) => list.map((a) => a.label);
 
@@ -16,7 +16,7 @@ describe("itemActions", () => {
 
   test("a half-watched movie resumes from where it stopped, or starts again", () => {
     const list = itemActions(
-      detail({ play: { item_id: 1, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 } }),
+      detail({ files: [mediaFile()], play: { item_id: 1, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 } }),
     );
     expect(labels(list).slice(0, 2)).toEqual(["Resume from 1:04:12", "Play from the start"]);
     expect(list[0]!.id).toBe("resume");
@@ -68,7 +68,7 @@ describe("itemActions", () => {
 
   test("loved reads as Remove from loved", () => {
     expect(labels(itemActions(summary({ loved: true })))).toContain("Remove from loved");
-    expect(labels(itemActions(detail({}, { loved: true })))).toContain("Remove from loved");
+    expect(labels(itemActions(detail({ activity: activity({ loved: true }) })))).toContain("Remove from loved");
   });
 });
 
@@ -147,9 +147,55 @@ describe("runAction", () => {
   test("a failure is reported in plain words, not thrown", async () => {
     const ctx = context();
     ctx.play.mockImplementation(async () => {
-      throw { kind: "source_offline", message: "source_offline: D:\\ is not connected" };
+      throw { kind: "source_offline", code: "source.offline", params: { path: "D:\\" }, message: "source offline: D:\\" };
     });
     await runAction({ id: "play", label: "Play" }, summary(), ctx);
-    expect(ctx.fail).toHaveBeenCalledWith("D:\\ is not connected");
+    expect(ctx.fail).toHaveBeenCalledWith("The drive for D:\\ is not connected.");
+  });
+});
+
+describe("the merged state", () => {
+  test("a detail's eye and heart come from its activity, not its own play or record", () => {
+    const seen = facetsOf(detail({ activity: activity({ watched: true, loved: true }) }));
+    expect(seen.watched).toBe(true);
+    expect(seen.loved).toBe(true);
+    const bare = facetsOf(
+      detail({ play: { item_id: 1, position_s: 0, duration_s: 100, watched: true, last_played_at: 0 } }, { loved: true }),
+    );
+    expect(bare.watched).toBe(false);
+    expect(bare.loved).toBe(false);
+  });
+
+  test("a summary is already merged", () => {
+    expect(facetsOf(summary({ watched: true, loved: true }))).toMatchObject({ watched: true, loved: true });
+  });
+});
+
+describe("a film the owner does not have", () => {
+  test("a_wanted_film_opens_details_and_offers_no_play", () => {
+    const wanted = summary({ in_library: false, available: false });
+    expect(mainAction(wanted)).toEqual({ id: "details", label: "Details" });
+    const ids = itemActions(wanted).map((a) => a.id);
+    expect(ids).not.toContain("play");
+    expect(ids).not.toContain("other");
+    expect(mainAction(detail({ files: [], available: false }, { kind: "movie" })).id).toBe("details");
+    // A show keeps its files on its episodes: it is no wanted film.
+    expect(mainAction(detail({ files: [] }, { kind: "show" })).id).toBe("details");
+    expect(itemActions(detail({ files: [] }, { kind: "show" }))[0]!.id).toBe("play");
+    const ctx = context();
+    runMain(wanted, ctx);
+    expect(ctx.open).toHaveBeenCalledWith(wanted);
+    expect(ctx.failOffline).not.toHaveBeenCalled();
+  });
+});
+
+describe("hasActivity", () => {
+  test("needs a switched-on service that provides activity and has a username", () => {
+    expect(hasActivity([service()])).toBe(true);
+    expect(hasActivity([service({ enabled: false })])).toBe(false);
+    expect(hasActivity([service({ username: null })])).toBe(false);
+    expect(hasActivity([service({}, { provides: ["reception"] })])).toBe(false);
+    expect(hasActivity([])).toBe(false);
+    expect(hasActivity(undefined)).toBe(false);
   });
 });

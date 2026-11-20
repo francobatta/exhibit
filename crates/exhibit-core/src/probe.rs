@@ -19,7 +19,7 @@ use crate::volume::Volumes;
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn invalid(what: &str) -> Error {
-    Error::Tool(format!("unreadable probe output: {what}"))
+    Error::Tool(format!("unreadable probe output: {what}").into())
 }
 
 fn lang_of(v: &Value) -> Option<String> {
@@ -146,8 +146,9 @@ pub fn probe_pending(
             .collect::<rusqlite::Result<_>>()?;
         for (id, rel) in files {
             let path = join_rel(&root, &rel);
-            let tech = probe_file(tools, &path)
-                .and_then(|t| serde_json::to_string(&t).map_err(|e| Error::Tool(format!("{e}"))));
+            let tech = probe_file(tools, &path).and_then(|t| {
+                serde_json::to_string(&t).map_err(|e| Error::Tool(format!("{e}").into()))
+            });
             match tech {
                 Ok(_) => ok += 1,
                 Err(_) => failed += 1,
@@ -259,10 +260,9 @@ fn make_thumbnail(tools: &Tools, file: &Path, at_s: f64, dest: &Path) -> Result<
         if done && dest.is_file() {
             Ok(())
         } else {
-            Err(Error::Tool(format!(
-                "ffmpeg made no thumbnail for {}",
-                file.display()
-            )))
+            Err(Error::Tool(
+                format!("ffmpeg made no thumbnail for {}", file.display()).into(),
+            ))
         }
     } else if let Some(mpv) = &tools.mpv {
         mpv_thumbnail(mpv, file, at_s, dest)
@@ -302,10 +302,9 @@ fn mpv_thumbnail(mpv: &Path, file: &Path, at_s: f64, dest: &Path) -> Result<()> 
     let result = if done && made.is_file() {
         std::fs::rename(&made, dest).map_err(Error::from)
     } else {
-        Err(Error::Tool(format!(
-            "mpv made no thumbnail for {}",
-            file.display()
-        )))
+        Err(Error::Tool(
+            format!("mpv made no thumbnail for {}", file.display()).into(),
+        ))
     };
     let _ = std::fs::remove_dir_all(&dir);
     result

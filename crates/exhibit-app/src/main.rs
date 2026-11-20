@@ -5,6 +5,7 @@ mod downloads;
 mod error;
 mod folders;
 mod playback;
+mod services;
 mod state;
 #[cfg(test)]
 mod testlib;
@@ -46,6 +47,7 @@ fn main() {
             commands::boot,
             commands::status,
             commands::search,
+            commands::facets,
             commands::item,
             commands::shelf,
             commands::needs_review,
@@ -62,12 +64,22 @@ fn main() {
             commands::detect_tools,
             commands::set_tool_path,
             commands::set_intro,
+            commands::set_language,
+            commands::set_date_format,
             commands::download_tools,
             commands::tools_download_status,
             commands::set_secret,
             commands::refresh,
             commands::identify,
             commands::job_status,
+            services::services,
+            services::set_service_enabled,
+            services::connect_service,
+            services::forget_service,
+            services::import_service_export,
+            services::open_export_page,
+            services::find_service_export,
+            services::service_unmatched,
             commands::play,
             commands::window_fullscreen,
             commands::window_is_fullscreen,
@@ -80,6 +92,11 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let lib = Library::open_default()?;
     // Read before the page loads, so its first frame knows whether to play the intro.
     let intro = lib.intro()?;
+    // And in which language and date format to speak, so it never shows a word in another.
+    let locale = serde_json::json!({
+        "language": lib.language()?,
+        "dateFormat": lib.date_format()?,
+    });
     let image_dir = lib.image_dir();
     std::fs::create_dir_all(&image_dir)?;
     // Artwork is the only thing the page may load from disk.
@@ -91,6 +108,7 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let worker = WorkerHandle::spawn(handle, changed.clone());
     worker.enqueue(Job::Refresh(None));
     watch::spawn(worker.clone(), changed.clone());
+    services::spawn(worker.clone());
     app.manage(AppState {
         lib: Mutex::new(lib),
         worker,
@@ -103,7 +121,9 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Exhibit")
         .background_color(WALL)
-        .initialization_script(format!("window.__exhibitIntro = {intro};"))
+        .initialization_script(format!(
+            "window.__exhibitIntro = {intro}; window.__exhibitLocale = {locale};"
+        ))
         .min_inner_size(960.0, 540.0);
     let window = if windowed {
         window.inner_size(1600.0, 900.0).center()

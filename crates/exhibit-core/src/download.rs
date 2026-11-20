@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 
 /// shinchiro's latest release, as GitHub describes it.
 pub const LATEST: &str =
@@ -48,18 +48,26 @@ impl UreqFetch {
 
     fn get(&self, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
         let r = self.agent.get(url).call().map_err(|e| {
-            Error::Provider(format!(
-                "could not reach GitHub ({e}); check the internet connection, then try again"
+            Error::Provider(Detail::coded(
+                "download.unreachable",
+                format!(
+                    "could not reach GitHub ({e}); check the internet connection, then try again"
+                ),
             ))
         })?;
         match r.status().as_u16() {
             200 => Ok(r),
-            403 | 429 => Err(Error::Provider(
-                "GitHub is limiting downloads for now; try again in an hour".into(),
-            )),
-            s => Err(Error::Provider(format!(
-                "GitHub answered {s}; try again later"
+            403 | 429 => Err(Error::Provider(Detail::coded(
+                "download.rate_limited",
+                "GitHub is limiting downloads for now; try again in an hour",
             ))),
+            s => Err(Error::Provider(
+                Detail::coded(
+                    "download.http",
+                    format!("GitHub answered {s}; try again later"),
+                )
+                .with("status", s),
+            )),
         }
     }
 }
@@ -74,12 +82,18 @@ impl Fetch for UreqFetch {
     fn json(&self, url: &str) -> Result<Value> {
         let mut r = self.get(url)?;
         let text = r.body_mut().read_to_string().map_err(|e| {
-            Error::Provider(format!(
-                "the download stopped ({e}); check the internet connection, then try again"
+            Error::Provider(Detail::coded(
+                "download.interrupted",
+                format!(
+                    "the download stopped ({e}); check the internet connection, then try again"
+                ),
             ))
         })?;
         serde_json::from_str(&text).map_err(|_| {
-            Error::Provider("GitHub sent something unreadable; try again later".into())
+            Error::Provider(Detail::coded(
+                "download.unreadable",
+                "GitHub sent something unreadable; try again later",
+            ))
         })
     }
 
@@ -90,8 +104,11 @@ impl Fetch for UreqFetch {
         let mut done = 0u64;
         loop {
             let n = body.read(&mut buf).map_err(|e| {
-                Error::Provider(format!(
-                    "the download stopped ({e}); check the internet connection, then try again"
+                Error::Provider(Detail::coded(
+                    "download.interrupted",
+                    format!(
+                        "the download stopped ({e}); check the internet connection, then try again"
+                    ),
                 ))
             })?;
             if n == 0 {
@@ -174,9 +191,10 @@ pub struct Plan {
 pub fn plan(release: &Value, arch: &str) -> Result<Plan> {
     let tag = release["tag_name"].as_str().unwrap_or_default();
     if !Regex::new(r"^\d{8}$").unwrap().is_match(tag) {
-        return Err(Error::Provider(
-            "the latest mpv release has an unexpected name; try again in a day or two".into(),
-        ));
+        return Err(Error::Provider(Detail::coded(
+            "download.unexpected_release",
+            "the latest mpv release has an unexpected name; try again in a day or two",
+        )));
     }
     let a = regex::escape(arch);
     let pick = |pattern: String, what: &str| -> Result<Asset> {
@@ -198,9 +216,13 @@ pub fn plan(release: &Value, arch: &str) -> Result<Plan> {
                 })
             })
             .ok_or_else(|| {
-                Error::Provider(format!(
-                    "the latest release has no {what} for this PC ({arch}); try again in a day or two"
-                ))
+                Error::Provider(
+                    Detail::coded(
+                        "download.no_build",
+                        format!("the latest release has no {what} for this PC ({arch}); try again in a day or two"),
+                    )
+                    .with("tool", what),
+                )
             })
     };
     Ok(Plan {
@@ -270,7 +292,10 @@ pub fn download(
     on: &mut dyn FnMut(DownloadEvent),
 ) -> Result<DownloadReport> {
     let arch = arch().ok_or_else(|| {
-        Error::Invalid("downloading mpv and ffmpeg is only offered on Windows".into())
+        Error::Invalid(Detail::coded(
+            "download.windows_only",
+            "downloading mpv and ffmpeg is only offered on Windows",
+        ))
     })?;
     download_for(fetch, tools_dir, arch, on)
 }
@@ -343,9 +368,10 @@ fn fetch_and_unpack(
         std::fs::remove_file(archive)?;
     }
     if !complete(staging) {
-        return Err(Error::Provider(
-            "the download did not hold mpv and ffmpeg; try again in a day or two".into(),
-        ));
+        return Err(Error::Provider(Detail::coded(
+            "download.incomplete",
+            "the download did not hold mpv and ffmpeg; try again in a day or two",
+        )));
     }
     Ok(())
 }
@@ -379,7 +405,15 @@ fn fetch_one(fetch: &dyn Fetch, asset: &Asset, dest: &Path, on: &mut dyn FnMut(u
     };
     fetch.copy(&asset.url, &mut out, on)?;
     out.flush()?;
-    let damaged = || Error::Provider(format!("{} arrived damaged; try again", asset.name));
+    let damaged = || {
+        Error::Provider(
+            Detail::coded(
+                "download.damaged",
+                format!("{} arrived damaged; try again", asset.name),
+            )
+            .with("file", &asset.name),
+        )
+    };
     if out.written != asset.size {
         return Err(damaged());
     }
@@ -406,7 +440,10 @@ fn wanted(name: &str) -> bool {
 
 fn unpack(archive: &Path, into: &Path) -> Result<()> {
     let bad = |e: sevenz_rust2::Error| {
-        Error::Provider(format!("could not unpack the download ({e}); try again"))
+        Error::Provider(Detail::coded(
+            "download.unpack",
+            format!("could not unpack the download ({e}); try again"),
+        ))
     };
     let mut reader =
         sevenz_rust2::ArchiveReader::open(archive, sevenz_rust2::Password::empty()).map_err(bad)?;

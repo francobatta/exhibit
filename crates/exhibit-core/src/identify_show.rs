@@ -5,10 +5,11 @@
 //! provisional items deleted.
 
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::identify::{
     CandidatePosters, Counts, Fill, How, IdentifyReport, MAX_HITS, Pending, STILL_SIZE, absorb,
-    artwork, candidate, confirm, download, find_item, insert_item, set_review, sort_candidates,
+    artwork, candidate, confirm, download, find_item, insert_item, search_all, set_review,
+    sort_candidates,
 };
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
@@ -126,7 +127,7 @@ pub(crate) fn identify_group(
                 year: g.year,
                 duration_min: None,
             };
-            let hits = p.search_show(&g.title, g.year)?;
+            let hits = search_all(p, ItemKind::Show, &g.title, g.year)?;
             let mut scored: Vec<Candidate> = hits
                 .iter()
                 .take(MAX_HITS)
@@ -226,9 +227,15 @@ pub(crate) fn apply(
         .map(|rel| {
             let n = parse_path(rel);
             let e = n.episode.ok_or_else(|| {
-                Error::Invalid(format!(
-                    "cannot determine the episode of {rel}: its name has no episode number"
-                ))
+                Error::Invalid(
+                    Detail::coded(
+                        "match.no_episode_number",
+                        format!(
+                            "cannot determine the episode of {rel}: its name has no episode number"
+                        ),
+                    )
+                    .with("file", rel),
+                )
             })?;
             Ok((n.season.unwrap_or(1), e))
         })
@@ -236,17 +243,28 @@ pub(crate) fn apply(
     spots.sort();
     spots.dedup();
     let [(season, episode)] = spots[..] else {
-        return Err(Error::Invalid(format!(
-            "item {item_id} needs exactly one episode in its file names, found {}",
-            spots.len()
+        return Err(Error::Invalid(Detail::coded(
+            "match.several_episodes",
+            format!(
+                "item {item_id} needs exactly one episode in its file names, found {}",
+                spots.len()
+            ),
         )));
     };
     let show = fetch(p, show_id, std::iter::once(season))?;
     let Some(ep) = show.episode(season, episode) else {
-        return Err(Error::Invalid(format!(
-            "{} has no season {season} episode {episode}",
-            show.meta.title
-        )));
+        return Err(Error::Invalid(
+            Detail::coded(
+                "match.no_such_episode",
+                format!(
+                    "{} has no season {season} episode {episode}",
+                    show.meta.title
+                ),
+            )
+            .with("show", &show.meta.title)
+            .with("season", season)
+            .with("episode", episode),
+        ));
     };
     let art = show_artwork(c, p, cache_dir, &show)?;
     let still = still(p, cache_dir, show.meta.tmdb_id, season, ep);
@@ -283,6 +301,7 @@ impl ShowData {
             year: self.meta.year,
             score,
             poster,
+            titles: Default::default(),
         }
     }
 }
@@ -392,14 +411,11 @@ fn place(tx: &Connection, at: &Spot, how: How, added_at: i64, from: Id) -> Resul
     let season_id = match child(tx, show_item, ItemKind::Season, season)? {
         Some(id) => id,
         None => {
-            let title = match season {
-                0 => "Specials".to_string(),
-                n => format!("Season {n}"),
-            };
+            // Untitled: the window words a season from its number, in the owner's language.
             let fill = Fill {
                 parent_id: Some(show_item),
                 season: Some(season),
-                ..Fill::new(ItemKind::Season, &title)
+                ..Fill::new(ItemKind::Season, "")
             };
             insert_item(tx, &fill, how, added_at)?
         }
@@ -412,12 +428,6 @@ fn place(tx: &Connection, at: &Spot, how: How, added_at: i64, from: Id) -> Resul
             id
         }
         None => {
-            let fallback = format!("Episode {}", ep.episode);
-            let title = if ep.title.is_empty() {
-                &fallback
-            } else {
-                &ep.title
-            };
             let fill = Fill {
                 parent_id: Some(season_id),
                 season: Some(season),
@@ -425,7 +435,8 @@ fn place(tx: &Connection, at: &Spot, how: How, added_at: i64, from: Id) -> Resul
                 overview: &ep.overview,
                 runtime_min: ep.runtime_min,
                 backdrop: at.still.clone(),
-                ..Fill::new(ItemKind::Episode, title)
+                // Empty when TMDB has no title: the window words it from its number.
+                ..Fill::new(ItemKind::Episode, &ep.title)
             };
             insert_item(tx, &fill, how, added_at)?
         }

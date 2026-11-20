@@ -37,6 +37,7 @@ import {
   liveGroups,
   markEdge,
   menuButton,
+  refreshFocused,
   registerGroup,
   registerItem,
   registerScope,
@@ -252,8 +253,12 @@ export interface FocusItemOptions {
   onBack?: () => void;
   /** Can be focused but not selected. */
   disabled?: boolean;
-  /** What A does, for the pad hints ("Type"); default "Open". */
+  /** What A does, for the hints ("Type"); default "Select". */
   hint?: string;
+  /** What Left and Right do to the item's value, for the hints; the item handles those keys itself. */
+  adjust?: string;
+  /** What LB and RB (`[`, `]`) do to it, for the hints. */
+  leap?: string;
 }
 
 export interface FocusItemProps<T extends HTMLElement> {
@@ -294,6 +299,10 @@ export function useFocusItem<T extends HTMLElement = HTMLElement>(options: Focus
     () => group.instance.get() as { stop: string | null },
   );
   const [focused, setFocused] = useState(false);
+  // What A does can change under focus (a sort pressed turns round): the hints follow.
+  useEffect(() => {
+    if (focused) refreshFocused();
+  }, [focused, options.hint, options.adjust, options.leap, options.disabled]);
 
   // Stable, or React would unbind and rebind the item on every render.
   const ref = useCallback(
@@ -312,6 +321,8 @@ export function useFocusItem<T extends HTMLElement = HTMLElement>(options: Focus
             onBack: o.onBack,
             disabled: o.disabled,
             hint: o.hint,
+            adjust: o.adjust,
+            leap: o.leap,
           };
         }),
       ];
@@ -374,6 +385,8 @@ export interface FocusScopeProps {
   onAsk?: () => void;
   /** A modal's pad Menu button; without it, that button does nothing while the modal is on top. */
   onDone?: () => void;
+  /** The modal draws its own hint line, so the app's hides while it is on top. */
+  ownHints?: boolean;
   /** False while the scope sits under another screen; becoming true restores `restoreKey`. Default true. */
   active?: boolean;
   /** Hears each item focused inside the scope; a screen passes it to the navigation stack. */
@@ -459,6 +472,9 @@ export function FocusScope({
       },
       get onDone() {
         return latest.current.onDone;
+      },
+      get ownHints() {
+        return latest.current.ownHints;
       },
       get onFocusKey() {
         return latest.current.onFocusKey;

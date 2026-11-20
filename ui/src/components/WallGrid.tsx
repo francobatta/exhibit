@@ -91,6 +91,8 @@ export interface WallGridProps {
   shape: WorkShape;
   /** A, Enter or a click on a work. */
   onOpen: (item: ItemSummary) => void;
+  /** What A does on a work, for the hints ("Play", "Choose"). Default "Select". */
+  hintOf?: (item: ItemSummary) => string;
   /** Every work that takes focus, from any device. */
   onFocusItem?: (item: ItemSummary) => void;
   /** X, `m` or right-click on a work. Default: the item menu. */
@@ -147,6 +149,7 @@ interface WallContext {
   light: string;
   open: (item: ItemSummary) => void;
   menu: (item: ItemSummary, anchor: HTMLElement | null) => void;
+  hint: (item: ItemSummary) => string | undefined;
   /** The screen's Back for works now, read on each press. */
   back: () => (() => void) | undefined;
   focused: (index: number) => void;
@@ -198,6 +201,7 @@ const WallCell = memo(function WallCell({ item, index, selected }: CellProps) {
           onSelect: () => latest.current.open(item),
           onMenu: () => latest.current.menu(item, node.current),
           onBack: latest.current.back(),
+          hint: latest.current.hint(item),
         })),
       ];
       return () => {
@@ -271,6 +275,7 @@ export function WallGrid({
   columns,
   shape,
   onOpen,
+  hintOf,
   onFocusItem,
   onMenu = openItemMenu,
   onBack,
@@ -283,9 +288,9 @@ export function WallGrid({
   const { slots, titles } = useMemo(() => wallLayout(items.length, columns, headings), [items.length, columns, headings]);
   const rows = Math.ceil(slots.length / columns);
   const root = useRef<HTMLDivElement>(null);
-  const latest = useRef({ items, slots, onOpen, onFocusItem, onMenu, onBack, onEdge, columns });
+  const latest = useRef({ items, slots, onOpen, hintOf, onFocusItem, onMenu, onBack, onEdge, columns });
   useLayoutEffect(() => {
-    latest.current = { items, slots, onOpen, onFocusItem, onMenu, onBack, onEdge, columns };
+    latest.current = { items, slots, onOpen, hintOf, onFocusItem, onMenu, onBack, onEdge, columns };
   });
   const visited = useRef(false);
 
@@ -432,10 +437,11 @@ export function WallGrid({
   const open = useCallback((item: ItemSummary) => latest.current.onOpen(item), []);
   const menu = useCallback((item: ItemSummary, anchor: HTMLElement | null) => latest.current.onMenu(item, anchor), []);
   const back = useCallback(() => latest.current.onBack, []);
+  const hint = useCallback((item: ItemSummary) => latest.current.hintOf?.(item), []);
 
   const ctx = useMemo<WallContext>(
-    () => ({ handle, cols: columns, slots, shape, light, open, menu, back, focused }),
-    [handle, columns, slots, shape, light, open, menu, back, focused],
+    () => ({ handle, cols: columns, slots, shape, light, open, menu, hint, back, focused }),
+    [handle, columns, slots, shape, light, open, menu, hint, back, focused],
   );
 
   const part = usePart(

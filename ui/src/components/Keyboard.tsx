@@ -9,9 +9,10 @@
 import { motion } from "motion/react";
 import { useLayoutEffect, useRef, useState } from "react";
 import { FocusGroup, FocusScope, useFocusItem, type GroupMove } from "@/focus/react";
+import { language, t, useT, type Language } from "@/i18n";
 import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { HintLine } from "./Hints";
+import { HintLine, type Hint } from "./Hints";
 
 type Page = "letters" | "symbols";
 
@@ -20,6 +21,17 @@ const ROWS: Record<Page, string[]> = {
   letters: ["1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.-"],
   symbols: ["1234567890", "!@#$%&*()_", "+=/\\:;\"?<>", "[]{}~`^|€£"],
 };
+
+/**
+ * In Spanish, ñ takes the apostrophe's place among the letters, and the symbols page opens with
+ * the accented letters and the opening marks (the digits are on the letters page already).
+ */
+const SPANISH: Record<Page, string[]> = {
+  letters: ["1234567890", "qwertyuiop", "asdfghjklñ", "zxcvbnm,.-"],
+  symbols: ["áéíóúüñ¿¡'", "!@#$%&*()_", "+=/\\:;\"?<>", "[]{}~`^|€£"],
+};
+
+const rowsOf = (lang: Language): Record<Page, string[]> => (lang.startsWith("es") ? SPANISH : ROWS);
 
 type Act = { type: "char"; char: string } | { type: "space" | "delete" | "page" | "done" };
 
@@ -35,18 +47,19 @@ interface KeyDef {
 
 const covers = (def: KeyDef, col: number) => col >= def.col && col < def.col + def.span;
 
-function keysOf(page: Page): KeyDef[][] {
-  const chars = ROWS[page].map((row, r) =>
+function keysOf(page: Page, lang: Language): KeyDef[][] {
+  const rows = rowsOf(lang)[page];
+  const chars = rows.map((row, r) =>
     [...row].map((char, c) => ({ key: `key:${r}:${c}`, label: char, col: c, span: 1, act: { type: "char", char } as Act })),
   );
-  const r = ROWS[page].length;
+  const r = rows.length;
   return [
     ...chars,
     [
-      { key: `key:${r}:0`, label: page === "letters" ? "Symbols" : "Letters", col: 0, span: 2, act: { type: "page" } },
-      { key: `key:${r}:2`, label: "Space", col: 2, span: 4, act: { type: "space" } },
-      { key: `key:${r}:6`, label: "Delete", col: 6, span: 2, act: { type: "delete" } },
-      { key: `key:${r}:8`, label: "Done", col: 8, span: 2, act: { type: "done" } },
+      { key: `key:${r}:0`, label: page === "letters" ? t("keyboard.symbols") : t("keyboard.letters"), col: 0, span: 2, act: { type: "page" } },
+      { key: `key:${r}:2`, label: t("keyboard.space"), col: 2, span: 4, act: { type: "space" } },
+      { key: `key:${r}:6`, label: t("keyboard.delete"), col: 6, span: 2, act: { type: "delete" } },
+      { key: `key:${r}:8`, label: t("common.done"), col: 8, span: 2, act: { type: "done" } },
     ],
   ];
 }
@@ -83,12 +96,12 @@ export function gridMove(rows: KeyDef[][], from: string, key: string, col: numbe
 /** Where focus lands as the keyboard opens: the first letter. */
 const FIRST = "key:1:0";
 
-const HINTS: Array<[string, string]> = [
-  ["A", "Type"],
-  ["X", "Delete"],
-  ["Y", "Space"],
-  ["Menu", "Done"],
-  ["B", "Close"],
+const keyboardHints = (): Hint[] => [
+  { action: "select", label: t("keyboard.type") },
+  { action: "menu", label: t("keyboard.delete") },
+  { action: "ask", label: t("keyboard.space") },
+  { action: "done", label: t("common.done") },
+  { action: "back", label: t("keyboard.close") },
 ];
 
 function Key({ def, onPress, onFocused }: { def: KeyDef; onPress: (act: Act) => void; onFocused: (def: KeyDef) => void }) {
@@ -141,8 +154,9 @@ export interface KeyboardProps {
 }
 
 export function Keyboard({ open, label, value, onChange, onDone, onClose, secret = false }: KeyboardProps) {
+  const t = useT();
   const [page, setPage] = useState<Page>("letters");
-  const rows = keysOf(page);
+  const rows = keysOf(page, language());
   // The column Up and Down keep to: where the owner last moved along a row.
   const column = useRef(0);
   const onFocused = (def: KeyDef) => {
@@ -186,12 +200,13 @@ export function Keyboard({ open, label, value, onChange, onDone, onClose, secret
       id="keyboard"
       modal
       open={open}
-      label={`Keyboard, ${label}`}
+      label={t("keyboard.label", { label })}
       restoreKey={FIRST}
       onBack={onClose}
       onMenu={() => press({ type: "delete" })}
       onAsk={() => press({ type: "space" })}
       onDone={onDone}
+      ownHints
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-7 border-t border-line bg-wall px-edge pt-10 pb-8 outline-none",
         "transition-[opacity,translate] duration-(--dur-screen) ease-out",
@@ -216,14 +231,14 @@ export function Keyboard({ open, label, value, onChange, onDone, onClose, secret
         id="keyboard-keys"
         orientation="horizontal"
         move={move}
-        aria-label="Keys"
+        aria-label={t("keyboard.keys")}
         className="grid w-(--keyboard-width) grid-cols-10 gap-(--key-gap)"
       >
         {rows.flat().map((def) => (
           <Key key={def.key} def={def} onPress={press} onFocused={onFocused} />
         ))}
       </FocusGroup>
-      <HintLine pairs={HINTS} className="self-end" />
+      <HintLine hints={keyboardHints()} className="self-end" />
     </FocusScope>
   );
 }

@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,10 +8,12 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_init.sql"),
     include_str!("migrations/002_drop_ffprobe.sql"),
     include_str!("migrations/003_reprobe_tracks.sql"),
+    include_str!("migrations/004_languages.sql"),
+    include_str!("migrations/005_services.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
-/// The uninstaller removes `%APPDATA%\exhibit` (`crates/exhibit-app/installer-hooks.nsh`).
+/// The uninstaller and a clean install remove `%APPDATA%\exhibit` (`crates/exhibit-app/installer-hooks.nsh`).
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("EXHIBIT_DATA_DIR") {
         return PathBuf::from(d);
@@ -35,6 +37,7 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
     let c = Connection::open(data_dir.join("exhibit.db"))?;
     c.busy_timeout(std::time::Duration::from_millis(5000))?;
     c.pragma_update(None, "foreign_keys", "ON")?;
+    crate::filter::register(&c)?;
     use_wal(&c)?;
     migrate(&c)?;
     Ok(c)
@@ -44,9 +47,12 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
 fn use_wal(c: &Connection) -> Result<()> {
     let mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
     if !mode.eq_ignore_ascii_case("wal") {
-        return Err(Error::Invalid(format!(
-            "the database folder does not support SQLite WAL mode (got journal mode {mode}); \
+        return Err(Error::Invalid(Detail::coded(
+            "library.no_wal",
+            format!(
+                "the database folder does not support SQLite WAL mode (got journal mode {mode}); \
              set EXHIBIT_DATA_DIR to a folder on a local drive"
+            ),
         )));
     }
     Ok(())
@@ -165,6 +171,33 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn loved_becomes_the_owners_choice() {
+        let d = tempfile::tempdir().unwrap();
+        {
+            let c = Connection::open(d.path().join("exhibit.db")).unwrap();
+            for sql in &MIGRATIONS[..4] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 4).unwrap();
+            c.execute_batch(
+                "INSERT INTO items(id, kind, title, loved) VALUES (1, 'movie', 'A', 1), (2, 'movie', 'B', 0)",
+            )
+            .unwrap();
+        }
+        let c = open(d.path()).unwrap();
+        let mut s = c
+            .prepare("SELECT loved_choice, wanted FROM items ORDER BY id")
+            .unwrap();
+        let rows: Vec<(Option<i64>, i64)> = s
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(rows, [(Some(1), 0), (None, 0)]);
+        assert!(c.prepare("SELECT loved FROM items").is_err());
     }
 
     #[test]

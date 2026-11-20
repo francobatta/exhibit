@@ -1,9 +1,12 @@
+pub(crate) mod activity;
 pub mod cast;
 pub mod db;
 pub mod download;
 pub mod error;
+pub mod filter;
 pub mod identify;
 mod identify_show;
+pub mod lang;
 pub mod library;
 pub mod matcher;
 pub mod model;
@@ -16,8 +19,11 @@ pub mod query;
 mod rows;
 pub mod scan;
 pub mod secrets;
+pub mod service;
+pub mod sync;
 pub mod tmdb;
 pub mod tools;
+pub mod translate;
 pub mod volume;
 
 pub use error::{Error, Result};

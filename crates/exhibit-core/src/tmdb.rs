@@ -1,7 +1,8 @@
 //! TMDB (API v3) metadata provider over a swappable HTTP layer. The stored credential is
 //! either a v3 key or a v4 read token.
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
+use crate::lang;
 use crate::model::{ItemKind, Person};
 use crate::nfo::ExternalId;
 use serde_json::Value;
@@ -21,6 +22,8 @@ pub struct SearchHit {
     pub popularity: f32,
     /// TMDB's poster path, for `image()`.
     pub poster: Option<String>,
+    /// Its title in each language that found it, when it was searched in several.
+    pub titles: Vec<(&'static str, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -66,14 +69,38 @@ pub struct SeasonMeta {
     pub episodes: Vec<EpisodeMeta>,
 }
 
+/// TMDB as identification sees it. Details (`movie`, `show`, `season`) come in English, the
+/// library's base language; searches and `texts` in the language asked for.
 pub trait MetadataProvider {
-    fn search_movie(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>>;
-    fn search_show(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>>;
+    fn search_movie(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>>;
+    fn search_show(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>>;
     fn find_external(&self, id: &ExternalId) -> Result<Option<SearchHit>>;
     fn movie(&self, tmdb_id: i64) -> Result<MovieMeta>;
     fn show(&self, tmdb_id: i64) -> Result<ShowMeta>;
     fn season(&self, show_id: i64, season: i32) -> Result<SeasonMeta>;
     fn image(&self, path: &str, size: &str) -> Result<Vec<u8>>;
+    /// The title, overview and genres of movie or show `tmdb_id` in `lang`, empty where TMDB
+    /// has no translation, and its poster only when one is tagged with that language.
+    fn texts(&self, kind: ItemKind, tmdb_id: i64, lang: &str) -> Result<Texts>;
+    /// A season's episode titles and overviews in `lang`, and its poster in that language.
+    fn season_texts(&self, show_id: i64, season: i32, lang: &str) -> Result<SeasonTexts>;
+}
+
+/// A work's text in one language. Empty strings are gaps TMDB has not translated.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Texts {
+    pub title: String,
+    pub overview: String,
+    pub genres: Vec<String>,
+    /// TMDB's poster path, only when the poster is in this language.
+    pub poster: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SeasonTexts {
+    pub poster: Option<String>,
+    /// (episode number, title, overview)
+    pub episodes: Vec<(i32, String, String)>,
 }
 
 pub trait Http {
@@ -103,10 +130,14 @@ impl<H: Http> Tmdb<H> {
 
     /// A key starting with `eyJ` is a v4 read token (a JWT, sent as Bearer); anything else is
     /// a v3 key, sent as the `api_key` query parameter.
+    ///
+    /// Every call names its language: `lang` in `params`, or else English, the base.
     fn json(&self, path: &str, params: &[(&str, &str)]) -> Result<Value> {
         let mut url = format!("{API}{path}");
         let mut sep = '?';
-        for (k, v) in params {
+        let base = [("language", lang::BASE)];
+        let named = params.iter().any(|(k, _)| *k == "language");
+        for (k, v) in params.iter().chain(base.iter().filter(|_| !named)) {
             url.push_str(&format!("{sep}{k}={}", encode(v)));
             sep = '&';
         }
@@ -115,8 +146,12 @@ impl<H: Http> Tmdb<H> {
             url.push_str(&format!("{sep}api_key={}", encode(&self.key)));
         }
         let body = self.fetch(&url, bearer.then_some(self.key.as_str()))?;
-        serde_json::from_slice(&body)
-            .map_err(|e| Error::Provider(format!("invalid JSON from TMDB: {e}")))
+        serde_json::from_slice(&body).map_err(|e| {
+            Error::Provider(Detail::coded(
+                "tmdb.unreadable",
+                format!("invalid JSON from TMDB: {e}"),
+            ))
+        })
     }
 
     /// The body of a 200 response. 404 is `NotFound`, 401 and 403 are `Invalid`
@@ -125,13 +160,21 @@ impl<H: Http> Tmdb<H> {
         let (status, body) = self.http.get(url, bearer).map_err(|e| self.redact(e))?;
         match status {
             200 => Ok(body),
-            401 | 403 => Err(Error::Invalid(KEY_REJECTED.into())),
-            // The path alone: the query may hold the key.
-            404 => Err(Error::NotFound(format!(
-                "TMDB has nothing at {}",
-                url.split('?').next().unwrap_or_default()
+            401 | 403 => Err(Error::Invalid(Detail::coded(
+                "tmdb.key_rejected",
+                KEY_REJECTED,
             ))),
-            s => Err(Error::Provider(format!("HTTP {s}"))),
+            // The path alone: the query may hold the key.
+            404 => Err(Error::NotFound(
+                format!(
+                    "TMDB has nothing at {}",
+                    url.split('?').next().unwrap_or_default()
+                )
+                .into(),
+            )),
+            s => Err(Error::Provider(
+                Detail::coded("tmdb.http", format!("HTTP {s}")).with("status", s),
+            )),
         }
     }
 
@@ -140,9 +183,12 @@ impl<H: Http> Tmdb<H> {
         if self.key.is_empty() {
             return e;
         }
-        let hide = |m: String| {
-            m.replace(&encode(&self.key), "***")
-                .replace(&self.key, "***")
+        let hide = |mut m: Detail| {
+            m.text = m
+                .text
+                .replace(&encode(&self.key), "***")
+                .replace(&self.key, "***");
+            m
         };
         match e {
             Error::Provider(m) => Error::Provider(hide(m)),
@@ -159,9 +205,10 @@ impl<H: Http> Tmdb<H> {
         kind: ItemKind,
         title: &str,
         year: Option<i32>,
+        lang: &str,
     ) -> Result<Vec<SearchHit>> {
         let year = year.map(|y| y.to_string());
-        let mut params = vec![("query", title)];
+        let mut params = vec![("query", title), ("language", lang)];
         if let Some(y) = &year {
             params.push((year_param, y));
         }
@@ -171,17 +218,18 @@ impl<H: Http> Tmdb<H> {
 }
 
 impl<H: Http> MetadataProvider for Tmdb<H> {
-    fn search_movie(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>> {
-        self.search("/search/movie", "year", ItemKind::Movie, title, year)
+    fn search_movie(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>> {
+        self.search("/search/movie", "year", ItemKind::Movie, title, year, lang)
     }
 
-    fn search_show(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>> {
+    fn search_show(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>> {
         self.search(
             "/search/tv",
             "first_air_date_year",
             ItemKind::Show,
             title,
             year,
+            lang,
         )
     }
 
@@ -198,6 +246,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
                     year: m.year,
                     popularity: 0.0,
                     poster: m.poster,
+                    titles: Vec::new(),
                 }));
             }
             ExternalId::TmdbTv(n) => {
@@ -210,6 +259,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
                     year: s.year,
                     popularity: 0.0,
                     poster: s.poster,
+                    titles: Vec::new(),
                 }));
             }
             ExternalId::Imdb(s) => (s.clone(), "imdb_id"),
@@ -297,6 +347,58 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
     fn image(&self, path: &str, size: &str) -> Result<Vec<u8>> {
         self.fetch(&format!("{IMAGE_BASE}/{size}{path}"), None)
     }
+
+    fn texts(&self, kind: ItemKind, tmdb_id: i64, lang: &str) -> Result<Texts> {
+        let (path, title) = match kind {
+            ItemKind::Show => (format!("/tv/{tmdb_id}"), "name"),
+            _ => (format!("/movie/{tmdb_id}"), "title"),
+        };
+        let v = self.json(&path, &localized(lang))?;
+        Ok(Texts {
+            title: text(&v[title]),
+            overview: text(&v["overview"]),
+            genres: names(&v["genres"]),
+            poster: own_poster(&v),
+        })
+    }
+
+    fn season_texts(&self, show_id: i64, season: i32, lang: &str) -> Result<SeasonTexts> {
+        let v = self.json(&format!("/tv/{show_id}/season/{season}"), &localized(lang))?;
+        let episodes = arr(&v["episodes"])
+            .iter()
+            .filter_map(|e| {
+                Some((
+                    int(&e["episode_number"])?,
+                    text(&e["name"]),
+                    text(&e["overview"]),
+                ))
+            })
+            .collect();
+        Ok(SeasonTexts {
+            poster: own_poster(&v),
+            episodes,
+        })
+    }
+}
+
+/// The query for details in `lang` with the posters tagged with its language alone: TMDB
+/// tags images by language without region (`es`), and `poster_path` falls back to the
+/// work's original language, so only a tagged poster counts as this language's.
+fn localized(lang: &str) -> [(&str, &str); 3] {
+    [
+        ("language", lang),
+        ("append_to_response", "images"),
+        ("include_image_language", lang::image_language(lang)),
+    ]
+}
+
+/// `poster_path` when TMDB has a poster in the language asked for. Its choice among them is
+/// the one the website shows; without any, the poster stays the base language's.
+fn own_poster(v: &Value) -> Option<String> {
+    if arr(&v["images"]["posters"]).is_empty() {
+        return None;
+    }
+    opt_text(&v["poster_path"])
 }
 
 fn arr(v: &Value) -> &[Value] {
@@ -373,6 +475,7 @@ fn hits(results: &Value, kind: ItemKind) -> Vec<SearchHit> {
                 year: year_of(&r[date]),
                 popularity: r["popularity"].as_f64().unwrap_or(0.0) as f32,
                 poster: opt_text(&r["poster_path"]),
+                titles: Vec::new(),
             })
         })
         .collect()
@@ -421,9 +524,12 @@ impl Http for UreqHttp {
             if let Some(token) = bearer {
                 req = req.header("Authorization", &format!("Bearer {token}"));
             }
-            let mut resp = req
-                .call()
-                .map_err(|e| Error::Provider(format!("request failed: {e}")))?;
+            let mut resp = req.call().map_err(|e| {
+                Error::Provider(Detail::coded(
+                    "tmdb.unreachable",
+                    format!("request failed: {e}"),
+                ))
+            })?;
             let status = resp.status().as_u16();
             if status == 429 && !retried {
                 retried = true;
@@ -439,10 +545,12 @@ impl Http for UreqHttp {
             if status != 200 {
                 return Ok((status, Vec::new()));
             }
-            let body = resp
-                .body_mut()
-                .read_to_vec()
-                .map_err(|e| Error::Provider(format!("reading response failed: {e}")))?;
+            let body = resp.body_mut().read_to_vec().map_err(|e| {
+                Error::Provider(Detail::coded(
+                    "tmdb.unreachable",
+                    format!("reading response failed: {e}"),
+                ))
+            })?;
             return Ok((status, body));
         }
     }
@@ -495,7 +603,9 @@ mod tests {
 
     impl Http for EchoHttp {
         fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
-            Err(Error::Provider(format!("request failed: {url} {bearer:?}")))
+            Err(Error::Provider(
+                format!("request failed: {url} {bearer:?}").into(),
+            ))
         }
     }
 
@@ -507,7 +617,7 @@ mod tests {
     fn search_movie_parses_hits_and_years() {
         let f = fake(&[("/search/movie", "search_movie_matrix.json")]);
         let t = Tmdb::new("abc123".into(), &f);
-        let hits = t.search_movie("The Matrix", Some(1999)).unwrap();
+        let hits = t.search_movie("The Matrix", Some(1999), "en-US").unwrap();
         assert_eq!(hits.len(), 3);
         assert_eq!(hits[0].tmdb_id, 603);
         assert_eq!(hits[0].kind, ItemKind::Movie);
@@ -520,7 +630,7 @@ mod tests {
         );
         assert_eq!(
             last_url(&f),
-            "https://api.themoviedb.org/3/search/movie?query=The%20Matrix&year=1999&api_key=abc123"
+            "https://api.themoviedb.org/3/search/movie?query=The%20Matrix&language=en-US&year=1999&api_key=abc123"
         );
     }
 
@@ -528,7 +638,7 @@ mod tests {
     fn search_hit_with_empty_date_has_no_year() {
         let f = fake(&[("/search/movie", "search_movie_matrix.json")]);
         let hits = Tmdb::new("k".into(), &f)
-            .search_movie("Matrix", None)
+            .search_movie("Matrix", None, "en-US")
             .unwrap();
         assert_eq!(hits[2].year, None);
         assert!(!last_url(&f).contains("year="));
@@ -538,7 +648,7 @@ mod tests {
     fn search_show_uses_tv_fields() {
         let f = fake(&[("/search/tv", "search_tv_severance.json")]);
         let hits = Tmdb::new("k".into(), &f)
-            .search_show("Severance", Some(2022))
+            .search_show("Severance", Some(2022), "en-US")
             .unwrap();
         assert_eq!(hits[0].kind, ItemKind::Show);
         assert_eq!(hits[0].title, "Severance");
@@ -550,11 +660,11 @@ mod tests {
     fn query_is_url_encoded() {
         let f = fake(&[("/search/movie", "search_movie_matrix.json")]);
         Tmdb::new("k".into(), &f)
-            .search_movie("Amélie & Co", None)
+            .search_movie("Amélie & Co", None, "en-US")
             .unwrap();
         assert_eq!(
             last_url(&f),
-            "https://api.themoviedb.org/3/search/movie?query=Am%C3%A9lie%20%26%20Co&api_key=k"
+            "https://api.themoviedb.org/3/search/movie?query=Am%C3%A9lie%20%26%20Co&language=en-US&api_key=k"
         );
     }
 
@@ -564,14 +674,16 @@ mod tests {
     fn v4_token_is_bearer_and_anything_else_is_api_key() {
         let f = fake(&[("/search/movie", "search_movie_matrix.json")]);
         Tmdb::new(V4_TOKEN.into(), &f)
-            .search_movie("x", None)
+            .search_movie("x", None, "en-US")
             .unwrap();
         let (url, bearer) = f.log.borrow()[0].clone();
         assert!(!url.contains("api_key"));
         assert_eq!(bearer.as_deref(), Some(V4_TOKEN));
 
         for key in ["0123456789abcdef0123456789abcdef", "a.b"] {
-            Tmdb::new(key.into(), &f).search_movie("x", None).unwrap();
+            Tmdb::new(key.into(), &f)
+                .search_movie("x", None, "en-US")
+                .unwrap();
             let (url, bearer) = f.log.borrow().last().unwrap().clone();
             assert!(url.ends_with(&format!("&api_key={key}")), "{url}");
             assert_eq!(bearer, None);
@@ -762,5 +874,61 @@ mod tests {
         t.image("/abc.jpg", "w500").unwrap();
         assert_eq!(last_url(&f), "https://image.tmdb.org/t/p/w500/abc.jpg");
         assert!(matches!(t.movie(9), Err(Error::NotFound(_))));
+    }
+
+    #[test]
+    fn texts_come_in_the_language_with_a_poster_only_in_it() {
+        let f = fake(&[("/movie/603?language=es-ES", "movie_603_es-ES.json")]);
+        let t = Tmdb::new("k".into(), &f)
+            .texts(ItemKind::Movie, 603, "es-ES")
+            .unwrap();
+        assert_eq!(t.title, "Matrix");
+        assert_eq!(t.genres, ["Acción", "Ciencia ficción"]);
+        assert_eq!(t.poster.as_deref(), Some("/esMatrix.jpg"));
+        assert_eq!(
+            last_url(&f),
+            "https://api.themoviedb.org/3/movie/603?language=es-ES&append_to_response=images\
+             &include_image_language=es&api_key=k"
+        );
+    }
+
+    #[test]
+    fn a_poster_from_another_language_is_not_this_ones() {
+        let f = fake(&[("/tv/95396?language=es-MX", "tv_95396_es-MX.json")]);
+        let t = Tmdb::new("k".into(), &f)
+            .texts(ItemKind::Show, 95396, "es-MX")
+            .unwrap();
+        assert_eq!((t.title.as_str(), t.overview.as_str()), ("Separación", ""));
+        assert_eq!(t.poster, None);
+    }
+
+    #[test]
+    fn season_texts_list_each_episode() {
+        let f = fake(&[(
+            "/tv/95396/season/2?language=es-MX",
+            "tv_95396_season_2_es-MX.json",
+        )]);
+        let s = Tmdb::new("k".into(), &f)
+            .season_texts(95396, 2, "es-MX")
+            .unwrap();
+        assert_eq!(s.poster.as_deref(), Some("/esSeason2.jpg"));
+        assert_eq!(
+            s.episodes,
+            [
+                (
+                    1,
+                    "Hola, señora Cobel".into(),
+                    "Mark regresa a Lumon.".into()
+                ),
+                (2, String::new(), String::new())
+            ]
+        );
+    }
+
+    #[test]
+    fn details_ask_for_english() {
+        let f = fake(&[("/movie/603", "movie_603.json")]);
+        Tmdb::new("k".into(), &f).movie(603).unwrap();
+        assert!(last_url(&f).contains("language=en-US"), "{}", last_url(&f));
     }
 }

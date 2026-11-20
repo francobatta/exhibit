@@ -14,7 +14,8 @@ import { useFocusState } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { useActionContext } from "@/lib/actions";
 import { plain, type Candidate, type Id, type ItemDetail, type Source } from "@/lib/api";
-import { count, facts, OFFLINE } from "@/lib/format";
+import { facts } from "@/lib/format";
+import { t, useT } from "@/i18n";
 import { revealRow, stopGlide } from "@/lib/motion";
 import { useApplyMatch, useNeedsReview, useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -46,14 +47,15 @@ function landing(entries: ItemDetail[], at: Place | null): string | undefined {
 }
 
 export function Review() {
+  const t = useT();
   const query = useNeedsReview();
   if (query.isPending) return <Loading />;
   if (query.isError) {
     return (
       <ErrorState
         message={plain(query.error)}
-        hint="The list could not be read. Try again, or restart Exhibit if it keeps happening."
-        action={{ label: "Try again", onAction: () => query.refetch() }}
+        hint={t("review.readFailed")}
+        action={{ label: t("common.tryAgain"), onAction: () => query.refetch() }}
       />
     );
   }
@@ -65,9 +67,9 @@ export function Review() {
     return (
       <FocusScope id="review-empty">
         <Empty
-          title="Nothing needs review."
-          body="When Exhibit cannot tell what a file is, it asks here."
-          action={{ label: "Go to Home", onAction: () => useNav.getState().replaceRoot({ screen: "home" }) }}
+          title={t("review.empty")}
+          body={t("review.emptyBody")}
+          action={{ label: t("review.goHome"), onAction: () => useNav.getState().replaceRoot({ screen: "home" }) }}
         />
       </FocusScope>
     );
@@ -76,6 +78,7 @@ export function Review() {
 }
 
 function Entries({ entries }: { entries: ItemDetail[] }) {
+  const t = useT();
   const sources = useStatus().data?.sources ?? [];
   const [at, setAt] = useState<Place | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -105,8 +108,8 @@ function Entries({ entries }: { entries: ItemDetail[] }) {
     <FocusScope id="review" restoreKey={landing(entries, at)} fallbackKey={landing(entries, at)} onFocusKey={onFocusKey}>
       <div className="absolute inset-0 flex flex-col pt-bar">
         <header className="flex items-baseline gap-6 px-edge pt-4 pb-2">
-          <h1 className="font-display text-title font-title tracking-title text-label">Needs review</h1>
-          <p className="font-display text-body text-label-faint tabular-nums">{count(entries.length, "file", "files")}</p>
+          <h1 className="font-display text-title font-title tracking-title text-label">{t("review.title")}</h1>
+          <p className="font-display text-body text-label-faint tabular-nums">{t("units.file", { count: entries.length })}</p>
         </header>
         <div ref={bindList} className="wall-fade relative min-h-0 flex-1 overflow-y-auto">
           <div className="flex flex-col gap-(--review-gap) py-light">
@@ -131,9 +134,14 @@ function fileParts(entry: ItemDetail, source: Source | undefined): { folder: str
 
 /** "Read as Solaris", "Read as Heat, 1995". */
 const guessLine = (entry: ItemDetail) =>
-  facts([`Read as ${entry.item.title}`, entry.item.year === null ? null : String(entry.item.year), entry.available ? null : OFFLINE]);
+  facts([
+    t("review.readAs", { title: entry.item.title }),
+    entry.item.year === null ? null : String(entry.item.year),
+    entry.available ? null : t("work.offline"),
+  ]);
 
 function Entry({ entry, source, onReveal }: { entry: ItemDetail; source: Source | undefined; onReveal: (el: HTMLElement) => void }) {
+  const t = useT();
   const id = entry.item.id;
   const candidates = entry.item.candidates;
   const apply = useApplyMatch();
@@ -152,18 +160,19 @@ function Entry({ entry, source, onReveal }: { entry: ItemDetail; source: Source 
       {candidates.length > 0 ? (
         <Shelf
           id={shelfId(id)}
-          title={count(candidates.length, "possible match", "possible matches")}
+          title={t("review.possibleMatches", { count: candidates.length })}
           items={candidates.map(candidateWork)}
           caption={(w) => candidateCaption(candidates[w.id]!)}
           menu={false}
           light="review-light"
           onReveal={onReveal}
           onOpen={(w) => choose(candidates[w.id]!)}
+          hintOf={() => t("hints.choose")}
           className="min-w-0 flex-1"
         />
       ) : (
         <p className="min-w-0 flex-1 px-edge pt-12 font-reading text-lead leading-reading text-label-dim">
-          TMDB has nothing close to this name. Search by hand, or send it to Other.
+          {t("review.nothingClose")}
         </p>
       )}
       {/* After the candidates in the page, so focus settles on a candidate first; shown on the left. */}
@@ -182,10 +191,10 @@ function Entry({ entry, source, onReveal }: { entry: ItemDetail; source: Source 
         >
           {/* Search by hand sits nearest the candidates, so Left from them never lands on Send to Other. */}
           <EntryButton focusKey={otherKey(id)} onSelect={toOther}>
-            Send to Other
+            {t("actions.other")}
           </EntryButton>
           <EntryButton focusKey={searchKey(id)} onSelect={() => openMatchPicker(id)}>
-            Search by hand
+            {t("review.searchByHand")}
           </EntryButton>
         </FocusGroup>
       </div>

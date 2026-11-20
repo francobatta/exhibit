@@ -28,6 +28,7 @@ function summary(id: number, over: Partial<ItemSummary> = {}): ItemSummary {
     match_state: "matched",
     genres: [],
     path: null,
+    in_library: true,
     ...over,
   };
 }

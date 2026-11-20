@@ -1,42 +1,51 @@
-// The bar over every screen: the mark, the top-level sections, the ask field, settings, and a
-// quiet line saying what the library is doing.
+// The bar over every screen: the mark (Back, on a screen stacked over another), the top-level
+// sections, the ask field, settings, and a quiet line saying what the library is doing.
 
 import { isTypeaheadKey } from "@ui-sdk/core";
+import { motion } from "motion/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { liveGroups, type Dir } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { t, useT } from "@/i18n";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
-import { count } from "@/lib/format";
 import { useJobStatus, useStatus } from "@/lib/queries";
+import { easeOut, seconds } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
 import { openAsk, samePlace, useNav, type Route } from "@/nav/stack";
+import { BackButton } from "./BackButton";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
 
-const SECTIONS: Array<{ label: string; route: Route }> = [
-  { label: "Home", route: { screen: "home" } },
-  { label: "Movies", route: { screen: "wall", kind: "movie" } },
-  { label: "Shows", route: { screen: "wall", kind: "show" } },
-  { label: "Other", route: { screen: "wall", kind: "other" } },
-];
+/** The sections, by a stable id (their focus keys) and the key of their name. */
+const SECTIONS = [
+  { id: "home", label: "sections.home", route: { screen: "home" } },
+  { id: "movies", label: "sections.movies", route: { screen: "wall", kind: "movie" } },
+  { id: "shows", label: "sections.shows", route: { screen: "wall", kind: "show" } },
+  { id: "other", label: "sections.other", route: { screen: "wall", kind: "other" } },
+] as const satisfies Array<{ id: string; label: string; route: Route }>;
 
-const PHASE: Record<RefreshPhase, string> = {
-  scanning: "Scanning",
-  identifying: "Looking up titles",
-  probing: "Reading file details",
-  rescoring: "Checking matches",
-  thumbnails: "Making thumbnails",
+const REVIEW = { id: "review", label: "sections.review", route: { screen: "review" } } as const satisfies {
+  id: string;
+  label: string;
+  route: Route;
 };
+
+const PHASE = {
+  scanning: "jobs.scanning",
+  identifying: "jobs.identifying",
+  probing: "jobs.probing",
+  rescoring: "jobs.rescoring",
+  translating: "jobs.translating",
+  thumbnails: "jobs.thumbnails",
+} as const satisfies Record<RefreshPhase, string>;
 
 /** "Scanning, 214 files", "Looking up titles", or the last error; null when there is nothing to say. */
 export function jobLine(job: JobStatus | null): string | null {
   if (job === null) return null;
   if (job.phase !== null) {
-    return job.phase === "scanning" && job.done > 0
-      ? `${PHASE.scanning}, ${count(job.done, "file", "files")}`
-      : PHASE[job.phase];
+    return job.phase === "scanning" && job.done > 0 ? t("jobs.scanningFiles", { count: job.done }) : t(PHASE[job.phase]);
   }
   return job.last_error ? plain(job.last_error) : null;
 }
@@ -90,7 +99,7 @@ const startsSearch = (e: globalThis.KeyboardEvent) => e.isTrusted && isTypeahead
 
 /** Looks like a field and opens Ask, as Y, `/` and Ctrl+K do; a letter typed on it starts the search. */
 function AskField({ label }: { label: string }) {
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "ask", onSelect: () => openAsk() });
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "ask", onSelect: () => openAsk(), hint: t("hints.search") });
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (startsSearch(e.nativeEvent)) {
       e.preventDefault();
@@ -130,33 +139,50 @@ function intoScreen(dir: Dir): void {
 }
 
 export function TopBar() {
+  const t = useT();
   const root = useNav((s) => s.entries[0]!.route);
-  const replaceRoot = useNav((s) => s.replaceRoot);
+  const stacked = useNav((s) => s.entries.length > 1);
+  const { replaceRoot, toRoot, back } = useNav.getState();
+  const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: seconds("--dur-screen"), ease: easeOut() } };
   const { data: status } = useStatus();
   const job = jobLine(useJobStatus());
   const review = status?.needs_review ?? 0;
-  const sections =
-    review > 0 ? [...SECTIONS, { label: "Needs review", route: { screen: "review" } as Route }] : SECTIONS;
+  const sections: Array<{ id: string; label: (typeof SECTIONS)[number]["label"] | typeof REVIEW.label; route: Route }> =
+    review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
       <FocusGroup id="topbar" orientation="horizontal" onEdge={intoScreen} className="flex h-full items-center gap-12">
-        <span className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]">
-          Exhibit
-        </span>
+        {/* Back takes the mark's place, so the sections never move. */}
+        <div className="flex h-full w-(--bar-lead) shrink-0 items-center">
+          {stacked ? (
+            <motion.div key="back" {...fade} className="-ml-4">
+              <BackButton focusKey="back" onBack={back} />
+            </motion.div>
+          ) : (
+            <motion.span
+              key="mark"
+              {...fade}
+              className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
+            >
+              Exhibit
+            </motion.span>
+          )}
+        </div>
 
-        <nav aria-label="Sections" className="-ml-4 flex items-center gap-1">
-          {sections.map(({ label, route }) => {
+        <nav aria-label={t("sections.label")} className="-ml-4 flex items-center gap-1">
+          {sections.map(({ id, label, route }) => {
             const here = samePlace(root, route);
             return (
               <BarButton
-                key={label}
-                focusKey={`section:${label}`}
+                key={id}
+                focusKey={`section:${id}`}
                 aria-current={here ? "page" : undefined}
                 className={cn(here && "text-label")}
-                onSelect={() => replaceRoot(route)}
+                // The section already under the stack returns as it was left.
+                onSelect={() => (here ? toRoot() : replaceRoot(route))}
               >
-                {label}
+                {t(label)}
                 {route.screen === "review" && (
                   <span className="text-label-faint tabular-nums">{review}</span>
                 )}
@@ -174,11 +200,11 @@ export function TopBar() {
               {job}
             </p>
           )}
-          <AskField label={status?.agent_key ? "Ask for something" : "Search the library"} />
+          <AskField label={status?.agent_key ? t("topBar.ask") : t("topBar.search")} />
           <BarButton
             focusKey="settings"
             size="icon"
-            aria-label="Settings"
+            aria-label={t("topBar.settings")}
             onSelect={openSettings}
           >
             <SettingsIcon />

@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use exhibit_core::filter::{Picture, Resolution, Seen, Sound};
 use exhibit_core::model::Id;
+use exhibit_core::query::Sort;
 use exhibit_core::{Error, Library};
 use serde_json::{Value, json};
 
@@ -29,6 +31,8 @@ enum Command {
     Status,
     #[command(subcommand)]
     Source(SourceCmd),
+    #[command(subcommand)]
+    Service(ServiceCmd),
     /// Scan sources, identify (when a TMDB key is set), probe, retry items in review, then
     /// make thumbnails for other items
     Scan {
@@ -47,7 +51,12 @@ enum Command {
         #[arg(long)]
         item: Option<Id>,
     },
-    Search(SearchArgs),
+    Search(Box<SearchArgs>),
+    /// What a listing can be narrowed by: genres, years, runtimes, picture, sound and languages
+    Facets {
+        #[arg(long)]
+        kind: Option<KindArg>,
+    },
     Item {
         id: Id,
     },
@@ -95,6 +104,40 @@ enum SourceCmd {
     Add { path: PathBuf },
     Remove { id: Id },
     List,
+}
+
+/// Outside services whose facts about the owner's films Exhibit can show.
+#[derive(Subcommand)]
+enum ServiceCmd {
+    /// Each service: what it provides and needs, and its state
+    List,
+    /// Set the account name (checked first, then synced), or forget the service with --clear
+    User {
+        id: String,
+        #[arg(required_unless_present = "clear", conflicts_with = "clear")]
+        name: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+    On {
+        id: String,
+    },
+    Off {
+        id: String,
+    },
+    /// Read the service's export (a zip) as its snapshot
+    Import {
+        id: String,
+        zip: PathBuf,
+    },
+    /// Ask the service for what is new
+    Sync {
+        id: String,
+    },
+    /// Films the matcher could not place surely: their key and year
+    Unmatched {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -159,28 +202,63 @@ struct SearchArgs {
     text: Option<String>,
     #[arg(long)]
     kind: Option<KindArg>,
+    /// Repeat for more; all are required unless --any-genre
     #[arg(long)]
-    genre: Option<String>,
+    genre: Vec<String>,
+    #[arg(long)]
+    any_genre: bool,
+    #[arg(long)]
+    without_genre: Vec<String>,
     #[arg(long)]
     year_min: Option<i32>,
     #[arg(long)]
     year_max: Option<i32>,
+    /// Minutes
+    #[arg(long)]
+    runtime_min: Option<i32>,
     #[arg(long)]
     runtime_max: Option<i32>,
-    #[arg(long, conflicts_with = "unwatched")]
-    watched: bool,
-    #[arg(long)]
-    unwatched: bool,
+    /// unwatched, started or watched; repeat for more
+    #[arg(long, value_parser = named::<Seen>)]
+    seen: Vec<Seen>,
     #[arg(long)]
     loved: bool,
     #[arg(long)]
-    min_width: Option<u32>,
-    #[arg(long)]
-    min_height: Option<u32>,
-    #[arg(long)]
     available: bool,
+    /// Only films you have rated on a service
     #[arg(long)]
-    sort: Option<SortArg>,
+    rated: bool,
+    #[arg(long)]
+    reviewed: bool,
+    /// Only films a service has logged as watched
+    #[arg(long)]
+    logged: bool,
+    /// Only films on a service's watchlist
+    #[arg(long)]
+    watchlist: bool,
+    /// Also list watchlisted films that have no file
+    #[arg(long)]
+    with_wanted: bool,
+    /// uhd, full_hd, hd or sd; repeat for more
+    #[arg(long, value_parser = named::<Resolution>)]
+    resolution: Vec<Resolution>,
+    /// dolby_vision, hdr10, hlg or sdr; repeat for more
+    #[arg(long, value_parser = named::<Picture>)]
+    picture: Vec<Picture>,
+    /// atmos, dts_x, lossless or surround; repeat for more
+    #[arg(long, value_parser = named::<Sound>)]
+    sound: Vec<Sound>,
+    /// A language a work can be heard in, as `facets` names it ("en"); repeat for more
+    #[arg(long)]
+    audio: Vec<String>,
+    #[arg(long)]
+    subtitles: Vec<String>,
+    /// title, year, added, runtime, played or my-rating
+    #[arg(long, value_parser = sort_named)]
+    sort: Option<Sort>,
+    /// Against the sort's own direction (titles A to Z, runtimes shortest first, the rest newest first)
+    #[arg(long)]
+    reverse: bool,
     #[arg(long)]
     limit: Option<u32>,
     #[arg(long)]
@@ -201,12 +279,55 @@ enum MatchKind {
     Show,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum SortArg {
-    Title,
-    Added,
-    Year,
-    Runtime,
+/// Parses a value by its name in the core's JSON (`full_hd`, `dts_x`).
+fn named<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, String> {
+    serde_json::from_value(Value::String(s.into())).map_err(|e| e.to_string())
+}
+
+/// A sort by its JSON name, with `-` allowed for `_` (`my-rating`).
+fn sort_named(s: &str) -> Result<Sort, String> {
+    named(&s.replace('-', "_"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Cli, clap::Error> {
+        Cli::try_parse_from(std::iter::once("exhibit").chain(args.iter().copied()))
+    }
+
+    #[test]
+    fn search_takes_the_service_flags_and_my_rating() {
+        let cli = parse(&[
+            "search",
+            "--rated",
+            "--reviewed",
+            "--logged",
+            "--watchlist",
+            "--with-wanted",
+            "--sort",
+            "my-rating",
+        ])
+        .unwrap();
+        let Command::Search(a) = cli.command else {
+            panic!("not a search")
+        };
+        assert!(a.rated && a.reviewed && a.logged && a.watchlist && a.with_wanted);
+        assert_eq!(a.sort, Some(Sort::MyRating));
+        assert!(parse(&["search", "--sort", "my_rating"]).is_ok());
+        assert!(parse(&["search", "--sort", "nope"]).is_err());
+    }
+
+    #[test]
+    fn service_user_wants_a_name_or_clear() {
+        assert!(parse(&["service", "user", "letterboxd", "someone"]).is_ok());
+        assert!(parse(&["service", "user", "letterboxd", "--clear"]).is_ok());
+        assert!(parse(&["service", "user", "letterboxd"]).is_err());
+        assert!(parse(&["service", "user", "letterboxd", "x", "--clear"]).is_err());
+        assert!(parse(&["service", "import", "letterboxd", "a.zip"]).is_ok());
+        assert!(parse(&["service", "list"]).is_ok());
+    }
 }
 
 #[derive(Clone, Copy, ValueEnum)]

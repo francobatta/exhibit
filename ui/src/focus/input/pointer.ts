@@ -1,10 +1,11 @@
 // The mouse, translated into focus: a pointer that really moves over a focus item focuses it,
 // so hover and focus are one light. Content scrolling under a still pointer makes the browser
 // send over/move events at unchanged coordinates; those are ignored, so a gamepad driving a
-// grid under a resting pointer keeps its focus. Right-click opens the item's menu.
+// grid under a resting pointer keeps its focus. Right-click opens the item's menu; the mouse's
+// back button is Back, as B is. Its forward button does nothing: there is no forward.
 
 import { createPointerKind } from "@ui-sdk/core";
-import { itemAt, openMenu, useFocusState } from "../bridge";
+import { goBack, itemAt, openMenu, useFocusState } from "../bridge";
 import { isTextField } from "./keys";
 
 const HIDE_AFTER = 3000;
@@ -44,6 +45,13 @@ export function startPointer(): () => void {
     openMenu();
   };
 
+  // Buttons 3 and 4 are the mouse's back and forward; WebView2 would otherwise move through history.
+  const onSide = (e: MouseEvent) => {
+    if (e.button !== 3 && e.button !== 4) return;
+    e.preventDefault();
+    if (e.type === "mouseup" && e.button === 3) goBack();
+  };
+
   const offMode = useFocusState.subscribe((s, prev) => {
     if (s.mode !== prev.mode && s.mode !== "pointer") {
       clearTimeout(timer);
@@ -54,7 +62,11 @@ export function startPointer(): () => void {
   document.addEventListener("pointermove", onMove);
   document.addEventListener("pointerover", onMove);
   document.addEventListener("contextmenu", onContextMenu);
+  document.addEventListener("mousedown", onSide);
+  document.addEventListener("mouseup", onSide);
   return () => {
+    document.removeEventListener("mousedown", onSide);
+    document.removeEventListener("mouseup", onSide);
     clearTimeout(timer);
     offMode();
     hide(false);

@@ -1,13 +1,16 @@
 // A work hung on the wall: its poster (2:3) or its frame (16:9), or, with no artwork, a
 // typographic poster. Unlit works sit dimmed; the focused one is at full brightness, slightly
-// larger, with a pool of lamp light above and behind it and a lamp-white keyline. The light is one
+// larger, with a pool of lamp light above and behind it and a lamp-white keyline. A work whose drive
+// is away is grey; a film the owner does not have yet (on their watchlist) is only ever unlit, until
+// focus lights it like any other. The light is one
 // shared Motion element per `light` id, so it glides from work to work. Purely presentational: the
 // shelf or grid around it owns focus and tells it `focused`.
 
 import { motion } from "motion/react";
 import { memo, useState } from "react";
+import { t } from "@/i18n";
 import { imageUrl, type ItemSummary } from "@/lib/api";
-import { OFFLINE, WATCHED, episodeLabel, facts, started } from "@/lib/format";
+import { episodeLabel, facts, started, titleOf } from "@/lib/format";
 import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { LovedIcon, WatchedIcon } from "./ui/state-icon";
@@ -31,17 +34,20 @@ export interface WorkProps {
   mark?: string;
 }
 
+/** A film on the owner's watchlist that they do not have: no file, so never offline either. */
+const isWanted = (item: ItemSummary) => item.in_library === false;
+
 /** How a work reads aloud and in its tooltip: "Taxi Driver, 1976, Watched, Loved". */
 export function workLabel(item: ItemSummary): string {
   const place =
     item.kind === "episode" ? facts([item.show_title, episodeLabel(item.season, item.episode)]) : null;
   return facts([
-    item.title,
+    titleOf(item),
     place,
     item.year === null ? null : String(item.year),
-    item.watched ? WATCHED : null,
-    item.loved ? "Loved" : null,
-    item.available ? null : OFFLINE,
+    item.watched ? t("work.watched") : null,
+    item.loved ? t("work.loved") : null,
+    isWanted(item) ? t("activity.notInLibrary") : item.available ? null : t("work.offline"),
   ]);
 }
 
@@ -72,7 +78,7 @@ function Typographic({ item, shape, mark }: { item: ItemSummary; shape: WorkShap
               : "text-[7cqi] leading-[1.05]",
         )}
       >
-        {mark ?? item.title}
+        {mark ?? titleOf(item)}
       </p>
     </div>
   );
@@ -93,12 +99,15 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
   const progress = started(item.watched, item.progress);
   const spring = focusSpring();
   const scale = numberToken("--work-focus-scale");
+  const wanted = isWanted(item);
+  const offline = !item.available && !wanted;
 
   return (
     <div
       data-work
       data-lit={focused ? "" : undefined}
-      data-offline={item.available ? undefined : ""}
+      data-offline={offline ? "" : undefined}
+      data-wanted={wanted ? "" : undefined}
       className="@container relative isolate"
       style={size === undefined ? undefined : { width: `${size}rem` }}
     >
@@ -116,7 +125,7 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
           "transition-[filter] duration-(--dur-screen) ease-out",
           RATIO[shape],
           // A chosen work stays lit, so a selection reads at a glance.
-          item.available ? (focused || selected ? "" : "[filter:var(--work-dim)]") : focused ? "grayscale" : "[filter:var(--offline)]",
+          offline ? (focused ? "grayscale" : "[filter:var(--offline)]") : focused || selected ? "" : "[filter:var(--work-dim)]",
         )}
         initial={false}
         animate={{ scale: focused ? scale : 1 }}

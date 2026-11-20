@@ -1,0 +1,49 @@
+{
+  "terms": {
+    "videos": "vídeos"
+  },
+  "settings": {
+    "title": "Ajustes",
+    "addFolder": "Añadir carpeta",
+    "addAFolder": "Añadir una carpeta",
+    "noFolders": "Todavía no hay carpetas. Añade las carpetas que tienen tus películas y series."
+  },
+  "home": {
+    "continueWatching": "Seguir viendo",
+    "recentlyAdded": "Añadido recientemente",
+    "noFolders": "Añade en Ajustes las carpetas que tienen tus películas y series.",
+    "foundNothing": "Exhibit no encontró nada que mostrar en tus carpetas. Añade otra carpeta en Ajustes."
+  },
+  "wall": {
+    "noMoviesBody": "Añade una carpeta de películas en Ajustes o espera a que termine el escaneo.",
+    "noShowsBody": "Añade una carpeta de series en Ajustes o espera a que termine el escaneo.",
+    "noOtherBody": "Aquí cuelgan los vídeos caseros, los clips y los archivos que Exhibit no sabe nombrar. Añade una carpeta en Ajustes o espera a que termine el escaneo."
+  },
+  "browser": {
+    "addThis": "Añadir esta carpeta"
+  },
+  "firstRun": {
+    "addAnother": "Añadir otra carpeta",
+    "tmdbHow": "La clave es gratuita: crea una cuenta en themoviedb.org y copia la clave de la API desde los ajustes de tu cuenta. Puedes omitir este paso; Exhibit lo muestra todo con el nombre de sus archivos, y la clave se puede añadir más tarde en Ajustes."
+  },
+  "match": {
+    "noKey": "Para corregir la coincidencia se busca en TMDB, y para eso hace falta una clave. Añade una en Ajustes y vuelve a corregirla."
+  },
+  "details": {
+    "added": "Añadido"
+  },
+  "errors": {
+    "tmdb": {
+      "no_key": "No hay clave de TMDB. Añade una en Ajustes."
+    }
+  },
+  "keys": {
+    "enter": "Intro"
+  },
+  "ask": {
+    "noMatches": "Nada coincide con «{{text}}»"
+  },
+  "sorts": {
+    "added": "Añadido"
+  }
+}

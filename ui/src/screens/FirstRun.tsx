@@ -7,7 +7,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
+import { BackButton } from "@/components/BackButton";
 import { FocusButton } from "@/components/FocusButton";
+import { useT } from "@/i18n";
 import { useBrowse } from "@/components/FolderBrowser";
 import { SecretForm } from "@/components/SecretForm";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
@@ -49,7 +51,7 @@ export function FirstRun() {
 
   return (
     <FocusScope key={step} id={`first-run-${step}`} restoreKey={LANDING[step]} onBack={step === "folder" ? undefined : () => go(-1)}>
-      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length}>
+      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length} onBack={step === "folder" ? undefined : () => go(-1)}>
         {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={() => go(1)} />}
         {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={() => go(1)} />}
         {step === "tmdb" && <TmdbStep onDone={finish} />}
@@ -59,7 +61,8 @@ export function FirstRun() {
 }
 
 /** A step: which of how many, then its own content, rising into place as it opens. */
-function Stage({ at, of, children }: { at: number; of: number | null; children: ReactNode }) {
+function Stage({ at, of, onBack, children }: { at: number; of: number | null; onBack?: () => void; children: ReactNode }) {
+  const t = useT();
   return (
     <motion.div
       className="absolute inset-0 flex flex-col justify-center gap-8 px-edge pb-bar"
@@ -67,8 +70,14 @@ function Stage({ at, of, children }: { at: number; of: number | null; children: 
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: seconds("--dur-screen"), ease: easeOut() }}
     >
+      {/* Back to the step before, where the bar's Back stands on other screens. */}
+      {onBack && (
+        <FocusGroup id="first-back" orientation="horizontal" className="absolute inset-x-0 top-0 flex h-bar items-center px-edge">
+          <BackButton focusKey="first:back" onBack={onBack} className="-ml-4" />
+        </FocusGroup>
+      )}
       {/* The count waits for the tools to be detected, so it never changes under the owner. */}
-      <p className="h-[1lh] font-display text-body text-label-faint">{of !== null && `Step ${at} of ${of}`}</p>
+      <p className="h-[1lh] font-display text-body text-label-faint">{of !== null && t("firstRun.step", { at, of })}</p>
       {children}
     </motion.div>
   );
@@ -93,13 +102,14 @@ function Actions({ step, children }: { step: Step; children: ReactNode }) {
 }
 
 function FolderStep({ added, onAdded, onNext }: { added: Source[]; onAdded: (s: Source) => void; onNext: () => void }) {
+  const t = useT();
   const client = useQueryClient();
   const { browser, browse } = useBrowse();
   const add = () =>
     browse({
       mode: "folder",
-      title: "Add a folder",
-      placeholder: "Or type a folder's path",
+      title: t("settings.addAFolder"),
+      placeholder: t("settings.typeFolder"),
       onPick: (path) => {
         // Adding queues the folder's first scan: the library fills in behind the next steps.
         api.addSource(path).then(
@@ -113,36 +123,36 @@ function FolderStep({ added, onAdded, onNext }: { added: Source[]; onAdded: (s: 
     });
   return (
     <>
-      <Heading title="Welcome to Exhibit">
-        <p>Start with a folder that holds your films, shows or other videos. Exhibit reads it and never changes, moves or deletes anything in it.</p>
+      <Heading title={t("firstRun.welcome")}>
+        <p>{t("firstRun.welcomeBody")}</p>
       </Heading>
       {added.length > 0 && (
-        <ul aria-label="Folders added" className="flex flex-col gap-1">
+        <ul aria-label={t("firstRun.foldersAdded")} className="flex flex-col gap-1">
           {added.map((s) => (
             <li key={s.id} className="font-display text-lead font-ui text-label [overflow-wrap:anywhere]">
               {s.path}
             </li>
           ))}
-          <li className={line}>Exhibit is reading {added.length === 1 ? "it" : "them"} now.</li>
+          <li className={line}>{t("firstRun.reading", { count: added.length })}</li>
         </ul>
       )}
       <Actions step="folder">
         {added.length === 0 ? (
           <>
             <FocusButton focusKey="first:folder:main" variant="solid" onSelect={add}>
-              Add folder
+              {t("settings.addFolder")}
             </FocusButton>
             <FocusButton focusKey="first:folder:skip" variant="plain" onSelect={onNext}>
-              Skip
+              {t("common.skip")}
             </FocusButton>
           </>
         ) : (
           <>
             <FocusButton focusKey="first:folder:main" variant="solid" onSelect={onNext}>
-              Continue
+              {t("common.continue")}
             </FocusButton>
             <FocusButton focusKey="first:folder:more" onSelect={add}>
-              Add another folder
+              {t("firstRun.addAnother")}
             </FocusButton>
           </>
         )}
@@ -153,6 +163,7 @@ function FolderStep({ added, onAdded, onNext }: { added: Source[]; onAdded: (s: 
 }
 
 function ToolsStep({ missing, tools, onNext }: { missing: Tool[]; tools: ToolStatus[]; onNext: () => void }) {
+  const t = useT();
   const { browser, choose } = useSetToolPath();
   const { status } = useToolsDownload();
   const shown = tools.filter((t) => missing.includes(t.tool));
@@ -163,38 +174,35 @@ function ToolsStep({ missing, tools, onNext }: { missing: Tool[]; tools: ToolSta
   const ready = (allFound || status?.outcome?.kind === "done") && !running;
   return (
     <>
-      <Heading title="Media tools">
-        <p>
-          Exhibit plays your files with mpv and makes thumbnails with ffmpeg, two free programs. {shown.length === 1 ? "This one was" : "These were"} not found on
-          this computer. Exhibit can download both for you.
-        </p>
+      <Heading title={t("firstRun.tools")}>
+        <p>{t("firstRun.toolsBody", { count: shown.length })}</p>
       </Heading>
       <div className="flex max-w-(--settings-measure) flex-col gap-5">
-        {shown.map((t) => (
-          <div key={t.tool} className="flex flex-col gap-1">
-            <p className="font-display text-lead font-ui text-label">{t.tool}</p>
-            <ToolLines tool={t} extra={t.tool === "mpv" ? "Nothing can play until mpv is here." : undefined} />
+        {shown.map((tool) => (
+          <div key={tool.tool} className="flex flex-col gap-1">
+            <p className="font-display text-lead font-ui text-label">{tool.tool}</p>
+            <ToolLines tool={tool} extra={tool.tool === "mpv" ? t("firstRun.mpvNeeded") : undefined} />
           </div>
         ))}
       </div>
       <Actions step="tools">
         {ready ? (
           <FocusButton focusKey="first:tools:main" variant="solid" onSelect={onNext}>
-            Continue
+            {t("common.continue")}
           </FocusButton>
         ) : (
           <>
             <DownloadButton tools={tools} focusKey="first:tools:main" variant="solid" />
             {shown
-              .filter((t) => !toolFound(t))
-              .map((t) => (
-                <FocusButton key={t.tool} focusKey={`first:tools:${t.tool}`} onSelect={() => choose(t.tool)}>
-                  Set {t.tool} path
+              .filter((tool) => !toolFound(tool))
+              .map((tool) => (
+                <FocusButton key={tool.tool} focusKey={`first:tools:${tool.tool}`} onSelect={() => choose(tool.tool)}>
+                  {t("firstRun.setToolPath", { tool: tool.tool })}
                 </FocusButton>
               ))}
             {/* The download carries on behind the next step, like the folder's scan. */}
             <FocusButton focusKey="first:tools:skip" variant="plain" onSelect={onNext}>
-              {running ? "Continue" : "Skip"}
+              {running ? t("common.continue") : t("common.skip")}
             </FocusButton>
           </>
         )}
@@ -206,20 +214,21 @@ function ToolsStep({ missing, tools, onNext }: { missing: Tool[]; tools: ToolSta
 }
 
 function TmdbStep({ onDone }: { onDone: () => void }) {
+  const t = useT();
   const saved = () => {
     api.identify("unmatched_and_review").catch((e: unknown) => toast(plain(e)));
     onDone();
   };
   return (
     <>
-      <Heading title="TMDB key">
-        <p>With a key from TMDB, Exhibit names your films and shows and hangs their posters and backdrops.</p>
-        <p>The key is free: make an account at themoviedb.org, then copy the API key from your account's settings. You can skip this; Exhibit shows everything under its file names, and the key can be added later in Settings.</p>
+      <Heading title={t("settings.tmdbKey")}>
+        <p>{t("firstRun.tmdbBody")}</p>
+        <p>{t("firstRun.tmdbHow")}</p>
       </Heading>
-      <SecretForm name="tmdb" label="TMDB key" isSet={false} paste removable={false} saveLabel="Save key" focusPrefix="first:tmdb" onSaved={saved} />
+      <SecretForm name="tmdb" label={t("settings.tmdbKey")} isSet={false} paste removable={false} saveLabel={t("firstRun.saveKey")} focusPrefix="first:tmdb" onSaved={saved} />
       <Actions step="tmdb">
         <FocusButton focusKey="first:tmdb:skip" variant="plain" onSelect={onDone} className="-ml-4">
-          Skip
+          {t("common.skip")}
         </FocusButton>
       </Actions>
     </>

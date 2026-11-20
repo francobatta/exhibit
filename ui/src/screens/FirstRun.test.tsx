@@ -11,7 +11,7 @@ let uninstall: () => void = () => {};
 const found = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: `C:\\tools\\${tool}.exe`, version: `${tool} 1.0`, source: "detected", release: null, downloaded: false });
 const missing = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: null, version: null, source: null, release: null, downloaded: false });
 
-const STATUS: LibraryStatus = { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, intro: true };
+const STATUS: LibraryStatus = { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, intro: true, language: "en-US", date_format: "auto" };
 
 beforeEach(() => {
   uninstall = installBridge();
@@ -112,8 +112,8 @@ test("the tools step leads with the download, shows its progress, and goes on on
   await settle(60);
   expect(main().textContent).toBe("Continue");
   expect(activeKey()).toBe("first:tools:main");
-  expect(document.body.textContent).toContain("Downloaded the build of 11 November 2026.");
-  expect(document.body.textContent).toContain("Downloaded by Exhibit, version 1.0, built 11 November 2026");
+  expect(document.body.textContent).toContain("Downloaded the build of November 11, 2026.");
+  expect(document.body.textContent).toContain("Downloaded by Exhibit, version 1.0, built November 11, 2026");
   await choose("first:tools:main");
   expect(heading()).toBe("TMDB key");
 });

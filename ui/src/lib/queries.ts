@@ -13,6 +13,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
+import { setLocale, t } from "@/i18n";
 import * as api from "./api";
 import type {
   ApiError,
@@ -34,9 +35,11 @@ export const keys = {
   status: ["library", "status"] as const,
   shelf: (shelf: Shelf, limit: number) => ["library", "shelf", shelf, limit] as const,
   items: (query: SearchQuery) => ["library", "items", query] as const,
+  facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
+  services: ["library", "services"] as const,
   ask: (text: string) => ["library", "ask", text] as const,
   // Not under "library": detecting runs each tool, so a library change does not ask again.
   tools: ["tools"] as const,
@@ -46,9 +49,16 @@ export const keys = {
 
 const PAGE = 500;
 
-/** Mount once, inside the QueryClientProvider: refreshes the library when it changes. */
+/**
+ * Mount once: the library's changes reach every query, and the window speaks the library's
+ * language and writes its dates as it says, from the start and whenever they change.
+ */
 export function LibrarySync(): null {
   const client = useQueryClient();
+  const status = useStatus().data;
+  useEffect(() => {
+    if (status !== undefined) setLocale(status.language, status.date_format);
+  }, [status]);
   useEffect(() => {
     const off = api.onLibraryChanged(() => {
       void client.invalidateQueries({ queryKey: keys.library });
@@ -96,6 +106,11 @@ export function useItems(query: Omit<SearchQuery, "limit" | "offset">, enabled =
   return { ...result, items };
 }
 
+/** What a wall can be narrowed by; a library change refreshes it. */
+export function useFacets(kind: ItemKind | null) {
+  return useQuery({ queryKey: keys.facets(kind), queryFn: () => api.facets(kind), staleTime: ITEM_STALE });
+}
+
 /** Library changes refresh a record through `library-changed`; nothing else makes it stale. */
 const ITEM_STALE = 10 * 60_000;
 
@@ -113,8 +128,8 @@ export function useItem(id: Id | null, fetch = true) {
 }
 
 /** A work's cast with portraits. Portraits are fetched once and kept, so it is asked for only once per visit. */
-export function useCast(id: Id) {
-  return useQuery({ queryKey: keys.cast(id), queryFn: () => api.cast(id), staleTime: Number.POSITIVE_INFINITY });
+export function useCast(id: Id, fetch = true) {
+  return useQuery({ queryKey: keys.cast(id), queryFn: () => api.cast(id), enabled: fetch, staleTime: Number.POSITIVE_INFINITY });
 }
 
 /** The folders a full record's files are on, as the library knows them now; none until both are known. */
@@ -153,17 +168,17 @@ export interface AskResult {
 }
 
 /** The kinds Ask groups by, in order; seasons are reached through their shows. */
-const ASK_GROUPS: Array<[ItemKind, string]> = [
-  ["movie", "Movies"],
-  ["show", "Shows"],
-  ["episode", "Episodes"],
-  ["other", "Other"],
-];
+const ASK_GROUPS = [
+  ["movie", "sections.movies"],
+  ["show", "sections.shows"],
+  ["episode", "sections.episodes"],
+  ["other", "sections.other"],
+] as const satisfies Array<[ItemKind, string]>;
 
 /** The library search as Ask's groups, by kind; a kind with nothing found is left out. */
 export function askGroups(items: ItemSummary[]): AskResult {
   return {
-    groups: ASK_GROUPS.map(([kind, title]) => ({ title, items: items.filter((i) => i.kind === kind) })).filter(
+    groups: ASK_GROUPS.map(([kind, title]) => ({ title: t(title), items: items.filter((i) => i.kind === kind) })).filter(
       (g) => g.items.length > 0,
     ),
   };
@@ -174,14 +189,15 @@ const ASK_LIMIT = 40;
 
 /**
  * Ask's results for `text` (already debounced): in this stage, the library search by kind. The
- * plain search finds titles (an episode's hit counts for its show), so episodes are asked apart.
+ * plain search finds titles (an episode's hit counts for its show), so episodes are asked apart. The
+ * films on the owner's watchlist that they do not have are found too, after the ones they have.
  */
 export function useAsk(text: string) {
   return useQuery({
     queryKey: keys.ask(text),
     queryFn: async (): Promise<AskResult> => {
       const [titles, episodes] = await Promise.all([
-        api.search({ text, limit: ASK_LIMIT }),
+        api.search({ text, limit: ASK_LIMIT, with_wanted: true }),
         api.search({ text, kind: "episode", limit: ASK_LIMIT }),
       ]);
       return askGroups([...titles, ...episodes]);
@@ -219,7 +235,7 @@ export function useToolsDownload() {
       client.setQueryData<DownloadStatus>(keys.toolsDownload, {
         running: false,
         step: null,
-        outcome: { kind: "failed", message: api.plain(e) },
+        outcome: { kind: "failed", error: api.isApiError(e) ? e : { kind: "io", code: null, params: {}, message: String(e) } },
       });
     });
   }, [client]);
@@ -242,6 +258,41 @@ export function useFullscreen() {
 
 export function useNeedsReview() {
   return useQuery({ queryKey: keys.needsReview, queryFn: api.needsReview });
+}
+
+/**
+ * The services and where the owner stands with each; a library change refreshes it. A failure to
+ * say counts as no service, and is not asked again each time a part that reads it mounts: screens
+ * wait for the first answer, so asking again would send them back to waiting.
+ */
+export function useServices() {
+  return useQuery({ queryKey: keys.services, queryFn: api.services, staleTime: ITEM_STALE, retryOnMount: false });
+}
+
+/** What a service changes reaches every list, shelf and record, so each of these refreshes the library. */
+function useServiceMutation<V, R = void>(run: (v: V) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation<R, ApiError, V>({
+    mutationFn: run,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.library }),
+  });
+}
+
+/** Checks the name with the site, saves it and queues the first sync; resolves with how many recent diary entries it shows. */
+export function useConnectService() {
+  return useServiceMutation(({ id, username }: { id: string; username: string }) => api.connectService(id, username));
+}
+
+export function useSetServiceEnabled() {
+  return useServiceMutation(({ id, on }: { id: string; on: boolean }) => api.setServiceEnabled(id, on));
+}
+
+export function useForgetService() {
+  return useServiceMutation(({ id }: { id: string }) => api.forgetService(id));
+}
+
+export function useImportServiceExport() {
+  return useServiceMutation(({ id, path }: { id: string; path: string }) => api.importServiceExport(id, path));
 }
 
 /** The worker's status, kept current by the `job-status` event; null until first known. */
@@ -320,7 +371,11 @@ export function useSetWatched() {
     ({ id, watched }) => api.setWatched(id, watched),
     ({ watched }) => ({
       summary: (s) => ({ ...s, watched, progress: watched ? null : s.progress }),
-      detail: (d) => ({ ...d, play: d.play && { ...d.play, watched } }),
+      detail: (d) => ({
+        ...d,
+        play: d.play && { ...d.play, watched },
+        activity: { ...d.activity, watched, watched_choice: watched },
+      }),
     }),
   );
 }
@@ -330,7 +385,11 @@ export function useSetLoved() {
     ({ id, loved }) => api.setLoved(id, loved),
     ({ loved }) => ({
       summary: (s) => ({ ...s, loved }),
-      detail: (d) => ({ ...d, item: { ...d.item, loved } }),
+      detail: (d) => ({
+        ...d,
+        item: { ...d.item, loved },
+        activity: { ...d.activity, loved, loved_choice: loved },
+      }),
     }),
   );
 }

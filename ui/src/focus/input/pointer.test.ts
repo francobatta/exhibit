@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { registerItem, useFocusState } from "../bridge";
+import { useNav } from "@/nav/stack";
 import { startPointer } from "./pointer";
 
 let stop: () => void = () => {};
@@ -104,4 +105,23 @@ test("the cursor hides at once on pad input and comes back on a real move", () =
   expect(root.hasAttribute("data-cursor-hidden")).toBe(true);
   pointer("pointermove", document.body, 2, 2);
   expect(root.hasAttribute("data-cursor-hidden")).toBe(false);
+});
+
+test("the mouse's back button goes back, as B does; its forward button does nothing", () => {
+
+  const nav = useNav.getState();
+  nav.replaceRoot({ screen: "home" });
+  nav.push({ screen: "details", id: 1 });
+  const side = (type: string, button: number) => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, button });
+    document.body.dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  expect(side("mousedown", 4)).toBe(true);
+  expect(side("mouseup", 4)).toBe(true);
+  expect(useNav.getState().entries).toHaveLength(2);
+  expect(side("mousedown", 3)).toBe(true);
+  expect(side("mouseup", 3)).toBe(true);
+  expect(useNav.getState().current).toEqual({ screen: "home" });
+  expect(side("mouseup", 0)).toBe(false);
 });

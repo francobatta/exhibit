@@ -3,10 +3,11 @@
 // browser.
 
 import { useQueryClient } from "@tanstack/react-query";
+import { t, useT } from "@/i18n";
 import * as api from "@/lib/api";
 import { plain, type ToolStatus } from "@/lib/api";
 import { keys } from "@/lib/queries";
-import { CONSEQUENCE, toolFound, toolLine } from "@/lib/tools";
+import { consequence, toolFound, toolLine } from "@/lib/tools";
 import { useBrowse } from "./FolderBrowser";
 import { toast } from "./ui/toast";
 
@@ -15,6 +16,7 @@ export const line = "font-display text-body text-label-dim [overflow-wrap:anywhe
 
 /** A tool's lines: where it came from and its version, then its path; or what is missing without it. */
 export function ToolLines({ tool, extra }: { tool: ToolStatus; extra?: string }) {
+  useT();
   const found = toolFound(tool);
   return (
     <>
@@ -23,7 +25,8 @@ export function ToolLines({ tool, extra }: { tool: ToolStatus; extra?: string })
         <p className="font-display text-caption text-label-faint [overflow-wrap:anywhere]">{tool.path}</p>
       ) : (
         <p className="font-reading text-body leading-reading text-label-dim">
-          {CONSEQUENCE[tool.tool]}.{extra && ` ${extra}`}
+          {consequence(tool.tool)}
+          {extra && ` ${extra}`}
         </p>
       )}
     </>
@@ -42,8 +45,8 @@ export function useSetToolPath() {
   const choose = (tool: api.Tool) =>
     browse({
       mode: "exe",
-      title: `Where is ${tool}?`,
-      placeholder: `Or type the path to ${tool}.exe`,
+      title: t("tools.whereIs", { tool }),
+      placeholder: t("tools.typePath", { tool }),
       onPick: (path) => void set(tool, path),
     });
   return { browser, choose, set };

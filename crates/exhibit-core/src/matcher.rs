@@ -31,8 +31,10 @@ pub struct Evidence<'a> {
 /// How well `hit` fits the evidence, 0.0..=1.0.
 pub fn score(e: &Evidence, hit: &SearchHit, hit_runtime_min: Option<i32>) -> f32 {
     let ours = normalize_title(e.title);
+    // Its English and original titles, and its title in every language that found it.
     let title = [&hit.title, &hit.original_title]
         .into_iter()
+        .chain(hit.titles.iter().map(|(_, t)| t))
         .map(|t| strsim::jaro_winkler(&ours, &normalize_title(t)) as f32)
         .fold(0.0, f32::max);
 
@@ -87,6 +89,7 @@ mod tests {
             year,
             popularity: 1.0,
             poster: None,
+            titles: Vec::new(),
         }
     }
 
@@ -99,6 +102,7 @@ mod tests {
                 year: h.year,
                 score: score(e, h, *runtime),
                 poster: None,
+                titles: Default::default(),
             })
             .collect()
     }
@@ -186,6 +190,7 @@ mod tests {
             year: None,
             score: 0.79,
             poster: None,
+            titles: Default::default(),
         };
         assert_eq!(decide(std::slice::from_ref(&low)), None);
     }

@@ -44,6 +44,18 @@ describe("navigation stack", () => {
     expect(nav().back()).toBe(false);
   });
 
+  test("toRoot returns to the root as it was left, past everything stacked on it", () => {
+    nav().replaceRoot({ screen: "wall", kind: "movie" });
+    const wall = nav().entries[0]!;
+    nav().setFocusKey("item:7");
+    nav().push({ screen: "details", id: 7 });
+    nav().push({ screen: "settings" });
+    nav().toRoot();
+    expect(nav().entries).toEqual([{ ...wall, focusKey: "item:7" }]);
+    expect(nav().focusKey).toBe("item:7");
+    expect(nav().direction).toBe("back");
+  });
+
   test("each entry has its own identity, and the direction of the last move is known", () => {
     const first = nav().entries[0]?.id;
     nav().push({ screen: "details", id: 3 });

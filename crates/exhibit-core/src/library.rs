@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize};
 use crate::cast;
 use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Fault, Result};
+use crate::filter::{self, Facets};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
+use crate::lang;
 use crate::model::{Candidate, CastMember, Id, ItemKind, MatchSource, Source};
 use crate::player::{self, PlayOutcome};
 use crate::probe;
@@ -20,8 +22,11 @@ use crate::query::{
 };
 use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
+use crate::service::{Account, Service, SyncInput, normalize_username};
+use crate::sync::{self, ServiceState, SyncReport};
 use crate::tmdb::{Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
+use crate::translate::{self, TranslateReport};
 use crate::volume::{SystemVolumes, Volumes};
 
 const TMDB_KEY: &str = "tmdb";
@@ -40,6 +45,10 @@ pub struct LibraryStatus {
     pub agent_key: bool,
     /// Whether the window plays the intro as it opens.
     pub intro: bool,
+    /// The language in effect (`lang::LANGUAGES`).
+    pub language: &'static str,
+    /// How dates are written (`lang::DATE_FORMATS`).
+    pub date_format: &'static str,
 }
 
 /// The steps of `Library::refresh`, in the order they run.
@@ -50,6 +59,8 @@ pub enum RefreshPhase {
     Identifying,
     Probing,
     Rescoring,
+    /// Fetching the text of matched items in the owner's language.
+    Translating,
     Thumbnails,
 }
 
@@ -87,9 +98,10 @@ impl Default for RefreshOptions {
 pub struct RefreshReport {
     pub scanned: Vec<ScanReport>,
     pub identified: Option<IdentifyReport>,
-    pub identify_error: Option<String>,
+    pub identify_error: Option<Fault>,
     pub probed: Option<(u32, u32)>,
     pub rescored: Option<IdentifyReport>,
+    pub translated: Option<TranslateReport>,
     pub thumbnails: Option<(u32, u32)>,
 }
 
@@ -157,7 +169,7 @@ impl Library {
         let key = self
             .secrets
             .get(TMDB_KEY)?
-            .ok_or_else(|| Error::Invalid("TMDB key not set".into()))?;
+            .ok_or_else(|| Error::Invalid(Detail::coded("tmdb.no_key", "TMDB key not set")))?;
         Ok(Tmdb::new(key, &*self.http))
     }
 
@@ -213,20 +225,45 @@ impl Library {
         probe::thumbnails_pending(&self.conn, &*self.volumes, &tools, &self.image_dir(), on)
     }
 
+    /// Identifies the items in `scope`. In a language other than English, what it matched
+    /// is then translated, so new arrivals show in the owner's language at once.
     pub fn identify(&self, scope: IdentifyScope, on: &mut dyn FnMut(Id)) -> Result<IdentifyReport> {
-        identify::identify(
-            &self.conn,
-            &*self.volumes,
-            &self.provider()?,
-            &self.image_dir(),
-            scope,
-            on,
-        )
+        let p = self.provider()?;
+        let mut report =
+            identify::identify(&self.conn, &*self.volumes, &p, &self.image_dir(), scope, on)?;
+        let lang = self.language()?;
+        if report.matched > 0 && lang != lang::BASE {
+            let t = translate::translate(&self.conn, &p, &self.image_dir(), lang, &mut |_| {})?;
+            report.errors.extend(t.errors);
+        }
+        Ok(report)
+    }
+
+    /// Fetches the text of every matched item the library does not hold in the language in
+    /// effect. Nothing is matched again. `on` gets each item done.
+    pub fn translate(&self, on: &mut dyn FnMut(Id)) -> Result<TranslateReport> {
+        let lang = self.language()?;
+        if lang == lang::BASE {
+            return Ok(TranslateReport::default());
+        }
+        translate::translate(&self.conn, &self.provider()?, &self.image_dir(), lang, on)
+    }
+
+    /// Whether the library holds the text of every matched item in the language in effect.
+    pub fn translated(&self) -> Result<bool> {
+        translate::complete(&self.conn, self.language()?)
     }
 
     /// TMDB search for picking a match by hand. `kind` is `Movie` or `Show`.
     pub fn lookup(&self, text: &str, kind: ItemKind, year: Option<i32>) -> Result<Vec<Candidate>> {
-        identify::lookup(&self.provider()?, &self.image_dir(), text, kind, year)
+        identify::lookup(
+            &self.provider()?,
+            &self.image_dir(),
+            text,
+            kind,
+            year,
+            self.language()?,
+        )
     }
 
     /// Scan, identify (with a TMDB key), probe (with a tool), identify the items left for
@@ -273,6 +310,16 @@ impl Library {
             }
         }
 
+        // A language chosen, or suggested by Windows, that the library does not hold yet.
+        if opts.identify && self.has_secret(TMDB_KEY)? && !self.translated()? {
+            on(RefreshEvent::Phase(RefreshPhase::Translating));
+            let done = self.translate(&mut |id| on(RefreshEvent::Item(id)));
+            match recoverable(done)? {
+                Ok(r) => report.translated = Some(r),
+                Err(why) => report.identify_error = Some(why),
+            }
+        }
+
         if self.can_thumbnail()? {
             on(RefreshEvent::Phase(RefreshPhase::Thumbnails));
             report.thumbnails =
@@ -300,6 +347,10 @@ impl Library {
 
     pub fn search(&self, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
         query::search(&self.conn, &*self.volumes, q)
+    }
+
+    pub fn facets(&self, kind: Option<ItemKind>) -> Result<Facets> {
+        filter::facets(&self.conn, &*self.volumes, kind)
     }
 
     pub fn item(&self, id: Id) -> Result<ItemDetail> {
@@ -349,6 +400,64 @@ impl Library {
         query::set_taste_profile(&self.conn, text)
     }
 
+    pub fn service_states(&self) -> Result<Vec<ServiceState>> {
+        sync::service_states(&self.conn)
+    }
+
+    /// Switched off, a service's facts count nowhere; they are kept for when it is back on.
+    pub fn set_service_enabled(&self, service: &str, on: bool) -> Result<()> {
+        sync::set_service_enabled(&self.conn, service, on)
+    }
+
+    /// `None` forgets the service: its facts, films, state and `wanted` rows go.
+    pub fn set_service_username(&self, service: &str, username: Option<&str>) -> Result<()> {
+        sync::set_service_username(&self.conn, service, username)
+    }
+
+    /// Asks the service whether `username` is good: how many recent entries it shows, or a
+    /// coded error that says what is wrong.
+    pub fn check_service(&self, svc: &dyn Service, username: &str) -> Result<u32> {
+        let username = normalize_username(username);
+        let key = self.secrets.get(svc.info().id)?;
+        let account = Account {
+            username: Some(&username),
+            key: key.as_deref(),
+        };
+        svc.check(&account, &*self.http)
+    }
+
+    /// Snapshot replaces the service's facts, then reads `Since(None)` at once; Since adds and
+    /// updates. Without a TMDB key, films are not searched and no wanted rows are made.
+    pub fn sync_activity(
+        &self,
+        svc: &dyn Service,
+        input: SyncInput,
+        on: &mut dyn FnMut(Id),
+    ) -> Result<SyncReport> {
+        let id = svc.info().id;
+        let username = sync::service_username(&self.conn, id)?;
+        let key = self.secrets.get(id)?;
+        let account = Account {
+            username: username.as_deref(),
+            key: key.as_deref(),
+        };
+        let tmdb = if self.has_secret(TMDB_KEY)? {
+            Some(self.provider()?)
+        } else {
+            None
+        };
+        let images = self.image_dir();
+        let tmdb = tmdb
+            .as_ref()
+            .map(|t| (t as &dyn MetadataProvider, images.as_path()));
+        sync::sync(&self.conn, svc, &account, input, &*self.http, tmdb, on)
+    }
+
+    /// The films of `service` left out because no match was sure, by title.
+    pub fn service_unmatched(&self, service: &str) -> Result<Vec<(String, Option<i32>)>> {
+        sync::service_unmatched(&self.conn, service)
+    }
+
     /// Blocks until the player exits.
     pub fn play(&self, item_id: Id, resume: bool) -> Result<PlayOutcome> {
         let tools = tools::tools(&self.conn, &self.env)?;
@@ -367,11 +476,12 @@ impl Library {
     /// they are used ahead of any found on the PC (a path set by hand still wins). Asks GitHub
     /// first and fetches nothing when the newest download is already that release.
     pub fn download_tools(&self, on: &mut dyn FnMut(DownloadEvent)) -> Result<DownloadReport> {
-        let dir = self
-            .env
-            .tools_dir
-            .as_deref()
-            .ok_or_else(|| Error::Invalid("this library has no tools folder".into()))?;
+        let dir = self.env.tools_dir.as_deref().ok_or_else(|| {
+            Error::Invalid(Detail::coded(
+                "download.no_tools_folder",
+                "this library has no tools folder",
+            ))
+        })?;
         download::download(&UreqFetch::new(), dir, on)
     }
 
@@ -398,6 +508,25 @@ impl Library {
         db::set_setting(&self.conn, INTRO_KEY, (!on).then_some("off"))
     }
 
+    /// The language in effect: the owner's choice, or the one Windows suggests.
+    pub fn language(&self) -> Result<&'static str> {
+        lang::language(&self.conn)
+    }
+
+    /// Chooses the language. Text the library does not hold in it yet comes with
+    /// `translate`.
+    pub fn set_language(&self, tag: &str) -> Result<()> {
+        lang::set_language(&self.conn, tag)
+    }
+
+    pub fn date_format(&self) -> Result<&'static str> {
+        lang::date_format(&self.conn)
+    }
+
+    pub fn set_date_format(&self, format: &str) -> Result<()> {
+        lang::set_date_format(&self.conn, format)
+    }
+
     pub fn status(&self) -> Result<LibraryStatus> {
         Ok(LibraryStatus {
             counts: query::library_counts(&self.conn)?,
@@ -405,17 +534,19 @@ impl Library {
             tmdb_key: self.has_secret(TMDB_KEY)?,
             agent_key: self.has_secret(AGENT_KEY)?,
             intro: self.intro()?,
+            language: self.language()?,
+            date_format: self.date_format()?,
         })
     }
 }
 
-/// An identification that failed for a reason outside the library (a rejected key, the
+/// An identification or translation that failed for a reason outside the library (a rejected key, the
 /// network, TMDB itself) becomes its message; anything else (the database) stays an error.
-fn recoverable(r: Result<IdentifyReport>) -> Result<std::result::Result<IdentifyReport, String>> {
+fn recoverable<T>(r: Result<T>) -> Result<std::result::Result<T, Fault>> {
     match r {
         Ok(r) => Ok(Ok(r)),
         Err(e @ (Error::Invalid(_) | Error::Provider(_) | Error::NotFound(_))) => {
-            Ok(Err(e.to_string()))
+            Ok(Err(Fault::from(e)))
         }
         Err(e) => Err(e),
     }
@@ -521,7 +652,7 @@ mod tests {
         );
         assert_eq!(r.identified, None);
         let why = r.identify_error.unwrap();
-        assert!(why.contains("rejected the key"), "{why}");
+        assert_eq!(why.code, Some("tmdb.key_rejected"), "{why:?}");
         assert_eq!(r.probed, Some((0, 1)));
         assert_eq!(r.rescored, None);
     }

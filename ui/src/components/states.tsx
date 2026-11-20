@@ -5,6 +5,7 @@ import { useId, type ReactNode } from "react";
 import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export interface StateAction {
@@ -12,9 +13,10 @@ export interface StateAction {
   onAction: () => unknown;
 }
 
+// Its key stays the same in every language, so focus finds it again after the words change.
 function ActionButton({ action }: { action: StateAction }) {
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
-    key: `state:${action.label}`,
+    key: "state:action",
     onSelect: () => void action.onAction(),
   });
   return (
@@ -74,11 +76,12 @@ export function Empty({
 }
 
 /** A single dim line while data arrives. No spinner, no animation. */
-export function Loading({ label = "Loading" }: { label?: string }) {
+export function Loading({ label }: { label?: string }) {
+  const t = useT();
   return (
     <Panel>
       <p role="status" className="font-display text-body text-label-faint">
-        {label}
+        {label ?? t("common.loading")}
       </p>
     </Panel>
   );

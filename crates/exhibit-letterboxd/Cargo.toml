@@ -1,0 +1,10 @@
+[package]
+name = "exhibit-letterboxd"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+csv = "1.4.0"
+exhibit-core = { path = "../exhibit-core" }
+roxmltree = "0.21.2"
+zip = { version = "9.8.1", default-features = false, features = ["deflate"] }

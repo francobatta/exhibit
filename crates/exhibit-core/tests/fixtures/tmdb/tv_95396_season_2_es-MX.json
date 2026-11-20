@@ -1,0 +1,11 @@
+{
+  "id": 302227,
+  "season_number": 2,
+  "name": "Temporada 2",
+  "poster_path": "/esSeason2.jpg",
+  "episodes": [
+    { "episode_number": 1, "name": "Hola, señora Cobel", "overview": "Mark regresa a Lumon." },
+    { "episode_number": 2, "name": "", "overview": "" }
+  ],
+  "images": { "posters": [{ "iso_639_1": "es", "file_path": "/esSeason2.jpg" }] }
+}

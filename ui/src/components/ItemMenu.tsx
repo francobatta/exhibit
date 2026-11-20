@@ -14,6 +14,7 @@ import * as api from "@/lib/api";
 import { remPx, rems } from "@/lib/motion";
 import { keys, useItemSources } from "@/lib/queries";
 import { useNav } from "@/nav/stack";
+import { useT } from "@/i18n";
 
 /** How long the menu waits for the full record before it opens with the summary, in ms. */
 const DETAIL_WAIT = 250;
@@ -107,9 +108,10 @@ export function ItemMenu({ item, actions, extra = [], anchor, open, onClose, onC
     return () => cancelAnimationFrame(frame);
   }, [open, dialogOpen, anchor, menu]);
 
+  const t = useT();
   const title = facetsOf(item).title;
   return (
-    <FocusScope id="item-menu" modal open={dialogOpen} label={`${title}, actions`} onBack={() => menu.close()} onClosed={onClosed} className="fixed inset-0 bg-transparent outline-none">
+    <FocusScope id="item-menu" modal open={dialogOpen} label={t("actions.menu", { title })} onBack={() => menu.close()} onClosed={onClosed} className="fixed inset-0 bg-transparent outline-none">
       <Menu
         controller={menu}
         loop={false}

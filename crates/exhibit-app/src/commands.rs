@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use exhibit_core::filter::Facets;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Candidate, CastMember, Id, ItemKind, Source};
 use exhibit_core::query::{HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
@@ -45,6 +46,11 @@ pub fn status() -> ApiResult<LibraryStatus> {
 #[tauri::command(async)]
 pub fn search(state: State<'_, AppState>, query: SearchQuery) -> ApiResult<Vec<ItemSummary>> {
     Ok(state.lib().search(&query)?)
+}
+
+#[tauri::command(async)]
+pub fn facets(state: State<'_, AppState>, kind: Option<ItemKind>) -> ApiResult<Facets> {
+    Ok(state.lib().facets(kind)?)
 }
 
 #[tauri::command(async)]
@@ -157,6 +163,22 @@ pub fn set_intro(state: State<'_, AppState>, on: bool) -> ApiResult<()> {
     Ok(())
 }
 
+/// Chooses the language, then fetches the library's text in it if it is not all there yet.
+#[tauri::command(async)]
+pub fn set_language(state: State<'_, AppState>, language: String) -> ApiResult<()> {
+    state.lib().set_language(&language)?;
+    state.changed.notify();
+    state.worker.enqueue(Job::Translate);
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn set_date_format(state: State<'_, AppState>, format: String) -> ApiResult<()> {
+    state.lib().set_date_format(&format)?;
+    state.changed.notify();
+    Ok(())
+}
+
 /// Starts downloading mpv and ffmpeg; returns at once, false when a download is already
 /// running. Progress arrives as `tools-download`.
 #[tauri::command(async)]
@@ -183,8 +205,9 @@ impl SecretName {
     /// Read from the command's string, so an unknown name is an `invalid` error the window
     /// can show rather than a failure to call the command at all.
     pub fn parse(name: &str) -> ApiResult<SecretName> {
-        serde_json::from_value(serde_json::Value::from(name))
-            .map_err(|_| ApiError::invalid(&format!("no secret is called \"{name}\"")))
+        serde_json::from_value(serde_json::Value::from(name)).map_err(|_| {
+            ApiError::invalid("secret.unknown", &format!("no secret is called \"{name}\""))
+        })
     }
 
     fn key(self) -> &'static str {

@@ -7,7 +7,8 @@ import { motion } from "motion/react";
 import type { DownloadStatus, ToolStatus } from "@/lib/api";
 import { focusSpring } from "@/lib/motion";
 import { useToolsDownload } from "@/lib/queries";
-import { DOWNLOAD_NOTE, downloadLabel, downloadOutcome, downloadProgress, downloadShare } from "@/lib/tools";
+import { useT } from "@/i18n";
+import { downloadLabel, downloadNote, downloadOutcome, downloadProgress, downloadShare } from "@/lib/tools";
 import { FocusButton } from "./FocusButton";
 
 /** The button. A press while a download runs does nothing; the words say it is under way. */
@@ -20,6 +21,7 @@ export function DownloadButton({
   focusKey: string;
   variant?: "solid" | "line";
 }) {
+  useT();
   const { status, start } = useToolsDownload();
   const progress = status && downloadProgress(status);
   return (
@@ -45,6 +47,7 @@ function Fill({ status }: { status: DownloadStatus }) {
 
 /** Where the builds come from, then how the last download ended. */
 export function DownloadNote() {
+  useT();
   const { status } = useToolsDownload();
   const outcome = status && downloadOutcome(status);
   return (
@@ -54,7 +57,7 @@ export function DownloadNote() {
           {outcome.text}
         </p>
       )}
-      <p className="font-reading text-body leading-reading text-label-faint">{DOWNLOAD_NOTE}</p>
+      <p className="font-reading text-body leading-reading text-label-faint">{downloadNote()}</p>
     </div>
   );
 }

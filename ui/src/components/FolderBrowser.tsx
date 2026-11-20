@@ -8,6 +8,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { focusItem } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { listFolders, plain, type Folder } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Dialog, type DialogAction } from "./Dialog";
@@ -16,8 +17,8 @@ import { TextField } from "./TextField";
 
 export interface FolderBrowserProps {
   open: boolean;
-  /** `folder` picks a folder; `exe` picks a program file (a tool's `.exe`). */
-  mode: "folder" | "exe";
+  /** `folder` picks a folder; `exe` picks a program file (a tool's `.exe`); `zip` picks an export file. */
+  mode: "folder" | "exe" | "zip";
   title: string;
   /** What the path field asks for, such as "Or type the path to mpv.exe". */
   placeholder: string;
@@ -40,12 +41,13 @@ export function parentOf(path: string): string | null {
 const entryKey = (i: number) => `browser:${i}`;
 
 export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose, onClosed }: FolderBrowserProps) {
+  const t = useT();
   // Null is the list of drives.
   const [path, setPath] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   // Which entry takes focus once the folder shown has loaded: the first, or the one just left.
   const land = useRef<string | null>(null);
-  const ext = mode === "exe" ? "exe" : null;
+  const ext = mode === "folder" ? null : mode;
   const listing = useQuery({
     queryKey: ["folders", path, ext],
     queryFn: () => listFolders(path, ext),
@@ -77,8 +79,8 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
   };
 
   const actions: DialogAction[] = [
-    ...(mode === "folder" && path !== null ? [{ label: "Add this folder", onSelect: () => onPick(path), primary: true }] : []),
-    { label: "Cancel", onSelect: onClose },
+    ...(mode === "folder" && path !== null ? [{ label: t("browser.addThis"), onSelect: () => onPick(path), primary: true }] : []),
+    { label: t("common.cancel"), onSelect: onClose },
   ];
 
   return (
@@ -86,7 +88,7 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
       id="browser"
       open={open}
       title={title}
-      body={path ?? "Drives"}
+      body={path ?? t("browser.drives")}
       actions={actions}
       onBack={up}
       onClosed={onClosed}
@@ -95,15 +97,15 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
     >
       <div className="-mx-(--dialog-pad) h-(--dialog-list) overflow-y-auto border-y border-line px-(--dialog-pad) py-3">
         {listing.isError ? (
-          <Note>{plain(listing.error)}. Go back and choose another folder.</Note>
+          <Note>{t("browser.readFailed", { error: plain(listing.error) })}</Note>
         ) : loading ? (
-          <Note>Opening {path ?? "the drives"}</Note>
+          <Note>{path === null ? t("browser.openingDrives") : t("browser.opening", { path })}</Note>
         ) : entries.length === 0 ? (
-          <Note>{mode === "exe" ? "No folders or programs here." : "No folders here."}</Note>
+          <Note>{mode === "exe" ? t("browser.noFoldersOrPrograms") : mode === "zip" ? t("browser.noFoldersOrFiles") : t("browser.noFolders")}</Note>
         ) : (
-          <FocusGroup id="browser-list" orientation="vertical" aria-label={path ?? "Drives"} className="flex flex-col">
+          <FocusGroup id="browser-list" orientation="vertical" aria-label={path ?? t("browser.drives")} className="flex flex-col">
             {entries.map((e, i) => (
-              <Entry key={e.path} index={i} entry={e} onChoose={() => choose(e)} />
+              <Entry key={e.path} index={i} entry={e} fileLabel={t(mode === "zip" ? "browser.file" : "browser.program")} onChoose={() => choose(e)} />
             ))}
           </FocusGroup>
         )}
@@ -119,11 +121,12 @@ function Note({ children }: { children: string | string[] }) {
   return <p className="py-2 font-reading text-lead leading-reading text-label-dim">{children}</p>;
 }
 
-function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onChoose: () => void }) {
+function Entry({ index, entry, fileLabel, onChoose }: { index: number; entry: Folder; fileLabel: string; onChoose: () => void }) {
+  const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: entryKey(index),
     onSelect: onChoose,
-    hint: entry.file ? "Choose" : "Open",
+    hint: entry.file ? t("hints.choose") : t("hints.open"),
   });
   return (
     <button
@@ -139,7 +142,7 @@ function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onCho
         {entry.name}
         {focused && <Lamp />}
       </span>
-      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">Program</span>}
+      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">{fileLabel}</span>}
     </button>
   );
 }

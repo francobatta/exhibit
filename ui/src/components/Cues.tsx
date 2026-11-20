@@ -1,7 +1,8 @@
 // A placard's row of cues, the same on Home's hero and on Details: the main action as a pill
-// (play, resume), Details where it leads somewhere new, then Loved and Watched as a heart and an
-// eye that show their state. Commands come first, states after. Beside the row, one line in words
-// for the cue the owner is on: why it cannot play, how much is left, what the heart or eye means.
+// (play, resume; none for a film the owner does not have), Details where it leads somewhere new,
+// then Loved and Watched as a heart and an eye that show their state. Commands come first, states
+// after. Beside the row, one line in words for the cue the owner is on: why it cannot play, how
+// much is left, what the heart or eye means.
 
 import type { KeyboardEvent, ReactNode } from "react";
 import { PlayGlyph, type Progress } from "@/components/ActionLine";
@@ -10,6 +11,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { LovedIcon, WatchedIcon } from "@/components/ui/state-icon";
 import { Toggle } from "@/components/ui/toggle";
 import { useFocusState, type Dir } from "@/focus/bridge";
+import { useT } from "@/i18n";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import {
   facetsOf,
@@ -33,6 +35,8 @@ export interface CuesProps {
   drive: string | undefined;
   /** How far a started work has got, shown beside a Resume. */
   progress: Progress | null;
+  /** Offer the main action; false for a film with no file, which has nothing to play. Default true. */
+  play?: boolean;
   /** Offer Details (Home); on the details screen itself it is where the owner already is. */
   details?: boolean;
   /** A cue took focus, by its key. */
@@ -61,7 +65,8 @@ function Said({ children }: { children: ReactNode }) {
   return <p className="cues-said min-w-0 font-display text-body text-label-dim">{children}</p>;
 }
 
-export function Cues({ id, prefix, item, drive, progress, details = false, onFocusCue, onEdge, aside = false }: CuesProps) {
+export function Cues({ id, prefix, item, drive, progress, play = true, details = false, onFocusCue, onEdge, aside = false }: CuesProps) {
+  const t = useT();
   const ctx = useActionContext();
   const f = facetsOf(item);
   const main = mainAction(item);
@@ -73,9 +78,11 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
   const run = (id: Action["id"]) => void runAction({ id, label: "" }, item, ctx);
 
   let said: ReactNode = null;
-  if (on === "love") said = <Said>{f.loved ? "Loved" : "Love"}</Said>;
-  else if (on === "watched") said = <Said>{watched ? "Watched" : container ? "Mark all as watched" : "Mark as watched"}</Said>;
-  else if (on === "details") said = null;
+  if (on === "love") said = <Said>{f.loved ? t("cues.loved") : t("cues.love")}</Said>;
+  else if (on === "watched") {
+    said = <Said>{watched ? t("cues.watched") : container ? t("actions.markAllWatched") : t("actions.markWatched")}</Said>;
+  }
+  else if (on === "details" || !play) said = null;
   else if (main.disabled) said = <Said>{reasonOf(main, drive)}</Said>;
   else if (progress !== null && main.id === "resume") {
     said = (
@@ -99,44 +106,46 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
         id={id}
         orientation="horizontal"
         reveals
-        aria-label="Actions"
+        aria-label={t("cues.actions")}
         onFocus={(e) => {
           const key = (e.target as HTMLElement).dataset.focusKey;
           if (key !== undefined) onFocusCue?.(key);
         }}
         // Arriving from elsewhere always lands on the main action, never on a heart or an eye that
         // the next A would change unseen; the pointer still goes where it points.
-        entry={`${prefix}:main`}
+        entry={play ? `${prefix}:main` : undefined}
         onEdge={onEdge}
         aside={aside}
         className="flex w-full items-center gap-3"
       >
-        <PillCue
-          focusKey={`${prefix}:main`}
-          label={main.id === "resume" ? "Resume" : main.label}
-          glyph={main.id === "play" || main.id === "resume" || main.id === "restart"}
-          strong
-          disabled={main.disabled !== undefined}
-          onRun={() => runSelected(main, item, ctx)}
-          onMenu={menu}
-        />
+        {play && (
+          <PillCue
+            focusKey={`${prefix}:main`}
+            label={main.id === "resume" ? t("actions.resume") : main.label}
+            glyph={main.id === "play" || main.id === "resume" || main.id === "restart"}
+            strong
+            disabled={main.disabled !== undefined}
+            onRun={() => runSelected(main, item, ctx)}
+            onMenu={menu}
+          />
+        )}
         {details && main.id !== "details" && (
-          <PillCue focusKey={`${prefix}:details`} label="Details" onRun={() => run("details")} onMenu={menu} />
+          <PillCue focusKey={`${prefix}:details`} label={t("actions.details")} onRun={() => run("details")} onMenu={menu} />
         )}
         <StateCue
           focusKey={`${prefix}:love`}
-          label="Loved"
+          label={t("cues.loved")}
           icon={<LovedIcon className="size-(--cue-icon)" />}
-          hint={f.loved ? "Unlove" : "Love"}
+          hint={f.loved ? t("cues.unlove") : t("cues.love")}
           pressed={f.loved}
           onPressedChange={(p) => run(p ? "love" : "unlove")}
           onMenu={menu}
         />
         <StateCue
           focusKey={`${prefix}:watched`}
-          label="Watched"
+          label={t("cues.watched")}
           icon={<WatchedIcon className="size-(--cue-icon)" />}
-          hint={watched ? "Unmark" : "Mark"}
+          hint={watched ? t("cues.unmark") : t("cues.mark")}
           pressed={watched}
           onPressedChange={(p) => run(p ? "watched" : "unwatched")}
           onMenu={menu}

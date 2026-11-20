@@ -1,10 +1,12 @@
 // Ask: an overlay over any screen, opened by Y, `/`, Ctrl+K or the top bar's field, closed by B
 // back to exactly where focus was. In this stage it is plain search: one large field and, as the
-// owner types (after a 200 ms pause), the library's matches as a shelf per kind. A on a result
+// owner types (after a 200 ms pause), the library's matches as a shelf per kind, with the films on
+// the owner's watchlist they do not have after the ones they have, unlit as on the wall. A on a result
 // runs its main action, X opens its menu. With nothing typed, the last six searches are offered.
 // Stage 4 swaps only `useAsk`'s source for the agent.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { Lamp } from "@/components/Lamp";
 import { itemKey, Shelf } from "@/components/Shelf";
 import { ErrorState } from "@/components/states";
@@ -12,7 +14,8 @@ import { TextField } from "@/components/TextField";
 import { dialogBackdrop } from "@/components/ui/dialog";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
-import { runMain, useActionContext } from "@/lib/actions";
+import { useT } from "@/i18n";
+import { mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary } from "@/lib/api";
 import { revealRow } from "@/lib/motion";
 import { useAsk, type AskResult } from "@/lib/queries";
@@ -20,7 +23,6 @@ import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
 import { closeAsk, leaveAsk, useAskOverlay } from "@/nav/stack";
 
-const PLACEHOLDER = "Search the library";
 const FIELD = "ask:field";
 /** How long typing pauses before the library is searched, in ms. */
 const DEBOUNCE = 200;
@@ -87,6 +89,8 @@ export function AskHost() {
 }
 
 export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }) {
+  const t = useT();
+  const placeholder = t("topBar.search");
   const [text, setText] = useState(() => useAskOverlay.getState().seed);
   const [query, flush] = useDebounced(text.trim(), DEBOUNCE);
   const results = useAsk(query);
@@ -126,7 +130,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       id="ask"
       modal
       open={open}
-      label={PLACEHOLDER}
+      label={placeholder}
       restoreKey={FIELD}
       fallbackKey={FIELD}
       onBack={() => closeAsk()}
@@ -136,17 +140,21 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       onClosed={onClosed}
       backdropClassName={cn(dialogBackdrop, "bg-wall")}
       className={cn(
-        "fixed inset-0 z-50 flex flex-col pt-(--ask-top) outline-none",
+        "fixed inset-0 z-50 flex flex-col outline-none",
         "transition-opacity duration-(--dur-screen) data-starting-style:opacity-0 data-ending-style:opacity-0",
       )}
     >
+      {/* Ask covers the bar, so it carries Back where the bar's stands. */}
+      <FocusGroup id="ask-back" orientation="horizontal" className="flex h-bar shrink-0 items-center px-edge">
+        <BackButton focusKey="ask:back" onBack={() => closeAsk()} className="-ml-4" />
+      </FocusGroup>
       <FocusGroup id="ask-field" orientation="horizontal" className="px-edge">
         <TextField
           focusKey={FIELD}
           value={text}
           onChange={type}
           onSubmit={submit}
-          placeholder={PLACEHOLDER}
+          placeholder={placeholder}
           className={cn(
             "h-(--ask-field) rounded-none border-0 border-b border-line bg-transparent px-0",
             "text-title font-title tracking-title focus:border-lamp/60 focus:bg-transparent",
@@ -159,7 +167,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
         ) : results.isError ? (
           <ErrorState
             message={plain(results.error)}
-            hint="The library could not be searched. Try again, or restart Exhibit if it keeps happening."
+            hint={t("ask.searchFailed")}
           />
         ) : results.data === undefined ? null : (
           <Results result={results.data} text={query} onChosen={() => rememberSearch(query)} onReveal={reveal} />
@@ -180,13 +188,14 @@ function Results({
   onChosen: () => void;
   onReveal: (el: HTMLElement) => void;
 }) {
+  const t = useT();
   const ctx = useActionContext();
   if (result.groups.length === 0) {
     return (
       <div className="px-edge">
-        <h2 className="font-display text-heading font-title tracking-title text-label">Nothing matches “{text}”</h2>
+        <h2 className="font-display text-heading font-title tracking-title text-label">{t("ask.noMatches", { text })}</h2>
         <p className="mt-4 font-reading text-lead leading-reading text-label-dim">
-          Check the spelling, or search for someone who made it or is in it.
+          {t("ask.noMatchesBody")}
         </p>
       </div>
     );
@@ -207,6 +216,7 @@ function Results({
           light="ask-light"
           onReveal={onReveal}
           onOpen={open}
+          hintOf={mainHint}
         />
       ))}
     </div>
@@ -214,16 +224,17 @@ function Results({
 }
 
 function Recent({ recent, onChoose }: { recent: string[]; onChoose: (text: string) => void }) {
+  const t = useT();
   if (recent.length === 0) {
     return (
       <p className="px-edge font-reading text-lead leading-reading text-label-dim">
-        Type a title, or the name of someone who made it or is in it.
+        {t("ask.hint")}
       </p>
     );
   }
   return (
-    <section aria-label="Recent searches" className="px-edge">
-      <h2 className="mb-4 font-display text-lead font-ui text-label-dim">Recent searches</h2>
+    <section aria-label={t("ask.recent")} className="px-edge">
+      <h2 className="mb-4 font-display text-lead font-ui text-label-dim">{t("ask.recent")}</h2>
       <FocusGroup id="ask-recent" orientation="vertical" className="-ml-4 flex flex-col items-start">
         {recent.map((q) => (
           <RecentLine key={q} text={q} onChoose={() => onChoose(q)} />

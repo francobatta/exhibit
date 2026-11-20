@@ -14,20 +14,25 @@ import { Placard, placardLines } from "@/components/Placard";
 import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
-import { runMain, useActionContext } from "@/lib/actions";
+import { t, useT } from "@/i18n";
+import { hasActivity, mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
-import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
+import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
 
-/** Home's shelves, in order, each shown only when it has items. */
-const SHELVES: Array<{ shelf: ShelfName; limit: number; title: string }> = [
-  { shelf: "continue_watching", limit: 20, title: "Continue watching" },
-  { shelf: "recently_added", limit: 30, title: "Recently added" },
-  { shelf: "unwatched", limit: 30, title: "Not watched yet" },
-  { shelf: "loved", limit: 30, title: "Loved" },
-];
+/**
+ * Home's shelves, in order, each shown only when it has items. The watchlist (the films the owner
+ * has first, then the ones they do not, unlit) only while a service brings their activity in.
+ */
+const SHELVES = [
+  { shelf: "continue_watching", limit: 20, title: "home.continueWatching" },
+  { shelf: "watchlist", limit: 30, title: "activity.shelf", activity: true },
+  { shelf: "recently_added", limit: 30, title: "home.recentlyAdded" },
+  { shelf: "unwatched", limit: 30, title: "home.notWatchedYet" },
+  { shelf: "loved", limit: 30, title: "home.loved" },
+] as const satisfies Array<{ shelf: ShelfName; limit: number; title: string; activity?: boolean }>;
 
 interface Row {
   shelf: ShelfName;
@@ -36,31 +41,37 @@ interface Row {
 }
 
 export function Home() {
+  const t = useT();
   const queries = [
     useShelf(SHELVES[0]!.shelf, SHELVES[0]!.limit),
     useShelf(SHELVES[1]!.shelf, SHELVES[1]!.limit),
     useShelf(SHELVES[2]!.shelf, SHELVES[2]!.limit),
     useShelf(SHELVES[3]!.shelf, SHELVES[3]!.limit),
+    useShelf(SHELVES[4]!.shelf, SHELVES[4]!.limit),
   ];
   const job = useJobStatus();
   const status = useStatus().data;
+  // Whether the hero keeps a line for the owner's verdict is known before it first shows, so the
+  // placard never grows a line under the owner's eyes. A failure to say counts as no service.
+  const services = useServices();
 
   // A focus scope settles as it mounts, so the shelves render once all their data is here.
-  if (queries.some((q) => q.isPending)) return <Loading />;
+  if (queries.some((q) => q.isPending) || services.isPending) return <Loading />;
   const failed = queries.find((q) => q.isError);
   if (failed) {
     return (
       <ErrorState
         message={plain(failed.error)}
-        hint="The library could not be read. Try again, or restart Exhibit if it keeps happening."
-        action={{ label: "Try again", onAction: () => queries.forEach((q) => void q.refetch()) }}
+        hint={t("common.libraryReadFailed")}
+        action={{ label: t("common.tryAgain"), onAction: () => queries.forEach((q) => void q.refetch()) }}
       />
     );
   }
   // Recently added holds every film and show, so when it is empty there are none; Other has its
   // own wall and never comes to Home.
-  const rows: Row[] = SHELVES.map((s, i) => ({ ...s, items: queries[i]!.data ?? [] })).filter(
-    (r) => r.items.length > 0,
+  const activity = hasActivity(services.data);
+  const rows: Row[] = SHELVES.map((s, i) => ({ shelf: s.shelf, title: t(s.title), items: queries[i]!.data ?? [] })).filter(
+    (r, i) => r.items.length > 0 && (activity || !("activity" in SHELVES[i]!)),
   );
   if (rows.length === 0) {
     // Which empty this is waits for the folders to be known.
@@ -69,18 +80,18 @@ export function Home() {
     const other = sources > 0 && status.other > 0;
     return (
       <Empty
-        title="Nothing here yet."
+        title={t("home.empty")}
         body={emptyBody(sources, other, job === null || job.phase !== null)}
         status={jobLine(job) ?? undefined}
         action={
           other
-            ? { label: "Open Other", onAction: () => useNav.getState().replaceRoot({ screen: "wall", kind: "other" }) }
-            : { label: "Open Settings", onAction: openSettings }
+            ? { label: t("home.openOther"), onAction: () => useNav.getState().replaceRoot({ screen: "wall", kind: "other" }) }
+            : { label: t("common.openSettings"), onAction: openSettings }
         }
       />
     );
   }
-  return <Spotlight rows={rows} />;
+  return <Spotlight rows={rows} verdicts={activity} />;
 }
 
 /**
@@ -88,13 +99,13 @@ export function Home() {
  * through the folders, or nothing in them.
  */
 function emptyBody(sources: number, other: boolean, looking: boolean): string {
-  if (sources === 0) return "Add the folders that hold your films and shows in Settings.";
-  if (other) return "Home shows films and shows. Everything Exhibit has found so far is in Other.";
-  if (looking) return "Exhibit is still looking through your folders.";
-  return "Exhibit found nothing to show in your folders. Add another folder in Settings.";
+  if (sources === 0) return t("home.noFolders");
+  if (other) return t("home.allInOther");
+  if (looking) return t("home.looking");
+  return t("home.foundNothing");
 }
 
-function Spotlight({ rows }: { rows: Row[] }) {
+function Spotlight({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
   const [focused, setFocused] = useState<ItemSummary>(rows[0]!.items[0]!);
   // The shelf in view, by its name: a refresh may add or drop a shelf above it.
   const [active, setActive] = useState<ShelfName>(rows[0]!.shelf);
@@ -133,7 +144,7 @@ function Spotlight({ rows }: { rows: Row[] }) {
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="flex max-w-measure flex-col gap-5">
-            <Placard item={current} detail={detail} size="hero" />
+            <Placard item={current} detail={detail} size="hero" holdVerdicts={verdicts} />
             <Cues
               id="home-cues"
               prefix="hero"
@@ -267,6 +278,7 @@ function Shelves({
               title={row.title}
               items={row.items}
               onOpen={onOpen}
+              hintOf={mainHint}
               onFocusItem={handlers.get(row.shelf)!.focus}
               inert={row.shelf !== active && row.shelf !== reach}
               onEnter={handlers.get(row.shelf)!.enter}

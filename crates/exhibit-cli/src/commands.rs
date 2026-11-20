@@ -1,10 +1,13 @@
 //! One small function per command group; each returns the JSON to print.
 
 use exhibit_core::download::DownloadEvent;
+use exhibit_core::error::Detail;
+use exhibit_core::filter::Filters;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Id, ItemKind};
-use exhibit_core::query::{SearchQuery, Shelf, Sort};
+use exhibit_core::query::{SearchQuery, Shelf};
 use exhibit_core::scan::ScanEvent;
+use exhibit_core::service::{Service, SyncInput};
 use exhibit_core::tools::Tool;
 use exhibit_core::{Error, Library, RefreshEvent, RefreshOptions, RefreshPhase, Result};
 use serde::Serialize;
@@ -12,7 +15,7 @@ use serde_json::{Value, json};
 use std::io::{BufRead, IsTerminal};
 
 use crate::{
-    Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ShelfArg, SortArg,
+    Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ServiceCmd, ShelfArg,
     SourceCmd, TasteCmd, ToolArg, ToolsCmd,
 };
 
@@ -21,7 +24,8 @@ fn ok() -> Result<Value> {
 }
 
 fn to_json<T: Serialize>(v: T) -> Result<Value> {
-    serde_json::to_value(v).map_err(|e| Error::Invalid(format!("cannot serialise output: {e}")))
+    serde_json::to_value(v)
+        .map_err(|e| Error::Invalid(format!("cannot serialise output: {e}").into()))
 }
 
 /// Writes one short line to stderr when it is a terminal.
@@ -35,6 +39,7 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
     match command {
         Command::Status => to_json(lib.status()?),
         Command::Source(c) => source(lib, c),
+        Command::Service(c) => service(lib, c),
         Command::Scan {
             source,
             no_probe,
@@ -48,7 +53,8 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
             };
             to_json(lib.identify(scope, &mut |id| progress(format!("identified item {id}")))?)
         }
-        Command::Search(args) => to_json(lib.search(&search_query(args))?),
+        Command::Search(args) => to_json(lib.search(&search_query(*args))?),
+        Command::Facets { kind } => to_json(lib.facets(kind.map(kind_of))?),
         Command::Item { id } => to_json(lib.item(id)?),
         Command::Shelf { shelf, limit } => {
             let shelf = match shelf {
@@ -130,6 +136,9 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
             RefreshEvent::Item(id) if phase == RefreshPhase::Thumbnails => {
                 progress(format!("thumbnail for item {id}"))
             }
+            RefreshEvent::Item(id) if phase == RefreshPhase::Translating => {
+                progress(format!("translated item {id}"))
+            }
             RefreshEvent::Item(id) => progress(format!("identified item {id}")),
             // A failure's reason is printed whether or not stderr is a terminal.
             RefreshEvent::File {
@@ -148,37 +157,130 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
         "identify_error": r.identify_error,
         "probed": r.probed.map(|(ok, failed)| json!({"ok": ok, "failed": failed})),
         "rescored": r.rescored,
+        "translated": r.translated,
         "thumbnails": r.thumbnails.map(|(made, failed)| json!({"made": made, "failed": failed})),
     }))
 }
 
+fn kind_of(k: KindArg) -> ItemKind {
+    match k {
+        KindArg::Movie => ItemKind::Movie,
+        KindArg::Show => ItemKind::Show,
+        KindArg::Other => ItemKind::Other,
+        KindArg::Episode => ItemKind::Episode,
+    }
+}
+
 fn search_query(a: SearchArgs) -> SearchQuery {
+    let sort = a.sort;
     SearchQuery {
         text: a.text,
-        kind: a.kind.map(|k| match k {
-            KindArg::Movie => ItemKind::Movie,
-            KindArg::Show => ItemKind::Show,
-            KindArg::Other => ItemKind::Other,
-            KindArg::Episode => ItemKind::Episode,
-        }),
-        genre: a.genre,
-        year_min: a.year_min,
-        year_max: a.year_max,
-        runtime_max_min: a.runtime_max,
-        watched: (a.watched || a.unwatched).then_some(a.watched),
-        loved: a.loved.then_some(true),
-        min_width: a.min_width,
-        min_height: a.min_height,
-        available: a.available.then_some(true),
-        sort: a.sort.map(|s| match s {
-            SortArg::Title => Sort::Title,
-            SortArg::Added => Sort::Added,
-            SortArg::Year => Sort::Year,
-            SortArg::Runtime => Sort::Runtime,
+        kind: a.kind.map(kind_of),
+        filters: Filters {
+            genres: a.genre,
+            any_genre: a.any_genre,
+            without_genres: a.without_genre,
+            year_min: a.year_min,
+            year_max: a.year_max,
+            runtime_min: a.runtime_min,
+            runtime_max: a.runtime_max,
+            seen: a.seen,
+            loved: a.loved.then_some(true),
+            available: a.available.then_some(true),
+            rated: a.rated.then_some(true),
+            reviewed: a.reviewed.then_some(true),
+            logged: a.logged.then_some(true),
+            watchlist: a.watchlist.then_some(true),
+            resolution: a.resolution,
+            picture: a.picture,
+            sound: a.sound,
+            audio: a.audio,
+            subtitles: a.subtitles,
+        },
+        sort,
+        descending: a.reverse.then(|| {
+            !sort
+                .unwrap_or(exhibit_core::query::Sort::Title)
+                .descending()
         }),
         limit: a.limit,
         offset: a.offset,
+        with_wanted: a.with_wanted,
     }
+}
+
+fn find_service(id: &str) -> Result<Box<dyn Service>> {
+    exhibit_services::find(id).ok_or_else(|| {
+        Error::Invalid(
+            Detail::coded("service.unknown", format!("no service called \"{id}\""))
+                .with("service", id),
+        )
+    })
+}
+
+fn service(lib: &Library, cmd: ServiceCmd) -> Result<Value> {
+    match cmd {
+        ServiceCmd::List => {
+            let states = lib.service_states()?;
+            let list: Vec<Value> = exhibit_services::all()
+                .iter()
+                .map(|s| {
+                    let i = s.info();
+                    let state = states.iter().find(|st| st.service == i.id);
+                    json!({
+                        "id": i.id,
+                        "name": i.name,
+                        "provides": i.provides,
+                        "needs": i.needs,
+                        "state": state,
+                    })
+                })
+                .collect();
+            Ok(Value::Array(list))
+        }
+        ServiceCmd::User { id, name, clear } => {
+            let svc = find_service(&id)?;
+            match name.filter(|_| !clear) {
+                None => lib.set_service_username(&id, None).and_then(|_| ok()),
+                Some(name) => {
+                    let checked = lib.check_service(&*svc, &name)?;
+                    lib.set_service_username(&id, Some(&name))?;
+                    let report = sync(lib, &*svc, SyncInput::Since(None))?;
+                    Ok(json!({"checked": checked, "report": report}))
+                }
+            }
+        }
+        ServiceCmd::On { id } => {
+            find_service(&id)?;
+            lib.set_service_enabled(&id, true).and_then(|_| ok())
+        }
+        ServiceCmd::Off { id } => {
+            find_service(&id)?;
+            lib.set_service_enabled(&id, false).and_then(|_| ok())
+        }
+        ServiceCmd::Import { id, zip } => {
+            let svc = find_service(&id)?;
+            sync(lib, &*svc, SyncInput::Snapshot(&zip))
+        }
+        ServiceCmd::Sync { id } => {
+            let svc = find_service(&id)?;
+            sync(lib, &*svc, SyncInput::Since(None))
+        }
+        ServiceCmd::Unmatched { id } => {
+            find_service(&id)?;
+            let films = lib.service_unmatched(&id)?;
+            Ok(Value::Array(
+                films
+                    .into_iter()
+                    .map(|(key, year)| json!({"key": key, "year": year}))
+                    .collect(),
+            ))
+        }
+    }
+}
+
+fn sync(lib: &Library, svc: &dyn Service, input: SyncInput) -> Result<Value> {
+    to_json(lib.sync_activity(svc, input, &mut |id| progress(format!("matched item {id}")))?)
 }
 
 fn review(lib: &Library, cmd: ReviewCmd) -> Result<Value> {

@@ -2,29 +2,20 @@
 // each entry remembers which element had focus so Back returns to it.
 
 import { create } from "zustand";
-import type { Id, Sort } from "@/lib/api";
+import type { Filters, Id, Sort } from "@/lib/api";
 
 export type WallKind = "movie" | "show" | "other";
 
 /** What the owner has asked of a wall; kept in its route, so Back finds it as left. */
 export interface WallView {
-  sort: Sort;
-  unwatched: boolean;
-  loved: boolean;
-  available: boolean;
-  uhd: boolean;
-  /** One genre, or any. */
-  genre: string | null;
+  /** None chosen: the library's own order, titles A to Z. */
+  sort: Sort | null;
+  descending: boolean;
+  /** Only what is set: an empty list or a missing field leaves the wall whole. */
+  filters: Filters;
 }
 
-export const DEFAULT_VIEW: WallView = {
-  sort: "title",
-  unwatched: false,
-  loved: false,
-  available: false,
-  uhd: false,
-  genre: null,
-};
+export const DEFAULT_VIEW: WallView = { sort: null, descending: false, filters: {} };
 
 /** The part of Settings to land on: the tools (mpv could not start), the TMDB key (Fix match without one). */
 export type SettingsPart = "tools" | "tmdb";
@@ -60,6 +51,8 @@ export interface NavState {
   push(route: Route): void;
   /** False at the root, where there is nothing to go back to. */
   back(): boolean;
+  /** Back to the root as it was left, past every screen stacked on it. */
+  toRoot(): void;
   replaceRoot(route: Route): void;
   /** Remembers what has focus on the current entry. */
   setFocusKey(key: string | null): void;
@@ -85,6 +78,11 @@ export const useNav = create<NavState>()((set, get) => ({
     if (entries.length <= 1) return false;
     set(settle(entries.slice(0, -1), "back"));
     return true;
+  },
+
+  toRoot: () => {
+    const { entries } = get();
+    if (entries.length > 1) set(settle(entries.slice(0, 1), "back"));
   },
 
   replaceRoot: (route) => set(settle([entry(route)], "root")),

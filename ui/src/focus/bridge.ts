@@ -8,7 +8,7 @@ import { nearestInDirection, type SpatialRect } from "@ui-sdk/core";
 import { registerShortcut } from "@ui-sdk/core/shortcuts";
 import { create } from "zustand";
 import { scrollBehavior } from "@/lib/motion";
-import { useNav } from "@/nav/stack";
+import { onFirstRun, useNav } from "@/nav/stack";
 import { fieldKeeps, isTextField } from "./input/keys";
 
 export type Box = SpatialRect;
@@ -21,8 +21,12 @@ export interface ItemHandlers {
   onMenu?: () => void;
   onBack?: () => void;
   disabled?: boolean;
-  /** What A does here, for the pad hints ("Type"); default "Open". */
+  /** What A does here, for the hints ("Play", "Type"); default "Select". */
   hint?: string;
+  /** What Left and Right do to this item's value (a slider's "Adjust"), for the hints. */
+  adjust?: string;
+  /** What LB and RB (`[`, `]`) do to it ("10 years"), for the hints. */
+  leap?: string;
 }
 
 export interface GroupEntry {
@@ -54,6 +58,8 @@ export interface ScopeEntry {
   onAsk?: () => void;
   /** The pad's Menu button while this modal is on top; elsewhere that button opens Settings. */
   onDone?: () => void;
+  /** The modal draws its own hint line (the on-screen keyboard), so the app's stays hidden. */
+  ownHints?: boolean;
   /** Hears the key of every item focused inside this scope (and not inside a scope within it). */
   onFocusKey?: (key: string) => void;
   /** False while a screen sits under another one. Absent means active. */
@@ -71,6 +77,14 @@ interface FocusState {
   item: ItemHandlers | null;
   /** Whether Back would do something from here. */
   canBack: boolean;
+  /** Whether Y would do something from here. */
+  canAsk: boolean;
+  /** The id of the modal on top, or null. */
+  modal: string | null;
+  /** The modal on top draws its own hints. */
+  ownHints: boolean;
+  /** Focus is in a text field, where keys type rather than act. */
+  field: boolean;
   setMode(mode: InputMode): void;
 }
 
@@ -79,6 +93,10 @@ export const useFocusState = create<FocusState>()((set, get) => ({
   key: null,
   item: null,
   canBack: false,
+  canAsk: false,
+  modal: null,
+  ownHints: false,
+  field: false,
   setMode: (mode) => {
     if (get().mode !== mode) set({ mode });
   },
@@ -96,8 +114,10 @@ export function registerGroup(entry: GroupEntry): () => void {
 
 export function registerScope(entry: ScopeEntry): () => void {
   scopes.set(entry.el, entry);
+  if (entry.modal) refreshWhere();
   return () => {
     if (scopes.get(entry.el) === entry) scopes.delete(entry.el);
+    if (entry.modal) refreshWhere();
   };
 }
 
@@ -277,6 +297,17 @@ function scopeOf(el: Element | null): ScopeEntry | undefined {
   return undefined;
 }
 
+/** The focused item's handlers as they are now (its labels follow the language and its state). */
+export function focusedHandlers(): ItemHandlers | null {
+  return handlersOf(document.activeElement) ?? null;
+}
+
+/** Tells the hints that the focused item's handlers changed under it. */
+export function refreshFocused(): void {
+  const item = focusedHandlers();
+  if (item !== null) useFocusState.setState({ item });
+}
+
 /** The focus item `target` is in, if any. */
 export function itemAt(target: EventTarget | null): HTMLElement | undefined {
   for (let n = target instanceof Element ? target : null; n; n = n.parentElement) {
@@ -367,6 +398,22 @@ function computeCanBack(): boolean {
   return useNav.getState().entries.length > 1;
 }
 
+/** What the buttons can do from where focus is, beyond the focused item's own handlers. */
+function where() {
+  const modal = topModal();
+  return {
+    canBack: computeCanBack(),
+    canAsk: modal === undefined ? !onFirstRun() : modal.onAsk !== undefined,
+    modal: modal?.id ?? null,
+    ownHints: modal?.ownHints === true,
+    field: isTextField(document.activeElement),
+  };
+}
+
+function refreshWhere(): void {
+  useFocusState.setState(where());
+}
+
 /** What X does from where focus is: the item's menu, else its scope's onMenu. */
 function menuAction(): (() => void) | undefined {
   const active = document.activeElement;
@@ -423,11 +470,11 @@ function onFocusIn(event: FocusEvent) {
   const el = itemAt(event.target);
   const state = useFocusState.getState();
   if (el === undefined) {
-    useFocusState.setState({ key: null, item: null, canBack: computeCanBack() });
+    useFocusState.setState({ key: null, item: null, ...where() });
     return;
   }
   const item = items.get(el)!();
-  useFocusState.setState({ key: item.key, item, canBack: computeCanBack() });
+  useFocusState.setState({ key: item.key, item, ...where() });
   scopeOf(el)?.onFocusKey?.(item.key);
   if (state.mode !== "pointer" && !groupOf(el)?.reveals) {
     el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: scrollBehavior() });
@@ -436,7 +483,7 @@ function onFocusIn(event: FocusEvent) {
 
 function onFocusOut(event: FocusEvent) {
   if (event.relatedTarget === null) {
-    useFocusState.setState({ key: null, item: null, canBack: computeCanBack() });
+    useFocusState.setState({ key: null, item: null, ...where() });
   }
 }
 
@@ -445,9 +492,7 @@ export function installBridge(): () => void {
   document.addEventListener("keydown", onKeyDown);
   document.addEventListener("focusin", onFocusIn);
   document.addEventListener("focusout", onFocusOut);
-  const offNav = useNav.subscribe(() =>
-    useFocusState.setState({ canBack: computeCanBack() }),
-  );
+  const offNav = useNav.subscribe(refreshWhere);
   return () => {
     document.removeEventListener("keydown", onKeyDown);
     document.removeEventListener("focusin", onFocusIn);

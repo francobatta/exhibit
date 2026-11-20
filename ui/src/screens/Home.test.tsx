@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tauri } from "../../test/setup";
-import { detail, summary } from "../../test/fixtures";
+import { detail, service, summary } from "../../test/fixtures";
 import { activeKey, press, screens, select } from "../../test/app";
 import { toast } from "@/components/ui/toast";
 import { installBridge } from "@/focus/bridge";
@@ -168,4 +168,54 @@ test("the hero's cues act on the focused work: Details, the heart, and a row tha
   await press("ArrowRight");
   await press("ArrowRight");
   expect(activeKey()).toBe("hero:watched");
+});
+
+test("watchlist_shelf_on_home", async () => {
+  const data = {
+    continue_watching: [summary({ id: 3, title: "Stalker", progress: 0.4 })],
+    recently_added: [summary({ id: 1, title: "Heat" })],
+    watchlist: [summary({ id: 5, title: "Ran" }), summary({ id: 6, title: "Paris, Texas", in_library: false, available: false })],
+  };
+  shelves(data);
+  tauri.handle("services", () => [service()]);
+  home();
+  await settle();
+  // After Continue watching; the films the owner has first, the others unlit.
+  expect(titles()).toEqual(["Continue watching", "Your watchlist", "Recently added"]);
+  const wanted = document.querySelector("[data-focus-key='home-watchlist:item:6'] [data-work]")!;
+  expect(wanted.hasAttribute("data-wanted")).toBe(true);
+  expect(wanted.hasAttribute("data-offline")).toBe(false);
+  cleanup();
+  document.body.innerHTML = "";
+  // Switched off: no shelf, whatever the library still holds.
+  tauri.handle("services", () => [service({ enabled: false })]);
+  home();
+  await settle();
+  expect(titles()).toEqual(["Continue watching", "Recently added"]);
+  cleanup();
+  document.body.innerHTML = "";
+  // On, with nothing on the watchlist: no shelf either.
+  shelves({ ...data, watchlist: [] });
+  tauri.handle("services", () => [service()]);
+  home();
+  await settle();
+  expect(titles()).toEqual(["Continue watching", "Recently added"]);
+});
+
+test("home waits for the watchlist shelf, so nothing arrives late", async () => {
+  let release: () => void = () => {};
+  const late = new Promise<void>((r) => (release = r));
+  tauri.handle("shelf", async (args) => {
+    if (args.shelf === "watchlist") await late;
+    return args.shelf === "recently_added" ? [summary({ id: 1, title: "Heat" })] : args.shelf === "watchlist" ? [summary({ id: 5, title: "Ran" })] : [];
+  });
+  tauri.handle("services", () => [service()]);
+  home();
+  await settle();
+  expect(titles()).toEqual([]);
+  await act(async () => {
+    release();
+    await sleep(60);
+  });
+  expect(titles()).toEqual(["Your watchlist", "Recently added"]);
 });

@@ -12,9 +12,10 @@ use exhibit_core::download::{DownloadEvent, DownloadReport};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::error::panic_message;
+use crate::error::{ApiError, panic_message};
 use crate::state::Changed;
 use crate::worker::{Job, WorkerHandle};
+use exhibit_core::error::Fault;
 
 /// How the most recent download ended.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -25,7 +26,7 @@ pub enum Outcome {
         already_latest: bool,
     },
     Failed {
-        message: String,
+        error: ApiError,
     },
 }
 
@@ -57,7 +58,7 @@ impl DownloadStatus {
                     already_latest: r.already_latest,
                 },
                 Err(e) => Outcome::Failed {
-                    message: e.to_string(),
+                    error: Fault::from(e).into(),
                 },
             }),
         }
@@ -118,10 +119,12 @@ impl Downloads {
                 })
             };
             let result = panic::catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|p| {
-                Err(exhibit_core::Error::Invalid(format!(
-                    "the download stopped unexpectedly: {}",
-                    panic_message(p)
-                )))
+                Err(exhibit_core::Error::Invalid(
+                    exhibit_core::error::Detail::coded(
+                        "download.crashed",
+                        format!("the download stopped unexpectedly: {}", panic_message(p)),
+                    ),
+                ))
             });
             me.set(DownloadStatus::ended(&result), &app);
             if result.is_ok_and(|r| !r.already_latest) {
@@ -151,10 +154,17 @@ mod tests {
                 "outcome": null,
             })
         );
-        let failed = DownloadStatus::ended(&Err(exhibit_core::Error::Provider("down".into())));
+        let failed = DownloadStatus::ended(&Err(exhibit_core::Error::Provider(
+            exhibit_core::error::Detail::coded("download.unreachable", "down"),
+        )));
         assert_eq!(
             serde_json::to_value(&failed).unwrap()["outcome"],
-            serde_json::json!({"kind": "failed", "message": "provider error: down"})
+            serde_json::json!({"kind": "failed", "error": {
+                "kind": "provider",
+                "code": "download.unreachable",
+                "params": {},
+                "message": "provider error: down"
+            }})
         );
         let done = DownloadStatus::ended(&Ok(DownloadReport {
             release: "20261111".into(),

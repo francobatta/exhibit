@@ -20,6 +20,8 @@ export interface ShelfProps {
   items: ItemSummary[];
   /** A, Enter or a click on a work. */
   onOpen: (item: ItemSummary) => void;
+  /** What A does on a work, for the hints ("Play", "Choose"). Default "Select". */
+  hintOf?: (item: ItemSummary) => string;
   /** Every work that takes focus, from any device. */
   onFocusItem?: (item: ItemSummary) => void;
   shape?: WorkShape;
@@ -62,17 +64,19 @@ interface CellProps {
   size: number;
   light: string;
   caption?: string;
+  hint?: string;
   menu: boolean;
   onOpen: (item: ItemSummary) => void;
   onFocused: (index: number) => void;
 }
 
-const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, caption, menu, onOpen, onFocused }: CellProps) {
+const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, caption, hint, menu, onOpen, onFocused }: CellProps) {
   const el = useRef<HTMLButtonElement | null>(null);
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: itemKey(shelf, item),
     onSelect: () => onOpen(item),
     onMenu: menu ? () => openItemMenu(item, el.current) : undefined,
+    hint,
   });
   const menuOpen = useMenuOpenOn(el);
   const bind = useCallback(
@@ -124,6 +128,7 @@ export const Shelf = memo(function Shelf({
   inert,
   onEnter,
   caption,
+  hintOf,
   onReveal,
   menu = true,
   className,
@@ -290,6 +295,7 @@ export const Shelf = memo(function Shelf({
                 size={size}
                 light={light}
                 caption={caption?.(item)}
+                hint={hintOf?.(item)}
                 menu={menu}
                 onOpen={open}
                 onFocused={onFocused}
