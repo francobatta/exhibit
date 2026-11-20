@@ -5,6 +5,7 @@
 import { useState, type KeyboardEvent } from "react";
 import { useFocusState } from "@/focus/bridge";
 import { useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { Keyboard } from "./Keyboard";
 import { Input } from "./ui/input";
@@ -26,10 +27,11 @@ export interface TextFieldProps {
 }
 
 export function TextField({ focusKey, value, onChange, onSubmit, placeholder, secret = false, inputMode, className }: TextFieldProps) {
+  const t = useT();
   const [typing, setTyping] = useState(false);
   const { ref, props } = useFocusItem<HTMLInputElement>({
     key: focusKey,
-    hint: "Type",
+    hint: t("hints.type"),
     // A click only places the caret; the pad's A has no keys to type with, so it opens the keyboard.
     onSelect: () => {
       if (useFocusState.getState().mode === "pad") setTyping(true);

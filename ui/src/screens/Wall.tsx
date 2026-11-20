@@ -14,6 +14,7 @@ import { jobLine } from "@/components/TopBar";
 import { WallControls, clearFilters, hasFilters, wallQuery } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
+import { useLanguage, useT } from "@/i18n";
 import { mainAction, runMain, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemSummary } from "@/lib/api";
 import { seconds } from "@/lib/motion";
@@ -75,14 +76,13 @@ const subscribeWidth = (onChange: () => void) => {
 };
 const windowWidth = () => window.innerWidth;
 
-const NOUN: Record<WallKind, { none: string; body: string }> = {
-  movie: { none: "No movies yet", body: "Add a folder of films in Settings, or wait for the scan to finish." },
-  show: { none: "No shows yet", body: "Add a folder of series in Settings, or wait for the scan to finish." },
-  other: {
-    none: "Nothing in Other yet",
-    body: "Home videos, clips and files Exhibit cannot name hang here. Add a folder in Settings, or wait for the scan to finish.",
-  },
-};
+const NOUN = {
+  movie: { none: "wall.noMovies", body: "wall.noMoviesBody" },
+  show: { none: "wall.noShows", body: "wall.noShowsBody" },
+  other: { none: "wall.noOther", body: "wall.noOtherBody" },
+} as const satisfies Record<WallKind, { none: string; body: string }>;
+
+const SECTION = { movie: "sections.movies", show: "sections.shows", other: "sections.other" } as const;
 
 export interface WallProps {
   kind: WallKind;
@@ -92,6 +92,15 @@ export interface WallProps {
 }
 
 export function Wall({ kind, view, onView }: WallProps) {
+  const t = useT();
+  // Genres are named in the language they were chosen in: another language forgets the choice.
+  const lang = useLanguage();
+  const spoken = useRef(lang);
+  useEffect(() => {
+    if (spoken.current === lang) return;
+    spoken.current = lang;
+    if (view.genre !== null) onView({ ...view, genre: null });
+  }, [lang, view, onView]);
   const query = useMemo(() => wallQuery(kind, view), [kind, view]);
   const result = useItems(query);
   const job = jobLine(useJobStatus());
@@ -102,23 +111,23 @@ export function Wall({ kind, view, onView }: WallProps) {
   }, [bare]);
 
   // A focus scope settles as it mounts, so the wall renders once its data is here.
-  if (result.isPending) return <Loading label="Hanging the collection" />;
+  if (result.isPending) return <Loading label={t("wall.hanging")} />;
   if (result.isError) {
     return (
       <ErrorState
         message={plain(result.error)}
-        hint="The library could not be read. Try again, or restart Exhibit if it keeps happening."
-        action={{ label: "Try again", onAction: () => result.refetch() }}
+        hint={t("common.libraryReadFailed")}
+        action={{ label: t("common.tryAgain"), onAction: () => result.refetch() }}
       />
     );
   }
   if (result.items.length === 0 && !hasFilters(view)) {
     return (
       <Empty
-        title={NOUN[kind].none}
-        body={NOUN[kind].body}
+        title={t(NOUN[kind].none)}
+        body={t(NOUN[kind].body)}
         status={job ?? undefined}
-        action={{ label: "Open Settings", onAction: openSettings }}
+        action={{ label: t("common.openSettings"), onAction: openSettings }}
       />
     );
   }
@@ -128,6 +137,7 @@ export function Wall({ kind, view, onView }: WallProps) {
 }
 
 function Hung({ kind, view, onView, items, complete }: WallProps & { items: ItemSummary[]; complete: boolean }) {
+  const t = useT();
   const columns = columnsFor(useSyncExternalStore(subscribeWidth, windowWidth), kind, true);
   const [focused, setFocused] = useState<Id | null>(null);
   // Other hangs grouped by folder, each group under its folder's name.
@@ -186,7 +196,7 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
   const menu = useCallback((item: ItemSummary, anchor: HTMLElement | null) => {
     const extra =
       latest.current.selected === null
-        ? [{ id: "select", label: "Select several", run: () => setSelected(new Set([item.id])) }]
+        ? [{ id: "select", label: t("wall.selectSeveral"), run: () => setSelected(new Set([item.id])) }]
         : [];
     openItemMenu(item, anchor, extra);
   }, []);
@@ -196,9 +206,9 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
     <div className="absolute inset-0 flex flex-col pt-bar">
       {items.length === 0 ? (
         <Empty
-          title="Nothing matches these filters"
+          title={t("wall.noMatches")}
           body="Turn one of them off, or clear them all."
-          action={{ label: "Clear filters", onAction: () => onView(clearFilters(view)) }}
+          action={{ label: t("wall.clearFilters"), onAction: () => onView(clearFilters(view)) }}
         />
       ) : (
         <div className="flex min-h-0 flex-1">
@@ -215,7 +225,7 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
               onMenu={menu}
               onBack={selected === null ? undefined : done}
               selection={selected ?? undefined}
-              aria-label={{ movie: "Movies", show: "Shows", other: "Other" }[kind]}
+              aria-label={t(SECTION[kind])}
             />
           </div>
           {current !== undefined && <Panel item={current} chosen={selected?.has(current.id)} />}
@@ -245,6 +255,7 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   const detail = loaded?.item.id === item.id ? loaded : undefined;
   const drive = useItemSources(detail).find((s) => !s.online)?.path;
   const ctx = useActionContext();
+  const t = useT();
   const action = mainAction(detail ?? item);
 
   // The wall takes the work's tint; its picture stays off the wall, which is for the works.
@@ -253,7 +264,7 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   }, [item.poster]);
 
   return (
-    <aside aria-label="Focused work" className="flex w-(--wall-panel) shrink-0 flex-col gap-6 pt-light pr-edge">
+    <aside aria-label={t("wall.focused")} className="flex w-(--wall-panel) shrink-0 flex-col gap-6 pt-light pr-edge">
       <Placard item={item} detail={detail} size="panel" />
       {chosen === undefined ? (
         <ActionLine
@@ -263,7 +274,7 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
           onPress={() => runMain(detail ?? item, ctx)}
         />
       ) : (
-        <ActionLine action={{ label: chosen ? "Remove from selection" : "Select" }} drive={drive} />
+        <ActionLine action={{ label: chosen ? t("wall.unselect") : t("wall.select") }} drive={drive} />
       )}
       {detail !== undefined && <TechLines detail={detail} className="mt-2" />}
     </aside>

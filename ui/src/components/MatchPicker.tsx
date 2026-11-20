@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { language, useT } from "@/i18n";
 import * as api from "@/lib/api";
 import { plain, type Candidate, type Id, type ItemDetail, type ItemKind, type ItemSummary } from "@/lib/api";
 import { confidence, facts } from "@/lib/format";
@@ -28,7 +29,7 @@ export function candidateWork(c: Candidate, index: number): ItemSummary {
   return {
     id: index,
     kind: c.kind,
-    title: c.title,
+    title: candidateTitle(c),
     year: c.year,
     season: null,
     episode: null,
@@ -48,6 +49,9 @@ export function candidateWork(c: Candidate, index: number): ItemSummary {
     path: null,
   };
 }
+
+/** A candidate's title in the window's language, when the search that found it said it. */
+export const candidateTitle = (c: Candidate): string => c.titles?.[language()] ?? c.title;
 
 /** Under a candidate: "1972, Likely". */
 export const candidateCaption = (c: Candidate) => facts([c.year === null ? null : String(c.year), confidence(c.score)]);
@@ -88,9 +92,9 @@ export interface MatchPickerProps {
   onClosed?: () => void;
 }
 
-const TITLE = "Fix match";
-
 export function MatchPicker({ itemId, open, onClose, onClosed }: MatchPickerProps) {
+  const t = useT();
+  const TITLE = t("match.title");
   const status = useStatus().data;
   const detail = useItem(itemId).data;
   // What to do once the dialog has gone (Settings opens only with no overlay in the way).
@@ -108,17 +112,17 @@ export function MatchPicker({ itemId, open, onClose, onClosed }: MatchPickerProp
         id="match"
         open={open}
         title={TITLE}
-        body="Matching looks works up on TMDB, which needs a key. Add one in Settings, then fix the match again."
+        body={t("match.noKey")}
         actions={[
           {
-            label: "Open Settings",
+            label: t("common.openSettings"),
             primary: true,
             onSelect: () => {
               after.current = () => leaveAsk(() => openSettings("tmdb"));
               onClose();
             },
           },
-          { label: "Cancel", onSelect: onClose },
+          { label: t("common.cancel"), onSelect: onClose },
         ]}
         onBack={onClose}
         onClosed={closed}
@@ -131,7 +135,7 @@ export function MatchPicker({ itemId, open, onClose, onClosed }: MatchPickerProp
       open={open && ready}
       title={TITLE}
       body={fileName(detail)}
-      actions={[{ label: "Cancel", onSelect: onClose }]}
+      actions={[{ label: t("common.cancel"), onSelect: onClose }]}
       onBack={onClose}
       onClosed={closed}
       restoreKey="match:text"
@@ -154,6 +158,7 @@ interface Asked {
 const yearOf = (text: string) => (/^\d{4}$/.test(text.trim()) ? Number(text.trim()) : null);
 
 function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) {
+  const t = useT();
   const item = detail.item;
   const [kind, setKind] = useState<ItemKind>(item.kind === "show" ? "show" : "movie");
   const [text, setText] = useState(item.title);
@@ -163,7 +168,8 @@ function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) 
   const ask = () => setAsked({ text: text.trim(), kind, year: yearOf(year) });
 
   const results = useQuery({
-    queryKey: ["lookup", asked],
+    // TMDB answers in the window's language.
+    queryKey: ["lookup", asked, language()],
     queryFn: () => api.lookup(asked.text, asked.kind, asked.year),
     enabled: asked.text !== "",
     retry: false,
@@ -178,38 +184,39 @@ function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) 
 
   return (
     <div className="flex flex-col gap-6">
-      <FocusGroup id="match-form" orientation="horizontal" aria-label="Search" className="flex items-center gap-3">
+      <FocusGroup id="match-form" orientation="horizontal" aria-label={t("match.search")} className="flex items-center gap-3">
         {(["movie", "show"] as const).map((k) => (
           <KindToggle key={k} kind={k} pressed={kind === k} onPress={() => setKind(k)} />
         ))}
-        <TextField focusKey="match:text" value={text} onChange={setText} onSubmit={ask} placeholder="Title" className="ml-3 min-w-0 flex-1" />
-        <TextField focusKey="match:year" value={year} onChange={setYear} onSubmit={ask} placeholder="Year" inputMode="numeric" className="w-28" />
+        <TextField focusKey="match:text" value={text} onChange={setText} onSubmit={ask} placeholder={t("match.titleField")} className="ml-3 min-w-0 flex-1" />
+        <TextField focusKey="match:year" value={year} onChange={setYear} onSubmit={ask} placeholder={t("match.yearField")} inputMode="numeric" className="w-28" />
         <FormButton focusKey="match:search" onSelect={ask}>
-          Search
+          {t("match.search")}
         </FormButton>
       </FocusGroup>
       {/* The shelf runs to the panel's edges and keeps the panel's padding as its edge, so the works line up with the fields. */}
       <div className="-mx-(--dialog-pad) flex min-h-(--match-results) flex-col justify-center [--space-edge:var(--dialog-pad)]">
         {asked.text === "" ? (
-          <Note>Type a title to look up.</Note>
+          <Note>{t("match.typeTitle")}</Note>
         ) : results.isPending ? (
-          <Note>Looking up {asked.text}</Note>
+          <Note>{t("match.lookingUp", { title: asked.text })}</Note>
         ) : results.isError ? (
           <Note>{plain(results.error)}</Note>
         ) : candidates.length === 0 ? (
           <Note>
-            Nothing on TMDB matches “{asked.text}”{asked.year !== null && ` from ${asked.year}`}. Try another spelling, or
-            leave out the year.
+            {asked.year === null
+              ? t("match.nothing", { title: asked.text })
+              : t("match.nothingFrom", { title: asked.text, year: asked.year })}
           </Note>
         ) : (
           <Shelf
             id="match-results"
-            title={candidates.length === 1 ? "1 result" : `${candidates.length} results`}
+            title={t("match.results", { count: candidates.length })}
             items={candidates.map(candidateWork)}
             caption={(w) => {
               const c = candidates[w.id]!;
               const current = c.tmdb_id === item.tmdb_id && c.kind === item.kind;
-              return facts([candidateCaption(c), current ? "Matched now" : null]);
+              return facts([candidateCaption(c), current ? t("match.current") : null]);
             }}
             menu={false}
             light="match-light"
@@ -228,10 +235,11 @@ function Note({ children }: { children: ReactNode }) {
 const control = "relative focus-visible:bg-transparent focus:text-label";
 
 function KindToggle({ kind, pressed, onPress }: { kind: "movie" | "show"; pressed: boolean; onPress: () => void }) {
+  const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: `match:kind:${kind}` });
   return (
     <Toggle ref={ref} {...props} variant="plain" pressed={pressed} onPressedChange={(on) => on && onPress()} className={control}>
-      {kind === "movie" ? "Movie" : "Show"}
+      {kind === "movie" ? t("match.movie") : t("match.show")}
       {focused && <Lamp />}
     </Toggle>
   );

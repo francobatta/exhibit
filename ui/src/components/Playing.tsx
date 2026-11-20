@@ -9,11 +9,13 @@ import { usePlayback, usePlaybackSync } from "@/lib/playback";
 import { openSettings } from "@/nav/Screens";
 import { Dialog } from "./Dialog";
 import { dialogBackdrop } from "./ui/dialog";
+import { useT } from "@/i18n";
 
 const stay = () => {};
 
 /** Mount once near the app's root. */
 export function PlaybackHost() {
+  const t = useT();
   usePlaybackSync();
   const playing = usePlayback((s) => s.playing);
   const returned = usePlayback((s) => s.returned);
@@ -23,7 +25,7 @@ export function PlaybackHost() {
         id="playing"
         modal
         open={playing !== null}
-        label="Playing in mpv"
+        label={t("playback.playing")}
         // The layer holds focus itself, so no key, pad button or wheel step reaches the screen under it.
         initialFocus="content"
         onBack={stay}
@@ -33,7 +35,7 @@ export function PlaybackHost() {
         className="fixed inset-0 z-50 flex items-center justify-center outline-none transition-opacity duration-(--dur-screen) data-starting-style:opacity-0 data-ending-style:opacity-0"
       >
         <p role="status" className="font-display text-lead font-ui text-label-dim">
-          Playing in mpv
+          {t("playback.playing")}
         </p>
       </FocusScope>
       <PlayerProblem />
@@ -43,6 +45,7 @@ export function PlaybackHost() {
 
 /** "mpv could not start": what was tried, and the way to Settings, where its path is set. */
 function PlayerProblem() {
+  const t = useT();
   const { problem, problemOpen, dismiss, cleared } = usePlayback();
   // Settings opens once the dialog has closed and left the page, as no screen opens under a modal.
   const then = useRef<(() => void) | null>(null);
@@ -57,18 +60,18 @@ function PlayerProblem() {
     <Dialog
       id="player-problem"
       open={problemOpen}
-      title="mpv could not start"
-      body={`${problem.message}. Download it, or choose where it is, in Settings.`}
+      title={t("playback.cannotStart")}
+      body={t("playback.problem", { message: problem.message })}
       actions={[
         {
-          label: "Open Settings",
+          label: t("common.openSettings"),
           primary: true,
           onSelect: () => {
             then.current = () => openSettings("tools");
             dismiss();
           },
         },
-        { label: "Close", onSelect: dismiss },
+        { label: t("common.close"), onSelect: dismiss },
       ]}
       onBack={dismiss}
       onClosed={cleared}

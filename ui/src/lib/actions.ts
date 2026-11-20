@@ -3,12 +3,13 @@
 // rule changes in one place.
 
 import { useMemo } from "react";
+import { t } from "@/i18n";
 import { confirm, type ConfirmRequest } from "@/components/Dialog";
 import { openMatchPicker } from "@/components/MatchPicker";
 import { toast } from "@/components/ui/toast";
 import { leaveAsk, useNav } from "@/nav/stack";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
-import { clock, episodeLabel } from "./format";
+import { clock, episodeLabel, titleOf } from "./format";
 import { usePlayback } from "./playback";
 import { useMoveToOther, useOfflineDrive, useSetLoved, useSetWatched } from "./queries";
 
@@ -29,21 +30,20 @@ export interface Action {
   label: string;
   /** Why it cannot run now; absent when it can. */
   disabled?: string;
+  /** It cannot run because its drive is not connected; said naming the drive once that is known. */
+  offline?: true;
 }
 
 export type ActionItem = ItemSummary | ItemDetail;
 
-/** Why a play cannot run, before its drive is known. */
-export const OFFLINE_REASON = "Drive is not connected";
-
 /** Why a work cannot play: its drive by the folder it holds, when known. */
 export function offlineReason(drive: string | undefined): string {
-  return drive === undefined ? OFFLINE_REASON : `The drive for ${drive} is not connected`;
+  return drive === undefined ? t("actions.offline") : t("actions.offlineDrive", { drive });
 }
 
 /** Why `action` cannot run, a missing drive named by `drive`; undefined when it can. */
-export function reasonOf(action: Pick<Action, "disabled">, drive: string | undefined): string | undefined {
-  return action.disabled === OFFLINE_REASON ? offlineReason(drive) : action.disabled;
+export function reasonOf(action: Pick<Action, "disabled" | "offline">, drive: string | undefined): string | undefined {
+  return action.offline ? offlineReason(drive) : action.disabled;
 }
 
 const isDetail = (item: ActionItem): item is ItemDetail => "item" in item;
@@ -55,7 +55,7 @@ export function facetsOf(item: ActionItem) {
     return {
       id: item.item.id,
       kind: item.item.kind,
-      title: item.item.title,
+      title: titleOf(item.item),
       available: item.available,
       loved: item.item.loved,
       watched: play?.watched ?? false,
@@ -68,7 +68,7 @@ export function facetsOf(item: ActionItem) {
   return {
     id: item.id,
     kind: item.kind,
-    title: item.title,
+    title: titleOf(item),
     available: item.available,
     loved: item.loved,
     watched: item.watched,
@@ -86,46 +86,46 @@ function seenOf(all: boolean, any: boolean): "none" | "some" | "all" {
 
 function playLabel(item: ActionItem): string {
   const { kind } = facetsOf(item);
-  if (kind !== "show" && kind !== "season") return "Play";
+  if (kind !== "show" && kind !== "season") return t("actions.play");
   const next = isDetail(item) ? item.next_episode : null;
   const label = next ? episodeLabel(next.season, next.episode) : "";
-  return label ? `Play ${label}` : "Play next episode";
+  return label ? t("actions.playEpisode", { episode: label }) : t("actions.playNext");
 }
 
 /** What can be done to `item`, the main action first. */
 export function itemActions(item: ActionItem): Action[] {
   const f = facetsOf(item);
-  const offline = f.available ? {} : { disabled: OFFLINE_REASON };
+  const offline = f.available ? {} : { disabled: t("actions.offline"), offline: true as const };
   const list: Action[] = [];
   const container = f.kind === "show" || f.kind === "season";
 
   if (!container && f.inProgress) {
     list.push({
       id: "resume",
-      label: f.resumeAt !== null ? `Resume from ${clock(f.resumeAt)}` : "Resume",
+      label: f.resumeAt !== null ? t("actions.resumeFrom", { time: clock(f.resumeAt) }) : t("actions.resume"),
       ...offline,
     });
-    list.push({ id: "restart", label: "Play from the start", ...offline });
+    list.push({ id: "restart", label: t("actions.restart"), ...offline });
   } else {
     list.push({ id: "play", label: playLabel(item), ...offline });
   }
   // A season is only ever seen on its show's screen, which is its details.
-  if (f.kind !== "season") list.push({ id: "details", label: "Details" });
+  if (f.kind !== "season") list.push({ id: "details", label: t("actions.details") });
   if (container) {
-    if (f.seen !== "all") list.push({ id: "watched", label: "Mark all as watched" });
-    if (f.seen !== "none") list.push({ id: "unwatched", label: "Mark all as not watched" });
+    if (f.seen !== "all") list.push({ id: "watched", label: t("actions.markAllWatched") });
+    if (f.seen !== "none") list.push({ id: "unwatched", label: t("actions.markAllUnwatched") });
   } else {
     list.push(
       f.watched
-        ? { id: "unwatched", label: "Mark as not watched" }
-        : { id: "watched", label: "Mark as watched" },
+        ? { id: "unwatched", label: t("actions.markUnwatched") }
+        : { id: "watched", label: t("actions.markWatched") },
     );
   }
-  list.push(f.loved ? { id: "unlove", label: "Remove from loved" } : { id: "love", label: "Love" });
+  list.push(f.loved ? { id: "unlove", label: t("actions.unlove") } : { id: "love", label: t("actions.love") });
   if (f.kind === "movie" || f.kind === "show" || f.kind === "other") {
-    list.push({ id: "fix", label: "Fix match" });
+    list.push({ id: "fix", label: t("actions.fix") });
   }
-  if (f.kind === "movie" || f.kind === "show") list.push({ id: "other", label: "Send to Other" });
+  if (f.kind === "movie" || f.kind === "show") list.push({ id: "other", label: t("actions.other") });
   return list;
 }
 
@@ -139,7 +139,7 @@ export function mainAction(item: ActionItem): Action {
 
 /** Runs `action` on `item` as A does: one that cannot run says why, a missing drive by name. */
 export function runSelected(action: Action, item: ActionItem, ctx: ActionContext): void {
-  if (action.disabled === OFFLINE_REASON) ctx.failOffline(facetsOf(item).id);
+  if (action.offline) ctx.failOffline(facetsOf(item).id);
   else if (action.disabled) ctx.fail(action.disabled);
   else void runAction(action, item, ctx);
 }
@@ -197,9 +197,9 @@ export async function runAction(action: Action, item: ActionItem, ctx: ActionCon
         return;
       case "other": {
         const go = await ctx.confirm({
-          title: `Send ${f.title} to Other?`,
-          body: "It leaves Movies and Shows and hangs with home videos and clips. Fix match brings it back.",
-          confirm: "Send to Other",
+          title: t("actions.otherTitle", { title: f.title }),
+          body: t("actions.otherBody"),
+          confirm: t("actions.other"),
         });
         if (go) await ctx.moveToOther({ id });
         return;
@@ -237,7 +237,7 @@ export function useActionContext(): ActionContext {
       failOffline: (id) => {
         void driveOf(id).then(
           (drive) => toast(offlineReason(drive)),
-          () => toast(OFFLINE_REASON),
+          () => toast(offlineReason(undefined)),
         );
       },
     }),

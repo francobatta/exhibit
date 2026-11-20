@@ -11,8 +11,9 @@ import { Cues } from "@/components/Cues";
 import { Placard, placardLines, trackLines } from "@/components/Placard";
 import { ErrorState, Loading } from "@/components/states";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { t, useT } from "@/i18n";
 import { imageUrl, plain, type CastMember, type Id, type ItemDetail, type MediaFile, type Source } from "@/lib/api";
-import { OFFLINE, bytes, clock, facts, language, listed, resolution, shortDay } from "@/lib/format";
+import { bytes, clock, facts, languageName, listed, resolution, shortDay } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
 import { useCast, useItem, useItemSources } from "@/lib/queries";
@@ -20,14 +21,15 @@ import { cn } from "@/lib/utils";
 import { openAsk, useNav } from "@/nav/stack";
 
 export function Details({ id }: { id: Id }) {
+  const t = useT();
   const query = useItem(id);
   if (query.isPending) return <Loading />;
   if (query.isError) {
     return (
       <ErrorState
         message={plain(query.error)}
-        hint="It may have gone in the last scan. Go back to the collection."
-        action={{ label: "Go back", onAction: () => useNav.getState().back() }}
+        hint={t("common.gone")}
+        action={{ label: t("common.goBack"), onAction: () => useNav.getState().back() }}
       />
     );
   }
@@ -153,13 +155,14 @@ function Part({ title, children, inert }: { title: string; children: ReactNode; 
 }
 
 function Cast({ cast, inert, onFocus }: { cast: CastMember[]; inert: boolean; onFocus: (key: string) => void }) {
+  const t = useT();
   return (
-    <Part title="Cast" inert={inert}>
+    <Part title={t("details.cast")} inert={inert}>
       <FocusGroup
         id="details-cast"
         orientation="horizontal"
         reveals
-        aria-label="Cast"
+        aria-label={t("details.cast")}
         onFocus={(e) => {
           const key = (e.target as HTMLElement).dataset.focusKey;
           if (key !== undefined) onFocus(key);
@@ -184,10 +187,11 @@ const initials = (name: string) =>
 
 /** One of the cast: A looks for them across the library, in Ask. */
 function Portrait({ member }: { member: CastMember }) {
+  const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: `cast:${member.name}`,
     onSelect: () => openAsk(member.name),
-    hint: "Find",
+    hint: t("hints.find"),
   });
   const src = imageUrl(member.portrait);
   const [failed, setFailed] = useState(false);
@@ -197,7 +201,7 @@ function Portrait({ member }: { member: CastMember }) {
       ref={ref}
       {...props}
       type="button"
-      aria-label={facts([member.name, member.character && `as ${member.character}`])}
+      aria-label={facts([member.name, member.character && t("details.as", { character: member.character })])}
       className="group flex w-(--details-portrait) shrink-0 flex-col gap-3 text-left outline-none"
     >
       <span className="relative block">
@@ -253,9 +257,9 @@ const fileName = (rel: string) => rel.split(/[\\/]/).at(-1) ?? rel;
 
 /** Distinct language names, the first three by name and the rest counted. */
 function languages(codes: Array<string | null>): string {
-  const names = [...new Set(codes.map(language).filter((n) => n !== null))];
+  const names = [...new Set(codes.map(languageName).filter((n) => n !== null))];
   const rest = names.length - 3;
-  return listed(rest > 0 ? [...names.slice(0, 3), `${rest} more`] : names);
+  return listed(rest > 0 ? [...names.slice(0, 3), t("units.more", { count: rest })] : names);
 }
 
 /** One version of the work: "4.2 GB, 1080p HDR10, English and French, subtitles English, D:\Movies, Offline". */
@@ -267,9 +271,9 @@ export function fileLine(file: MediaFile, source: Source | undefined): string {
     bytes(file.size),
     tech ? resolution(tech.height, tech.hdr, tech.width) : null,
     audio,
-    subs && `subtitles ${subs}`,
+    subs && t("details.subtitlesIn", { languages: subs }),
     source?.path,
-    source?.online === false ? OFFLINE : null,
+    source?.online === false ? t("work.offline") : null,
   ]);
 }
 
@@ -277,19 +281,20 @@ export function fileLine(file: MediaFile, source: Source | undefined): string {
 export function historyLine(detail: ItemDetail): string {
   const play = detail.play;
   const when = play === null ? null : shortDay(play.last_played_at);
-  if (play?.watched) return when ? `Watched ${when}` : "Watched";
+  if (play?.watched) return when ? t("details.watchedOn", { when }) : t("details.watched");
   if (play !== null && play.position_s > 0) {
-    return when ? `Stopped at ${clock(play.position_s)} on ${when}` : `Stopped at ${clock(play.position_s)}`;
+    const time = clock(play.position_s);
+    return when ? t("details.stoppedAtOn", { time, when }) : t("details.stoppedAt", { time });
   }
-  return "Never played";
+  return t("details.neverPlayed");
 }
 
 /** How the work was named: "Matched by hand", or a doubt to settle. */
 function matchLine(detail: ItemDetail): { value: string; note?: string } | null {
   const { match_state, match_source, tmdb_id } = detail.item;
-  if (match_state === "needsreview") return { value: "Not sure this is the right title", note: "Fix match is in the menu" };
-  if (match_state === "manual" || match_source === "manual") return { value: "Matched by hand" };
-  if (tmdb_id !== null) return { value: "Matched automatically" };
+  if (match_state === "needsreview") return { value: t("details.notSure"), note: t("details.fixInMenu") };
+  if (match_state === "manual" || match_source === "manual") return { value: t("details.byHand") };
+  if (tmdb_id !== null) return { value: t("details.automatically") };
   return null;
 }
 
@@ -312,6 +317,7 @@ const Terms = ({ children }: { children: ReactNode }) => (
 );
 
 function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) {
+  const t = useT();
   const files = detail.files;
   const first = files.find((f) => f.tech !== null) ?? files[0];
   const tech = first?.tech ?? null;
@@ -322,7 +328,7 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
   const where = (f: MediaFile) => {
     const source = sources.find((s) => s.id === f.source_id);
     return {
-      value: [bytes(f.size), source && `on ${source.path}`].filter(Boolean).join(" "),
+      value: [bytes(f.size), source && t("details.on", { path: source.path })].filter(Boolean).join(" "),
       offline: source?.online === false,
     };
   };
@@ -330,34 +336,34 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
   return (
     <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-x-(--details-part-gap)">
       {files.length > 0 && (
-        <Part title={files.length === 1 ? "The file" : "The files"}>
+        <Part title={files.length === 1 ? t("details.theFile") : t("details.theFiles")}>
           <Terms>
-            <Line term="Picture" value={tech ? resolution(tech.height, tech.hdr, tech.width) : null} />
-            <Line term="Sound" value={sound?.name ?? tracks.sound} note={sound ? tracks.sound : null} />
-            <Line term="Subtitles" value={tracks.subtitles} />
+            <Line term={t("details.picture")} value={tech ? resolution(tech.height, tech.hdr, tech.width) : null} />
+            <Line term={t("details.sound")} value={sound?.name ?? tracks.sound} note={sound ? tracks.sound : null} />
+            <Line term={t("details.subtitles")} value={tracks.subtitles} />
             {files.length === 1 ? (
               <div data-file className="contents">
                 <Line
-                  term="File"
+                  term={t("details.file")}
                   value={where(files[0]!).value}
-                  note={where(files[0]!).offline ? `${fileName(files[0]!.rel_path)}, ${OFFLINE.toLowerCase()}` : fileName(files[0]!.rel_path)}
+                  note={where(files[0]!).offline ? facts([fileName(files[0]!.rel_path), t("work.offline")]) : fileName(files[0]!.rel_path)}
                 />
               </div>
             ) : (
               files.map((f, i) => (
                 <div key={f.id} data-file className="contents">
-                  <Line term={`Version ${i + 1}`} value={fileLine(f, sources.find((s) => s.id === f.source_id))} note={fileName(f.rel_path)} />
+                  <Line term={t("details.version", { n: i + 1 })} value={fileLine(f, sources.find((s) => s.id === f.source_id))} note={fileName(f.rel_path)} />
                 </div>
               ))
             )}
           </Terms>
         </Part>
       )}
-      <Part title="In Exhibit">
+      <Part title={t("details.inExhibit")}>
         <Terms>
-          <Line term="Watched" value={historyLine(detail)} />
-          <Line term="Added" value={added} />
-          {match && <Line term="Match" value={match.value} note={match.note} />}
+          <Line term={t("details.watched")} value={historyLine(detail)} />
+          <Line term={t("details.added")} value={added} />
+          {match && <Line term={t("details.match")} value={match.value} note={match.note} />}
         </Terms>
       </Part>
     </div>

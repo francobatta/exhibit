@@ -12,6 +12,7 @@ import { ErrorState, Loading } from "@/components/states";
 import { TopBar } from "@/components/TopBar";
 import { Toaster } from "@/components/ui/toast";
 import { FocusRoot } from "@/focus/react";
+import { useT } from "@/i18n";
 import { plain } from "@/lib/api";
 import { LibrarySync, useBoot } from "@/lib/queries";
 import { cycleSection, openSettings, Screens } from "@/nav/Screens";
@@ -25,6 +26,7 @@ const gallery =
 const Gallery = gallery ? lazy(() => import("@/screens/Gallery").then((m) => ({ default: m.Gallery }))) : null;
 
 function Shell() {
+  const t = useT();
   const boot = useBoot();
   const firstRun = boot.data?.firstRun === true;
   // First run replaces the root before anything paints, so Home never shows under it.
@@ -37,14 +39,14 @@ function Shell() {
   // First run is its own flow: no sections to offer until it is done.
   const onFirstRun = useNav((s) => s.entries[0]!.route.screen === "firstRun");
 
-  if (boot.isPending) return <Loading label="Opening the library" />;
+  if (boot.isPending) return <Loading label={t("app.opening")} />;
   if (boot.isError) {
     return (
       <div className="pt-bar">
         <ErrorState
           message={plain(boot.error)}
-          hint="Exhibit could not open its library. Check that its data folder is reachable, then try again."
-          action={{ label: "Try again", onAction: () => boot.refetch() }}
+          hint={t("app.openFailed")}
+          action={{ label: t("common.tryAgain"), onAction: () => boot.refetch() }}
         />
       </div>
     );

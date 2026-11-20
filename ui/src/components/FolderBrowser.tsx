@@ -8,6 +8,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { focusItem } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { listFolders, plain, type Folder } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Dialog, type DialogAction } from "./Dialog";
@@ -40,6 +41,7 @@ export function parentOf(path: string): string | null {
 const entryKey = (i: number) => `browser:${i}`;
 
 export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose, onClosed }: FolderBrowserProps) {
+  const t = useT();
   // Null is the list of drives.
   const [path, setPath] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
@@ -77,8 +79,8 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
   };
 
   const actions: DialogAction[] = [
-    ...(mode === "folder" && path !== null ? [{ label: "Add this folder", onSelect: () => onPick(path), primary: true }] : []),
-    { label: "Cancel", onSelect: onClose },
+    ...(mode === "folder" && path !== null ? [{ label: t("browser.addThis"), onSelect: () => onPick(path), primary: true }] : []),
+    { label: t("common.cancel"), onSelect: onClose },
   ];
 
   return (
@@ -86,7 +88,7 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
       id="browser"
       open={open}
       title={title}
-      body={path ?? "Drives"}
+      body={path ?? t("browser.drives")}
       actions={actions}
       onBack={up}
       onClosed={onClosed}
@@ -95,13 +97,13 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
     >
       <div className="-mx-(--dialog-pad) h-(--dialog-list) overflow-y-auto border-y border-line px-(--dialog-pad) py-3">
         {listing.isError ? (
-          <Note>{plain(listing.error)}. Go back and choose another folder.</Note>
+          <Note>{t("browser.readFailed", { error: plain(listing.error) })}</Note>
         ) : loading ? (
-          <Note>Opening {path ?? "the drives"}</Note>
+          <Note>{path === null ? t("browser.openingDrives") : t("browser.opening", { path })}</Note>
         ) : entries.length === 0 ? (
-          <Note>{mode === "exe" ? "No folders or programs here." : "No folders here."}</Note>
+          <Note>{mode === "exe" ? t("browser.noFoldersOrPrograms") : t("browser.noFolders")}</Note>
         ) : (
-          <FocusGroup id="browser-list" orientation="vertical" aria-label={path ?? "Drives"} className="flex flex-col">
+          <FocusGroup id="browser-list" orientation="vertical" aria-label={path ?? t("browser.drives")} className="flex flex-col">
             {entries.map((e, i) => (
               <Entry key={e.path} index={i} entry={e} onChoose={() => choose(e)} />
             ))}
@@ -120,10 +122,11 @@ function Note({ children }: { children: string | string[] }) {
 }
 
 function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onChoose: () => void }) {
+  const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: entryKey(index),
     onSelect: onChoose,
-    hint: entry.file ? "Choose" : "Open",
+    hint: entry.file ? t("hints.choose") : t("hints.open"),
   });
   return (
     <button
@@ -139,7 +142,7 @@ function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onCho
         {entry.name}
         {focused && <Lamp />}
       </span>
-      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">Program</span>}
+      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">{t("browser.program")}</span>}
     </button>
   );
 }

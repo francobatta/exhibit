@@ -10,6 +10,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { LovedIcon, WatchedIcon } from "@/components/ui/state-icon";
 import { Toggle } from "@/components/ui/toggle";
 import { useFocusState, type Dir } from "@/focus/bridge";
+import { useT } from "@/i18n";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import {
   facetsOf,
@@ -62,6 +63,7 @@ function Said({ children }: { children: ReactNode }) {
 }
 
 export function Cues({ id, prefix, item, drive, progress, details = false, onFocusCue, onEdge, aside = false }: CuesProps) {
+  const t = useT();
   const ctx = useActionContext();
   const f = facetsOf(item);
   const main = mainAction(item);
@@ -73,8 +75,10 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
   const run = (id: Action["id"]) => void runAction({ id, label: "" }, item, ctx);
 
   let said: ReactNode = null;
-  if (on === "love") said = <Said>{f.loved ? "Loved" : "Love"}</Said>;
-  else if (on === "watched") said = <Said>{watched ? "Watched" : container ? "Mark all as watched" : "Mark as watched"}</Said>;
+  if (on === "love") said = <Said>{f.loved ? t("cues.loved") : t("cues.love")}</Said>;
+  else if (on === "watched") {
+    said = <Said>{watched ? t("cues.watched") : container ? t("actions.markAllWatched") : t("actions.markWatched")}</Said>;
+  }
   else if (on === "details") said = null;
   else if (main.disabled) said = <Said>{reasonOf(main, drive)}</Said>;
   else if (progress !== null && main.id === "resume") {
@@ -99,7 +103,7 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
         id={id}
         orientation="horizontal"
         reveals
-        aria-label="Actions"
+        aria-label={t("cues.actions")}
         onFocus={(e) => {
           const key = (e.target as HTMLElement).dataset.focusKey;
           if (key !== undefined) onFocusCue?.(key);
@@ -113,7 +117,7 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
       >
         <PillCue
           focusKey={`${prefix}:main`}
-          label={main.id === "resume" ? "Resume" : main.label}
+          label={main.id === "resume" ? t("actions.resume") : main.label}
           glyph={main.id === "play" || main.id === "resume" || main.id === "restart"}
           strong
           disabled={main.disabled !== undefined}
@@ -121,22 +125,22 @@ export function Cues({ id, prefix, item, drive, progress, details = false, onFoc
           onMenu={menu}
         />
         {details && main.id !== "details" && (
-          <PillCue focusKey={`${prefix}:details`} label="Details" onRun={() => run("details")} onMenu={menu} />
+          <PillCue focusKey={`${prefix}:details`} label={t("actions.details")} onRun={() => run("details")} onMenu={menu} />
         )}
         <StateCue
           focusKey={`${prefix}:love`}
-          label="Loved"
+          label={t("cues.loved")}
           icon={<LovedIcon className="size-(--cue-icon)" />}
-          hint={f.loved ? "Unlove" : "Love"}
+          hint={f.loved ? t("cues.unlove") : t("cues.love")}
           pressed={f.loved}
           onPressedChange={(p) => run(p ? "love" : "unlove")}
           onMenu={menu}
         />
         <StateCue
           focusKey={`${prefix}:watched`}
-          label="Watched"
+          label={t("cues.watched")}
           icon={<WatchedIcon className="size-(--cue-icon)" />}
-          hint={watched ? "Unmark" : "Mark"}
+          hint={watched ? t("cues.unmark") : t("cues.mark")}
           pressed={watched}
           onPressedChange={(p) => run(p ? "watched" : "unwatched")}
           onMenu={menu}

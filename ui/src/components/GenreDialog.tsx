@@ -4,12 +4,13 @@
 import { Lamp } from "@/components/Lamp";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { Dialog } from "./Dialog";
 
-const ANY = "Any genre";
 const keyOf = (genre: string | null) => `genre:${genre ?? ""}`;
 
 function Choice({ genre, chosen, onChoose }: { genre: string | null; chosen: boolean; onChoose: () => void }) {
+  const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: keyOf(genre) });
   return (
     <Toggle
@@ -20,7 +21,7 @@ function Choice({ genre, chosen, onChoose }: { genre: string | null; chosen: boo
       onPressedChange={onChoose}
       className="relative justify-self-start focus-visible:bg-transparent focus:text-label"
     >
-      {genre ?? ANY}
+      {genre ?? t("genre.any")}
       {focused && <Lamp />}
     </Toggle>
   );
@@ -35,19 +36,20 @@ export interface GenreDialogProps {
 }
 
 export function GenreDialog({ open, genres, value, onChoose, onBack }: GenreDialogProps) {
+  const t = useT();
   return (
     <Dialog
       id="genre"
       open={open}
-      title="Genre"
-      actions={[{ label: "Cancel", onSelect: onBack }]}
+      title={t("genre.title")}
+      actions={[{ label: t("common.cancel"), onSelect: onBack }]}
       onBack={onBack}
       restoreKey={keyOf(value)}
     >
       <FocusGroup
         id="genre-list"
         orientation="spatial"
-        aria-label="Genres"
+        aria-label={t("genre.list")}
         className="-mx-3 grid max-h-(--dialog-list) grid-cols-3 gap-x-2 gap-y-1 overflow-y-auto"
       >
         {[null, ...genres].map((g) => (

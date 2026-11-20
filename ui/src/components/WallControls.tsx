@@ -9,26 +9,27 @@ import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { t, useT } from "@/i18n";
 import type { SearchQuery, Sort } from "@/lib/api";
-import { UHD, count } from "@/lib/format";
+import { UHD } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { DEFAULT_VIEW, type WallKind, type WallView } from "@/nav/stack";
 
 type Filter = Exclude<keyof WallView, "sort" | "genre">;
 
-const SORTS: Array<{ sort: Sort; label: string }> = [
-  { sort: "title", label: "Title" },
-  { sort: "added", label: "Recently added" },
-  { sort: "year", label: "Year" },
-  { sort: "runtime", label: "Runtime" },
-];
+const SORTS = [
+  { sort: "title", label: "wall.byTitle" },
+  { sort: "added", label: "wall.byAdded" },
+  { sort: "year", label: "wall.byYear" },
+  { sort: "runtime", label: "wall.byRuntime" },
+] as const satisfies Array<{ sort: Sort; label: string }>;
 
-const FILTERS: Array<{ filter: Filter; label: string }> = [
-  { filter: "unwatched", label: "Not watched" },
-  { filter: "loved", label: "Loved" },
-  { filter: "available", label: "Available now" },
-  { filter: "uhd", label: "4K" },
-];
+const FILTERS = [
+  { filter: "unwatched", label: "wall.unwatched" },
+  { filter: "loved", label: "wall.loved" },
+  { filter: "available", label: "wall.available" },
+  { filter: "uhd", label: "wall.uhd" },
+] as const satisfies Array<{ filter: Filter; label: string }>;
 
 /** Other hangs by folder, so it has no Sort control. */
 const sorts = (kind: WallKind) => kind !== "other";
@@ -54,8 +55,8 @@ export const clearFilters = (view: WallView): WallView => ({ ...DEFAULT_VIEW, so
 
 /** "412 movies", "1 show", "30 items". */
 export function countLine(kind: WallKind, n: number): string {
-  const [one, many] = { movie: ["movie", "movies"], show: ["show", "shows"], other: ["item", "items"] }[kind];
-  return count(n, one!, many!);
+  const unit = ({ movie: "units.movie", show: "units.show", other: "units.item" } as const)[kind];
+  return t(unit, { count: n });
 }
 
 const control = "relative focus-visible:bg-transparent focus:text-label";
@@ -124,34 +125,35 @@ export interface WallControlsProps {
 }
 
 export function WallControls({ kind, view, onView, total, genres, onGenres, selection, className }: WallControlsProps) {
+  const t = useT();
   const [picking, setPicking] = useState(false);
   return (
     <>
       <FocusGroup
         id="wall-controls"
         orientation="horizontal"
-        aria-label={selection ? "Chosen works" : "Sort and filter"}
+        aria-label={selection ? t("wall.chosen") : t("wall.sortAndFilter")}
         className={cn("flex h-(--wall-controls) items-center gap-1 px-edge", className)}
       >
         {selection ? (
           <>
-            <p className="mr-6 font-display text-body font-ui text-label tabular-nums">{selection.count} selected</p>
+            <p className="mr-6 font-display text-body font-ui text-label tabular-nums">{t("wall.selected", { count: selection.count })}</p>
             <ControlButton focusKey="wall:select:watched" onSelect={() => selection.onMark(true)} onBack={selection.onDone}>
-              Mark as watched
+              {t("actions.markWatched")}
             </ControlButton>
             <ControlButton focusKey="wall:select:unwatched" onSelect={() => selection.onMark(false)} onBack={selection.onDone}>
-              Mark as not watched
+              {t("actions.markUnwatched")}
             </ControlButton>
             <ControlButton focusKey="wall:select:done" onSelect={selection.onDone} onBack={selection.onDone}>
-              Done
+              {t("common.done")}
             </ControlButton>
           </>
         ) : (
           <>
             {sorts(kind) && (
               <>
-                <span className={cn(caption, "mr-3")}>Sort</span>
-                <div role="group" aria-label="Sort" className="contents">
+                <span className={cn(caption, "mr-3")}>{t("wall.sort")}</span>
+                <div role="group" aria-label={t("wall.sort")} className="contents">
                   {SORTS.map(({ sort, label }) => (
                     <ControlToggle
                       key={sort}
@@ -159,14 +161,14 @@ export function WallControls({ kind, view, onView, total, genres, onGenres, sele
                       pressed={view.sort === sort}
                       onPress={(on) => on && onView({ ...view, sort })}
                     >
-                      {label}
+                      {t(label)}
                     </ControlToggle>
                   ))}
                 </div>
                 <span aria-hidden className="mx-5 h-5 w-px bg-line" />
               </>
             )}
-            <div role="group" aria-label="Filters" className="contents">
+            <div role="group" aria-label={t("wall.filters")} className="contents">
               {FILTERS.map(({ filter, label }) => (
                 <ControlToggle
                   key={filter}
@@ -174,7 +176,7 @@ export function WallControls({ kind, view, onView, total, genres, onGenres, sele
                   pressed={view[filter]}
                   onPress={(on) => onView({ ...view, [filter]: on })}
                 >
-                  {label}
+                  {t(label)}
                 </ControlToggle>
               ))}
               {(genres.length > 0 || view.genre !== null) && (
@@ -186,7 +188,7 @@ export function WallControls({ kind, view, onView, total, genres, onGenres, sele
                     setPicking(true);
                   }}
                 >
-                  {view.genre ?? "Genre"}
+                  {view.genre ?? t("genre.title")}
                 </ControlToggle>
               )}
             </div>

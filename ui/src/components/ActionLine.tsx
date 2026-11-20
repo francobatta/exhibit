@@ -5,6 +5,7 @@
 // not connected").
 
 import type { MouseEvent } from "react";
+import { useT } from "@/i18n";
 import { reasonOf, type Action } from "@/lib/actions";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +16,7 @@ export interface Progress {
 }
 
 /** Why the main action cannot run, as a sentence of its own. */
-function whyNot(action: Pick<Action, "disabled">, drive: string | undefined): string {
+function whyNot(action: Pick<Action, "disabled" | "offline">, drive: string | undefined): string {
   return reasonOf(action, drive) ?? "";
 }
 
@@ -29,7 +30,7 @@ export function PlayGlyph() {
 }
 
 export interface ActionLineProps {
-  action: Pick<Action, "label" | "disabled"> & { id?: Action["id"] };
+  action: Pick<Action, "label" | "disabled" | "offline"> & { id?: Action["id"] };
   drive: string | undefined;
   /** Whether A would run it now. A pill under a work that does not have focus is quiet. Default true. */
   active?: boolean;
@@ -40,10 +41,11 @@ export interface ActionLineProps {
 }
 
 export function ActionLine({ action, drive, active = true, progress = null, onPress }: ActionLineProps) {
+  const t = useT();
   const disabled = Boolean(action.disabled);
   const plays = action.id === "play" || action.id === "resume" || action.id === "restart";
   // The rule says where it stops; the pill needs no clock.
-  const label = action.id === "resume" ? "Resume" : action.label;
+  const label = action.id === "resume" ? t("actions.resume") : action.label;
   const pill = cn(
     "inline-flex h-(--cue-height) shrink-0 items-center gap-3 rounded-full px-(--cue-pad) font-display text-lead font-ui",
     "ring-1 ring-line ring-inset",

@@ -4,8 +4,9 @@
 // every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
 // say is left out, except on Home, where the placard keeps its shape (see `hold`).
 
+import { t, useT } from "@/i18n";
 import type { Item, ItemDetail, ItemSummary, TechInfo } from "@/lib/api";
-import { OFFLINE, WATCHED, count, episodeLabel, facts, language, listed, runtime, started } from "@/lib/format";
+import { episodeLabel, facts, languageName, listed, runtime, started, titleOf } from "@/lib/format";
 import { pictureMarks, soundMark, type Mark } from "@/lib/marks";
 import { cn } from "@/lib/utils";
 import type { Progress } from "./ActionLine";
@@ -35,7 +36,7 @@ function named(names: string[]): string | null {
   const all = [...new Set(names)];
   if (all.length === 0) return null;
   const rest = all.length - NAMED;
-  return listed(rest > 0 ? [...all.slice(0, NAMED), `${rest} more`] : all);
+  return listed(rest > 0 ? [...all.slice(0, NAMED), t("units.more", { count: rest })] : all);
 }
 
 /**
@@ -46,10 +47,10 @@ export function trackLines(tech: TechInfo | null): { sound: string | null; subti
   if (tech === null) return { sound: null, subtitles: null };
   const heard = tech.audio.filter((a) => !a.commentary).sort((a, b) => Number(b.original) - Number(a.original));
   const subs = tech.subtitles.filter((s) => !s.forced);
-  const subNames = named(subs.map((s) => language(s.lang)).filter((n) => n !== null));
+  const subNames = named(subs.map((s) => languageName(s.lang)).filter((n) => n !== null));
   return {
-    sound: named(heard.map((a) => language(a.lang)).filter((n) => n !== null)),
-    subtitles: subs.length === 0 ? "None" : (subNames ?? count(subs.length, "track", "tracks")),
+    sound: named(heard.map((a) => languageName(a.lang)).filter((n) => n !== null)),
+    subtitles: subs.length === 0 ? t("placard.none") : (subNames ?? t("units.track", { count: subs.length })),
   };
 }
 
@@ -84,11 +85,11 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   let progress: Progress | null = null;
   if (!watched && play !== null && play.position_s > 0 && play.duration_s > play.position_s) {
     const left = (play.duration_s - play.position_s) / 60;
-    progress = { done: play.position_s / play.duration_s, left: `${runtime(Math.max(1, Math.round(left)))} left` };
+    progress = { done: play.position_s / play.duration_s, left: t("placard.left", { time: runtime(Math.max(1, Math.round(left))) }) };
   } else {
     const done = summary ? started(watched, summary.progress) : null;
     if (done !== null && minutes) {
-      progress = { done, left: `${runtime(Math.max(1, Math.round(minutes * (1 - done))))} left` };
+      progress = { done, left: t("placard.left", { time: runtime(Math.max(1, Math.round(minutes * (1 - done)))) }) };
     }
   }
   const available = detail?.available ?? summary?.available ?? true;
@@ -96,14 +97,14 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   const seasons = kind === "show" && detail ? detail.children.filter((c) => c.kind === "season").length : 0;
 
   return {
-    title: (full?.title ?? item.title).trim() || "Untitled",
+    title: titleOf(full ?? item),
     credit,
     facts: facts([
-      seasons > 0 ? count(seasons, "season", "seasons") : null,
+      seasons > 0 ? t("units.season", { count: seasons }) : null,
       runtime(minutes),
       picture.words,
-      watched ? WATCHED : null,
-      available ? null : OFFLINE,
+      watched ? t("work.watched") : null,
+      available ? null : t("work.offline"),
     ]),
     marks: sound === null ? picture.marks : [...picture.marks, sound],
     ...trackLines(tech),
@@ -166,6 +167,7 @@ export interface PlacardProps {
 }
 
 export function Placard({ item, detail, size, more = [], full = false, hold: holdProp, className }: PlacardProps) {
+  const t = useT();
   const lines = placardLines(item, detail);
   const name = splitTitle(lines.title);
   const after = more.filter((l) => l !== "");
@@ -226,8 +228,8 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           {/* Beside a wall, the panel lists the tracks in full below the placard. */}
           {hero && (hold || lines.sound || lines.subtitles) && (
             <p data-line="tracks" className="mt-1.5 flex min-h-[1lh] gap-8 text-body">
-              {lines.sound && <Tracks name="Sound" value={lines.sound} />}
-              {lines.subtitles && <Tracks name="Subtitles" value={lines.subtitles} />}
+              {lines.sound && <Tracks name={t("placard.sound")} value={lines.sound} />}
+              {lines.subtitles && <Tracks name={t("placard.subtitles")} value={lines.subtitles} />}
             </p>
           )}
         </div>

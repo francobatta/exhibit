@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { DialogDescription, DialogTitle, dialogBackdrop, dialogPanel } from "@/components/ui/dialog";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { cn } from "@/lib/utils";
+import { useT } from "@/i18n";
 
 export interface DialogAction {
   label: string;
@@ -73,7 +74,7 @@ export function Dialog({ id, open, title, body, actions, onBack, onClosed, initi
       {children}
       <FocusGroup id={`${id}-actions`} orientation="horizontal" className="mt-2 flex gap-4">
         {actions.map((a, i) => (
-          <DialogButton key={a.label} id={id} index={i} action={a} />
+          <DialogButton key={i} id={id} index={i} action={a} />
         ))}
       </FocusGroup>
     </FocusScope>
@@ -104,6 +105,7 @@ export function confirm(request: ConfirmRequest): Promise<boolean> {
 
 /** Mount once near the app's root, for `confirm()`. */
 export function ConfirmHost() {
+  const t = useT();
   const { request, open, resolve } = useConfirm();
   // Each question gets a fresh scope, so a second confirm never reuses a closing one.
   const [serial, setSerial] = useState(0);
@@ -121,7 +123,7 @@ export function ConfirmHost() {
       body={request.body}
       // Cancel first and focused: going ahead takes a deliberate move.
       actions={[
-        { label: "Cancel", onSelect: () => answer(false) },
+        { label: t("common.cancel"), onSelect: () => answer(false) },
         { label: request.confirm, onSelect: () => answer(true), primary: true },
       ]}
       onBack={() => answer(false)}

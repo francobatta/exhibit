@@ -6,8 +6,9 @@
 
 import { motion } from "motion/react";
 import { memo, useState } from "react";
+import { t } from "@/i18n";
 import { imageUrl, type ItemSummary } from "@/lib/api";
-import { OFFLINE, WATCHED, episodeLabel, facts, started } from "@/lib/format";
+import { episodeLabel, facts, started, titleOf } from "@/lib/format";
 import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { LovedIcon, WatchedIcon } from "./ui/state-icon";
@@ -36,12 +37,12 @@ export function workLabel(item: ItemSummary): string {
   const place =
     item.kind === "episode" ? facts([item.show_title, episodeLabel(item.season, item.episode)]) : null;
   return facts([
-    item.title,
+    titleOf(item),
     place,
     item.year === null ? null : String(item.year),
-    item.watched ? WATCHED : null,
-    item.loved ? "Loved" : null,
-    item.available ? null : OFFLINE,
+    item.watched ? t("work.watched") : null,
+    item.loved ? t("work.loved") : null,
+    item.available ? null : t("work.offline"),
   ]);
 }
 
@@ -72,7 +73,7 @@ function Typographic({ item, shape, mark }: { item: ItemSummary; shape: WorkShap
               : "text-[7cqi] leading-[1.05]",
         )}
       >
-        {mark ?? item.title}
+        {mark ?? titleOf(item)}
       </p>
     </div>
   );

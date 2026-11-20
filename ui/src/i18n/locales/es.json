@@ -1,0 +1,440 @@
+{
+  "app": {
+    "opening": "Abriendo la biblioteca",
+    "openFailed": "Exhibit no pudo abrir su biblioteca. Comprueba que se puede acceder a su carpeta de datos y vuelve a intentarlo."
+  },
+  "common": {
+    "loading": "Cargando",
+    "tryAgain": "Volver a intentarlo",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "done": "Listo",
+    "skip": "Omitir",
+    "continue": "Continuar",
+    "remove": "Quitar",
+    "save": "Guardar",
+    "openSettings": "Abrir $t(settings.title)",
+    "goBack": "Volver",
+    "libraryReadFailed": "No se pudo leer la biblioteca. Vuelve a intentarlo o reinicia Exhibit si sigue pasando.",
+    "gone": "Puede que haya desaparecido en el último escaneo. Vuelve a la colección."
+  },
+  "sections": {
+    "label": "Secciones",
+    "home": "Inicio",
+    "movies": "Películas",
+    "shows": "Series",
+    "episodes": "Episodios",
+    "other": "Otros",
+    "review": "Por revisar"
+  },
+  "topBar": {
+    "ask": "Pide algo",
+    "search": "Buscar en la biblioteca",
+    "settings": "$t(settings.title)"
+  },
+  "jobs": {
+    "scanning": "Escaneando",
+    "scanningFiles_one": "Escaneando, {{count, number}} archivo",
+    "scanningFiles_many": "Escaneando, {{count, number}} archivos",
+    "scanningFiles_other": "Escaneando, {{count, number}} archivos",
+    "identifying": "Buscando los títulos",
+    "probing": "Leyendo los detalles de los archivos",
+    "rescoring": "Comprobando las coincidencias",
+    "translating": "Trayendo los títulos en español",
+    "thumbnails": "Creando miniaturas"
+  },
+  "hints": {
+    "open": "Abrir",
+    "menu": "Menú",
+    "ask": "Pedir",
+    "back": "Atrás",
+    "type": "Escribir",
+    "find": "Buscar",
+    "choose": "Elegir"
+  },
+  "units": {
+    "file_one": "{{count, number}} archivo",
+    "file_many": "{{count, number}} archivos",
+    "file_other": "{{count, number}} archivos",
+    "movie_one": "{{count, number}} película",
+    "movie_many": "{{count, number}} películas",
+    "movie_other": "{{count, number}} películas",
+    "show_one": "{{count, number}} serie",
+    "show_many": "{{count, number}} series",
+    "show_other": "{{count, number}} series",
+    "item_one": "{{count, number}} elemento",
+    "item_many": "{{count, number}} elementos",
+    "item_other": "{{count, number}} elementos",
+    "season_one": "{{count, number}} temporada",
+    "season_many": "{{count, number}} temporadas",
+    "season_other": "{{count, number}} temporadas",
+    "track_one": "{{count, number}} pista",
+    "track_many": "{{count, number}} pistas",
+    "track_other": "{{count, number}} pistas",
+    "more": "{{count, number}} más"
+  },
+  "format": {
+    "hoursMinutes": "{{h}} h {{m}} min",
+    "hours": "{{h}} h",
+    "minutes": "{{m}} min",
+    "seasonEpisode": "T{{season}} E{{episode}}",
+    "season": "T{{season}}",
+    "episode": "E{{episode}}",
+    "mono": "Mono",
+    "stereo": "Estéreo",
+    "channels": "{{count}} canales",
+    "bytes": "bytes",
+    "dayFirst": "{{day}} de {{month}} de {{year}}",
+    "dayFirstThisYear": "{{day}} de {{month}}",
+    "monthFirst": "{{month}} {{day}}, {{year}}",
+    "monthFirstThisYear": "{{month}} {{day}}"
+  },
+  "work": {
+    "untitled": "Sin título",
+    "season": "Temporada {{season}}",
+    "specials": "Especiales",
+    "episode": "Episodio {{episode}}",
+    "watched": "Visto",
+    "loved": "Favorito",
+    "offline": "Sin conexión"
+  },
+  "placard": {
+    "left": "Quedan {{time}}",
+    "sound": "Audio",
+    "subtitles": "Subtítulos",
+    "none": "Ninguno"
+  },
+  "cues": {
+    "actions": "Acciones",
+    "loved": "Favorito",
+    "love": "Añadir a favoritos",
+    "unlove": "Quitar",
+    "watched": "Visto",
+    "mark": "Marcar",
+    "unmark": "Desmarcar"
+  },
+  "actions": {
+    "play": "Reproducir",
+    "playEpisode": "Reproducir {{episode}}",
+    "playNext": "Reproducir el siguiente episodio",
+    "resume": "Reanudar",
+    "resumeFrom": "Reanudar desde {{time}}",
+    "restart": "Reproducir desde el principio",
+    "details": "Detalles",
+    "markAllWatched": "Marcar todo como visto",
+    "markAllUnwatched": "Marcar todo como no visto",
+    "markWatched": "Marcar como visto",
+    "markUnwatched": "Marcar como no visto",
+    "love": "Añadir a favoritos",
+    "unlove": "Quitar de favoritos",
+    "fix": "Corregir la coincidencia",
+    "other": "Enviar a Otros",
+    "offline": "La unidad no está conectada",
+    "offlineDrive": "La unidad de {{drive}} no está conectada",
+    "otherTitle": "¿Enviar {{title}} a Otros?",
+    "otherBody": "Sale de Películas y Series y pasa a estar con los $t(terms.videos) caseros y los clips. Corregir la coincidencia lo devuelve.",
+    "menu": "{{title}}, acciones"
+  },
+  "playback": {
+    "playing": "Reproduciendo en mpv",
+    "cannotStart": "mpv no pudo iniciarse",
+    "problem": "{{message}} Descárgalo o elige dónde está, en $t(settings.title).",
+    "adviceOffline": "Conecta su unidad y vuelve a reproducirlo.",
+    "adviceMissing": "Comprueba que el archivo sigue en su carpeta y vuelve a reproducirlo.",
+    "adviceRetry": "Vuelve a reproducirlo. Si sigue fallando, reinicia Exhibit."
+  },
+  "tech": {
+    "video": "Vídeo",
+    "audio": "Audio",
+    "subtitles": "Subtítulos",
+    "drive": "Unidad",
+    "played": "Reproducido",
+    "commentary": "comentario en {{language}}",
+    "commentaryUnnamed": "Comentario",
+    "notConnected": "{{path}} no está conectada",
+    "stoppedAt": "Detenido en {{time}}",
+    "notYet": "Todavía no",
+    "lastPlayed": "última vez el {{day}}"
+  },
+  "match": {
+    "title": "Corregir la coincidencia",
+    "search": "Buscar",
+    "titleField": "Título",
+    "yearField": "Año",
+    "movie": "Película",
+    "show": "Serie",
+    "typeTitle": "Escribe un título para buscarlo.",
+    "lookingUp": "Buscando {{title}}",
+    "nothing": "Nada en TMDB coincide con «{{title}}». Prueba con otra forma de escribirlo o quita el año.",
+    "nothingFrom": "Nada en TMDB coincide con «{{title}}» de {{year}}. Prueba con otra forma de escribirlo o quita el año.",
+    "results_one": "{{count, number}} resultado",
+    "results_many": "{{count, number}} resultados",
+    "results_other": "{{count, number}} resultados",
+    "current": "Coincidencia actual",
+    "likely": "Probable",
+    "possible": "Posible",
+    "unlikely": "Poco probable"
+  },
+  "tools": {
+    "mpvDoes": "mpv reproduce tus archivos y lee sus detalles.",
+    "ffmpegDoes": "ffmpeg crea las miniaturas de Otros; sin él se usa mpv.",
+    "setByYou": "Indicado por ti",
+    "downloaded": "Descargado por Exhibit",
+    "detected": "Encontrado en este equipo",
+    "notFound": "No encontrado",
+    "notFoundAt": "No encontrado en {{path}}",
+    "version": "versión {{version}}",
+    "built": "compilado el {{day}}",
+    "useDownloaded": "Usar el descargado",
+    "useDetected": "Usar el encontrado",
+    "whereIs": "¿Dónde está {{tool}}?",
+    "typePath": "O escribe la ruta de {{tool}}.exe",
+    "download": "Descargar mpv y ffmpeg",
+    "getLatest": "Obtener la última versión",
+    "checking": "Buscando la última versión",
+    "downloading": "Descargando, {{done, number}} de {{total, number}} MB",
+    "unpacking": "Descomprimiendo",
+    "alreadyLatest": "Ya tienes la última versión, del {{day}}.",
+    "downloadedBuild": "Se descargó la versión del {{day}}.",
+    "note": "La descarga viene de las compilaciones de shinchiro en GitHub. Las hace un voluntario, no los proyectos mpv ni FFmpeg; la web de mpv las menciona en primer lugar."
+  },
+  "secret": {
+    "paste": "Pegar",
+    "clipboardEmpty": "El portapapeles está vacío. Copia la clave y vuelve a pegarla.",
+    "clipboardFailed": "Exhibit no pudo leer el portapapeles. Escribe la clave."
+  },
+  "browser": {
+    "drives": "Unidades",
+    "readFailed": "{{error}} Vuelve atrás y elige otra carpeta.",
+    "opening": "Abriendo {{path}}",
+    "openingDrives": "Abriendo las unidades",
+    "noFolders": "No hay carpetas aquí.",
+    "noFoldersOrPrograms": "No hay carpetas ni programas aquí.",
+    "program": "Programa"
+  },
+  "keyboard": {
+    "label": "Teclado, {{label}}",
+    "keys": "Teclas",
+    "letters": "Letras",
+    "symbols": "Símbolos",
+    "space": "Espacio",
+    "delete": "Borrar",
+    "type": "Escribir",
+    "close": "Cerrar"
+  },
+  "genre": {
+    "title": "Género",
+    "list": "Géneros",
+    "any": "Cualquier género"
+  },
+  "wall": {
+    "sort": "Ordenar",
+    "filters": "Filtros",
+    "sortAndFilter": "Ordenar y filtrar",
+    "chosen": "Títulos elegidos",
+    "selected": "{{count, number}} elegidos",
+    "byTitle": "Título",
+    "byYear": "Año",
+    "byRuntime": "Duración",
+    "unwatched": "Sin ver",
+    "loved": "Favoritos",
+    "available": "Disponibles ahora",
+    "uhd": "4K",
+    "hanging": "Colgando la colección",
+    "noMovies": "Todavía no hay películas",
+    "noShows": "Todavía no hay series",
+    "noOther": "Todavía no hay nada en Otros",
+    "noMatches": "Nada coincide con estos filtros",
+    "noMatchesBody": "Desactiva alguno o quítalos todos.",
+    "clearFilters": "Quitar los filtros",
+    "selectSeveral": "Elegir varios",
+    "focused": "Título enfocado",
+    "select": "Elegir",
+    "unselect": "Quitar de la selección"
+  },
+  "home": {
+    "notWatchedYet": "Sin ver todavía",
+    "loved": "Favoritos",
+    "empty": "Todavía no hay nada aquí.",
+    "allInOther": "Inicio muestra películas y series. Todo lo que Exhibit ha encontrado hasta ahora está en Otros.",
+    "looking": "Exhibit sigue revisando tus carpetas.",
+    "openOther": "Abrir Otros"
+  },
+  "show": {
+    "label": "Serie",
+    "seasons": "Temporadas",
+    "episodes": "Episodios",
+    "noEpisodes": "Todavía no hay episodios en esta temporada."
+  },
+  "details": {
+    "cast": "Reparto",
+    "as": "como {{character}}",
+    "subtitlesIn": "subtítulos en {{languages}}",
+    "watchedOn": "Visto el {{when}}",
+    "stoppedAtOn": "Detenido en {{time}} el {{when}}",
+    "stoppedAt": "Detenido en {{time}}",
+    "neverPlayed": "Nunca reproducido",
+    "notSure": "No es seguro que este sea el título correcto",
+    "fixInMenu": "Corregir la coincidencia está en el menú",
+    "byHand": "Elegido a mano",
+    "automatically": "Encontrado automáticamente",
+    "theFile": "El archivo",
+    "theFiles": "Los archivos",
+    "picture": "Imagen",
+    "sound": "Audio",
+    "subtitles": "Subtítulos",
+    "file": "Archivo",
+    "version": "Versión {{n}}",
+    "inExhibit": "En Exhibit",
+    "watched": "Visto",
+    "match": "Coincidencia",
+    "on": "en {{path}}"
+  },
+  "ask": {
+    "searchFailed": "No se pudo buscar en la biblioteca. Vuelve a intentarlo o reinicia Exhibit si sigue pasando.",
+    "recent": "Búsquedas recientes",
+    "hint": "Escribe un título o el nombre de alguien que lo hizo o que sale en él."
+  },
+  "review": {
+    "title": "Por revisar",
+    "readFailed": "No se pudo leer la lista. Vuelve a intentarlo o reinicia Exhibit si sigue pasando.",
+    "empty": "No hay nada por revisar.",
+    "emptyBody": "Cuando Exhibit no sabe qué es un archivo, lo pregunta aquí.",
+    "goHome": "Ir a Inicio",
+    "readAs": "Leído como {{title}}",
+    "possibleMatches_one": "{{count, number}} posible coincidencia",
+    "possibleMatches_many": "{{count, number}} posibles coincidencias",
+    "possibleMatches_other": "{{count, number}} posibles coincidencias",
+    "nothingClose": "TMDB no tiene nada parecido a este nombre. Búscalo a mano o envíalo a Otros.",
+    "searchByHand": "Buscar a mano"
+  },
+  "settings": {
+    "readFailed": "No se pudieron leer los ajustes. Vuelve a intentarlo o reinicia Exhibit si sigue pasando.",
+    "set": "Guardada",
+    "notSet": "Sin guardar",
+    "folders": "Carpetas",
+    "foldersNote": "Dónde están tus películas, series y otros $t(terms.videos). Exhibit solo los lee.",
+    "connected": "Conectada",
+    "notConnected": "No conectada",
+    "scanNow": "Escanear ahora",
+    "typeFolder": "O escribe la ruta de una carpeta",
+    "removeTitle": "¿Quitar esta carpeta de Exhibit?",
+    "removeBody": "Tus archivos no se tocan.",
+    "tools": "Herramientas",
+    "toolsNote": "Programas gratuitos que Exhibit usa para reproducir y leer tus archivos.",
+    "setPath": "Indicar la ruta",
+    "tmdbKey": "Clave de TMDB",
+    "tmdbNote": "Da nombre a tus películas y series y trae sus pósteres. La clave es gratuita en themoviedb.org.",
+    "checkingKey": "Buscando los títulos con la nueva clave",
+    "keyRejected": "TMDB rechazó la clave. Revísala y vuelve a guardarla.",
+    "agentKey": "Clave del agente",
+    "agentNote": "Se usará a partir de la próxima versión de Exhibit.",
+    "language": "Idioma",
+    "languageNote": "Las palabras de Exhibit, y los títulos, descripciones y pósteres que trae de TMDB.",
+    "dates": "Fechas",
+    "datesNote": "Cómo se escriben las fechas, sea cual sea el idioma.",
+    "automatic": "Automático",
+    "automaticAs": "Automático, {{example}}",
+    "display": "Pantalla",
+    "displayNote": "La introducción se reproduce al abrir Exhibit.",
+    "fullScreen": "Pantalla completa",
+    "intro": "Introducción"
+  },
+  "firstRun": {
+    "step": "Paso {{at}} de {{of}}",
+    "welcome": "Te damos la bienvenida a Exhibit",
+    "welcomeBody": "Empieza con una carpeta que tenga tus películas, series u otros $t(terms.videos). Exhibit la lee y nunca cambia, mueve ni borra nada de ella.",
+    "foldersAdded": "Carpetas elegidas",
+    "reading_one": "Exhibit la está leyendo ahora.",
+    "reading_many": "Exhibit las está leyendo ahora.",
+    "reading_other": "Exhibit las está leyendo ahora.",
+    "tools": "Herramientas multimedia",
+    "toolsBody_one": "Exhibit reproduce tus archivos con mpv y crea miniaturas con ffmpeg, dos programas gratuitos. Este no se encontró en este equipo. Exhibit puede descargar los dos por ti.",
+    "toolsBody_many": "Exhibit reproduce tus archivos con mpv y crea miniaturas con ffmpeg, dos programas gratuitos. No se encontraron en este equipo. Exhibit puede descargar los dos por ti.",
+    "toolsBody_other": "Exhibit reproduce tus archivos con mpv y crea miniaturas con ffmpeg, dos programas gratuitos. No se encontraron en este equipo. Exhibit puede descargar los dos por ti.",
+    "mpvNeeded": "No se puede reproducir nada hasta que mpv esté aquí.",
+    "setToolPath": "Indicar la ruta de {{tool}}",
+    "tmdbBody": "Con una clave de TMDB, Exhibit da nombre a tus películas y series y cuelga sus pósteres y fondos.",
+    "saveKey": "Guardar la clave"
+  },
+  "errors": {
+    "unknown": "Algo salió mal.",
+    "kind": {
+      "not_found": "Eso ya no está.",
+      "invalid": "Eso no se puede hacer.",
+      "source_offline": "Hay una unidad sin conectar. Conéctala y vuelve a intentarlo.",
+      "tool": "Falló una herramienta multimedia. Revisa las herramientas en $t(settings.title).",
+      "provider": "No se pudo acceder a TMDB ni a GitHub. Vuelve a intentarlo más tarde.",
+      "io": "Exhibit no pudo leer o escribir un archivo.",
+      "db": "No se pudo leer la biblioteca. Reinicia Exhibit si sigue pasando."
+    },
+    "tmdb": {
+      "key_rejected": "TMDB rechazó la clave. Revísala en $t(settings.title).",
+      "unreachable": "No se pudo acceder a TMDB. Comprueba la conexión a internet y vuelve a intentarlo.",
+      "unreadable": "TMDB envió algo ilegible. Vuelve a intentarlo más tarde.",
+      "http": "TMDB respondió con el error {{status}}. Vuelve a intentarlo más tarde."
+    },
+    "download": {
+      "unreachable": "No se pudo acceder a GitHub. Comprueba la conexión a internet y vuelve a intentarlo.",
+      "rate_limited": "GitHub está limitando las descargas por ahora. Vuelve a intentarlo dentro de una hora.",
+      "http": "GitHub respondió con el error {{status}}. Vuelve a intentarlo más tarde.",
+      "interrupted": "La descarga se detuvo. Comprueba la conexión a internet y vuelve a intentarlo.",
+      "unreadable": "GitHub envió algo ilegible. Vuelve a intentarlo más tarde.",
+      "unexpected_release": "La última versión de mpv tiene un nombre inesperado. Vuelve a intentarlo en un día o dos.",
+      "no_build": "La última versión no incluye {{tool}} para este equipo. Vuelve a intentarlo en un día o dos.",
+      "windows_only": "La descarga de mpv y ffmpeg solo está disponible en Windows.",
+      "incomplete": "La descarga no contenía mpv y ffmpeg. Vuelve a intentarlo en un día o dos.",
+      "damaged": "{{file}} llegó dañado. Vuelve a intentarlo.",
+      "unpack": "No se pudo descomprimir la descarga. Vuelve a intentarlo.",
+      "crashed": "La descarga se detuvo de forma inesperada. Vuelve a intentarlo.",
+      "no_tools_folder": "Esta biblioteca no tiene carpeta para las herramientas."
+    },
+    "item": {
+      "not_found": "Ese título ya no está en la biblioteca.",
+      "already_identified": "Este título ya está identificado."
+    },
+    "match": {
+      "not_a_file": "Solo se puede corregir una película, un episodio o un archivo sin identificar.",
+      "no_episode_number": "{{file}} no tiene número de episodio en su nombre, así que no se sabe qué episodio es.",
+      "several_episodes": "Sus archivos nombran más de un episodio. Dale a cada archivo su propio número de episodio.",
+      "no_such_episode": "{{show}} no tiene temporada {{season}}, episodio {{episode}}."
+    },
+    "other": {
+      "not_a_file": "Solo los títulos con archivos pueden ir a Otros."
+    },
+    "play": {
+      "busy": "Ya se está reproduciendo algo.",
+      "no_episode": "Ningún episodio de esta serie tiene archivo.",
+      "no_file": "Este título no tiene archivo que reproducir."
+    },
+    "source": {
+      "offline": "La unidad de {{path}} no está conectada.",
+      "not_a_folder": "{{path}} no es una carpeta.",
+      "unknown_drive": "Exhibit no sabe en qué unidad está {{path}}.",
+      "overlaps": "{{path}} se solapa con {{other}}, que ya está en Exhibit.",
+      "not_found": "Esa carpeta ya no está en Exhibit."
+    },
+    "tool": {
+      "missing": "{{tool}} no está en este equipo.",
+      "missing_at": "{{tool}} no se encontró en {{path}}.",
+      "cannot_start": "{{path}} no pudo iniciarse.",
+      "mpv_unreachable": "Exhibit perdió el contacto con mpv."
+    },
+    "library": {
+      "no_wal": "La carpeta de la biblioteca no admite la base de datos de Exhibit. Muévela a una unidad local."
+    },
+    "settings": {
+      "unknown_language": "Exhibit no habla ese idioma.",
+      "unknown_date_format": "No existe ese formato de fecha."
+    },
+    "secret": {
+      "unknown": "Exhibit no tiene ninguna clave con ese nombre."
+    },
+    "identify": {
+      "partly_failed": "Algunos títulos no se pudieron buscar. Se vuelven a intentar en el próximo escaneo."
+    },
+    "job": {
+      "crashed": "La última tarea se detuvo de forma inesperada. Se vuelve a hacer en el próximo escaneo."
+    }
+  }
+}

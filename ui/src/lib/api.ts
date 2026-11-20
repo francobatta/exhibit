@@ -3,6 +3,7 @@
 
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { t, translated } from "@/i18n";
 
 export type Id = number;
 
@@ -17,7 +18,7 @@ export type Tool = "mpv" | "ffmpeg";
 export type ToolSource = "manual" | "downloaded" | "detected";
 export type SecretName = "tmdb" | "agent";
 export type IdentifyScope = "unmatched" | "review" | "unmatched_and_review" | { item: Id };
-export type RefreshPhase = "scanning" | "identifying" | "probing" | "rescoring" | "thumbnails";
+export type RefreshPhase = "scanning" | "identifying" | "probing" | "rescoring" | "translating" | "thumbnails";
 
 export interface Person {
   name: string;
@@ -41,6 +42,8 @@ export interface Candidate {
   score: number;
   /** The cached poster's file name (its small sibling is on disk), as an item's `poster`. */
   poster: string | null;
+  /** Its title in each language it was found in, when it was searched in several. */
+  titles?: Partial<Record<string, string>>;
 }
 
 export interface Item {
@@ -204,7 +207,7 @@ export type DownloadStep =
 
 export type DownloadOutcome =
   | { kind: "done"; release: string; already_latest: boolean }
-  | { kind: "failed"; message: string };
+  | { kind: "failed"; error: ApiError };
 
 export interface DownloadStatus {
   running: boolean;
@@ -225,6 +228,10 @@ export interface LibraryStatus {
   agent_key: boolean;
   /** Whether the window plays the intro as it opens. */
   intro: boolean;
+  /** The language in effect: the owner's choice, or the one Windows suggests. */
+  language: string;
+  /** How dates are written: `auto`, `day`, `month` or `numeric`. */
+  date_format: string;
 }
 
 export interface Boot {
@@ -246,9 +253,8 @@ export interface JobStatus {
   phase: RefreshPhase | null;
   /** Files or items handled so far in the current phase. */
   done: number;
-  message: string | null;
   /** The most recent job's failure, kept until the next job ends. */
-  last_error: string | null;
+  last_error: ApiError | null;
 }
 
 export interface PlayOutcome {
@@ -267,9 +273,15 @@ export type ErrorKind =
   | "io"
   | "db";
 
-/** What a failed command rejects with. */
+/**
+ * What a failed command rejects with. `code` names what happened (`source.offline`) and `params`
+ * fill in its wording (`path`); the window words it from its catalogue (`errors.<code>`), else
+ * from the kind. `message` is the core's English, for logs only.
+ */
 export interface ApiError {
   kind: ErrorKind;
+  code: string | null;
+  params: Record<string, string>;
   message: string;
 }
 
@@ -289,34 +301,21 @@ export function isApiError(e: unknown): e is ApiError {
   );
 }
 
-/**
- * The core's message when TMDB refuses the key (`exhibit_core::tmdb::KEY_REJECTED`), whose advice
- * is for the command line. A test in `crates/exhibit-app` keeps the two the same.
- */
-export const KEY_REJECTED = "TMDB rejected the key; set a valid one with `exhibit key set tmdb`";
-
-/** The text of an error without the core's kind prefix ("invalid: "), trimmed. */
-function bareMessage(e: unknown): string {
-  const text = isApiError(e) ? e.message : typeof e === "string" ? e : e instanceof Error ? e.message : "";
-  return text.trim().replace(/^[a-z_]+(?: [a-z]+)?: /, "");
-}
-
 /** Whether an error (or a job's `last_error`) is TMDB refusing the key. */
-export const keyRejected = (e: unknown): boolean => bareMessage(e) === KEY_REJECTED;
+export const keyRejected = (e: unknown): boolean => isApiError(e) && e.code === "tmdb.key_rejected";
 
 /**
- * The message of an error as the owner should read it: the core's kind prefix removed ("tool
- * error: ", "source offline: ", "invalid: "), starting with a capital unless it starts with the
- * name of a tool, which is always written in lower case ("mpv not found at C:\mpv\mpv.exe").
- * A rejected TMDB key says to check it in Settings. Also takes a bare message (such as
- * `JobStatus.last_error`) or anything a promise rejected with.
+ * An error as the owner reads it, in the window's language: what happened and what to do, worded
+ * from its code ("The drive for D:\Films is not connected."), else from its kind. The core's
+ * English never shows. Anything else a promise rejected with is "Something went wrong."
  */
 export function plain(e: unknown): string {
-  const stripped = bareMessage(e);
-  if (stripped === KEY_REJECTED) return "TMDB rejected the key. Check it in Settings.";
-  if (stripped === "") return "Something went wrong.";
-  if (/^(mpv|ffmpeg)\b/.test(stripped)) return stripped;
-  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+  if (!isApiError(e)) return t("errors.unknown");
+  return (
+    (e.code === null ? null : translated(`errors.${e.code}`, e.params ?? {})) ??
+    translated(`errors.kind.${e.kind}`, {}) ??
+    t("errors.unknown")
+  );
 }
 
 // Commands. Each rejects with an `ApiError`.
@@ -371,6 +370,8 @@ export const jobStatus = () => invoke<JobStatus>("job_status");
 export const play = (id: Id, resume: boolean) => invoke<void>("play", { id, resume });
 /** Takes effect from the next launch. */
 export const setIntro = (on: boolean) => invoke<void>("set_intro", { on });
+export const setLanguage = (language: string) => invoke<void>("set_language", { language });
+export const setDateFormat = (format: string) => invoke<void>("set_date_format", { format });
 export const windowFullscreen = (on: boolean) => invoke<void>("window_fullscreen", { on });
 export const windowIsFullscreen = () => invoke<boolean>("window_is_fullscreen");
 

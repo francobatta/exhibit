@@ -3,15 +3,16 @@
 
 import { useFocusState, type ItemHandlers } from "@/focus/bridge";
 import { useInputMode } from "@/focus/react";
+import { t, useT } from "@/i18n";
 import { cn } from "@/lib/utils";
 import { useNav } from "@/nav/stack";
 
 export function hints(item: ItemHandlers | null, canBack: boolean, canAsk = true): Array<[button: string, label: string]> {
   const out: Array<[string, string]> = [];
-  if (item?.onSelect && !item.disabled) out.push(["A", item.hint ?? "Open"]);
-  if (item?.onMenu) out.push(["X", "Menu"]);
-  if (canAsk) out.push(["Y", "Ask"]);
-  if (canBack) out.push(["B", "Back"]);
+  if (item?.onSelect && !item.disabled) out.push(["A", item.hint ?? t("hints.open")]);
+  if (item?.onMenu) out.push(["X", t("hints.menu")]);
+  if (canAsk) out.push(["Y", t("hints.ask")]);
+  if (canBack) out.push(["B", t("hints.back")]);
   return out;
 }
 
@@ -30,6 +31,7 @@ export function HintLine({ pairs, className }: { pairs: Array<[button: string, l
 }
 
 export function Hints() {
+  useT();
   const mode = useInputMode();
   const item = useFocusState((s) => s.item);
   const canBack = useFocusState((s) => s.canBack);

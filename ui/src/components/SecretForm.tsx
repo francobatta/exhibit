@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { readText } from "@tauri-apps/plugin-clipboard-manager";
 import { useState } from "react";
 import { FocusGroup } from "@/focus/react";
+import { useT } from "@/i18n";
 import { plain, setSecret, type SecretName } from "@/lib/api";
 import { keys } from "@/lib/queries";
 import { FocusButton } from "./FocusButton";
@@ -36,10 +37,11 @@ export function SecretForm({
   isSet,
   paste = false,
   removable = true,
-  saveLabel = "Save",
+  saveLabel,
   onSaved,
   focusPrefix = name,
 }: SecretFormProps) {
+  const t = useT();
   const client = useQueryClient();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -65,10 +67,10 @@ export function SecretForm({
     try {
       // Through the clipboard plugin: WebView2's own clipboard asks with a prompt the pad cannot answer.
       const text = (await readText()).trim();
-      if (text === "") toast("The clipboard is empty. Copy the key, then paste it again.");
+      if (text === "") toast(t("secret.clipboardEmpty"));
       else setValue(text);
     } catch {
-      toast("Exhibit could not read the clipboard. Type the key instead.");
+      toast(t("secret.clipboardFailed"));
     }
   };
 
@@ -85,15 +87,15 @@ export function SecretForm({
       />
       {paste && (
         <FocusButton focusKey={`${focusPrefix}:paste`} onSelect={() => void fromClipboard()}>
-          Paste
+          {t("secret.paste")}
         </FocusButton>
       )}
       <FocusButton focusKey={`${focusPrefix}:save`} onSelect={save} disabled={value.trim() === "" || busy}>
-        {saveLabel}
+        {saveLabel ?? t("common.save")}
       </FocusButton>
       {removable && isSet && (
         <FocusButton focusKey={`${focusPrefix}:remove`} onSelect={() => void store(null)} disabled={busy} variant="plain">
-          Remove
+          {t("common.remove")}
         </FocusButton>
       )}
     </FocusGroup>

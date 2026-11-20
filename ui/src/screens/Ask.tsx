@@ -12,6 +12,7 @@ import { TextField } from "@/components/TextField";
 import { dialogBackdrop } from "@/components/ui/dialog";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
+import { useT } from "@/i18n";
 import { runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary } from "@/lib/api";
 import { revealRow } from "@/lib/motion";
@@ -20,7 +21,6 @@ import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
 import { closeAsk, leaveAsk, useAskOverlay } from "@/nav/stack";
 
-const PLACEHOLDER = "Search the library";
 const FIELD = "ask:field";
 /** How long typing pauses before the library is searched, in ms. */
 const DEBOUNCE = 200;
@@ -87,6 +87,8 @@ export function AskHost() {
 }
 
 export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }) {
+  const t = useT();
+  const placeholder = t("topBar.search");
   const [text, setText] = useState(() => useAskOverlay.getState().seed);
   const [query, flush] = useDebounced(text.trim(), DEBOUNCE);
   const results = useAsk(query);
@@ -126,7 +128,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       id="ask"
       modal
       open={open}
-      label={PLACEHOLDER}
+      label={placeholder}
       restoreKey={FIELD}
       fallbackKey={FIELD}
       onBack={() => closeAsk()}
@@ -146,7 +148,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
           value={text}
           onChange={type}
           onSubmit={submit}
-          placeholder={PLACEHOLDER}
+          placeholder={placeholder}
           className={cn(
             "h-(--ask-field) rounded-none border-0 border-b border-line bg-transparent px-0",
             "text-title font-title tracking-title focus:border-lamp/60 focus:bg-transparent",
@@ -159,7 +161,7 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
         ) : results.isError ? (
           <ErrorState
             message={plain(results.error)}
-            hint="The library could not be searched. Try again, or restart Exhibit if it keeps happening."
+            hint={t("ask.searchFailed")}
           />
         ) : results.data === undefined ? null : (
           <Results result={results.data} text={query} onChosen={() => rememberSearch(query)} onReveal={reveal} />
@@ -214,16 +216,17 @@ function Results({
 }
 
 function Recent({ recent, onChoose }: { recent: string[]; onChoose: (text: string) => void }) {
+  const t = useT();
   if (recent.length === 0) {
     return (
       <p className="px-edge font-reading text-lead leading-reading text-label-dim">
-        Type a title, or the name of someone who made it or is in it.
+        {t("ask.hint")}
       </p>
     );
   }
   return (
-    <section aria-label="Recent searches" className="px-edge">
-      <h2 className="mb-4 font-display text-lead font-ui text-label-dim">Recent searches</h2>
+    <section aria-label={t("ask.recent")} className="px-edge">
+      <h2 className="mb-4 font-display text-lead font-ui text-label-dim">{t("ask.recent")}</h2>
       <FocusGroup id="ask-recent" orientation="vertical" className="-ml-4 flex flex-col items-start">
         {recent.map((q) => (
           <RecentLine key={q} text={q} onChoose={() => onChoose(q)} />

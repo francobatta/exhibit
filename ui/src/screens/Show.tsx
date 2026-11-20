@@ -16,9 +16,10 @@ import { Toggle } from "@/components/ui/toggle";
 import { Work } from "@/components/Work";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
+import { t, useT } from "@/i18n";
 import { itemActions, runMain, runSelected, useActionContext } from "@/lib/actions";
 import { plain, type Id, type ItemDetail, type ItemSummary } from "@/lib/api";
-import { OFFLINE, WATCHED, episodeLabel, facts, runtime, started } from "@/lib/format";
+import { episodeLabel, facts, runtime, started, titleOf } from "@/lib/format";
 import { rems, revealRow, stopGlide } from "@/lib/motion";
 import { usePlayback } from "@/lib/playback";
 import { useItem, useItemSources } from "@/lib/queries";
@@ -30,14 +31,15 @@ const seasonKey = (id: Id) => `season:${id}`;
 export const SHOW_KEY = "show";
 
 export function Show({ id }: { id: Id }) {
+  const t = useT();
   const query = useItem(id);
   if (query.isPending) return <Loading />;
   if (query.isError) {
     return (
       <ErrorState
         message={plain(query.error)}
-        hint="It may have gone in the last scan. Go back to the collection."
-        action={{ label: "Go back", onAction: () => useNav.getState().back() }}
+        hint={t("common.gone")}
+        action={{ label: t("common.goBack"), onAction: () => useNav.getState().back() }}
       />
     );
   }
@@ -112,8 +114,9 @@ function Seasons({ show }: { show: ItemDetail }) {
 }
 
 function ShowTitle({ show }: { show: ItemDetail }) {
+  const t = useT();
   return (
-    <FocusGroup id="show-title" orientation="vertical" aria-label="Show">
+    <FocusGroup id="show-title" orientation="vertical" aria-label={t("show.label")}>
       <ShowWork show={show} />
     </FocusGroup>
   );
@@ -158,11 +161,12 @@ function ShowWork({ show }: { show: ItemDetail }) {
 }
 
 function SeasonRow({ seasons, chosen, onChoose }: { seasons: ItemSummary[]; chosen: Id | null; onChoose: (id: Id) => void }) {
+  const t = useT();
   return (
     <FocusGroup
       id="show-seasons"
       orientation="horizontal"
-      aria-label="Seasons"
+      aria-label={t("show.seasons")}
       onKeyDownCapture={firstToShow}
       className="order-first flex h-(--wall-controls) shrink-0 items-center gap-2 pl-4"
     >
@@ -174,6 +178,7 @@ function SeasonRow({ seasons, chosen, onChoose }: { seasons: ItemSummary[]; chos
 }
 
 function SeasonTab({ season, chosen, onChoose }: { season: ItemSummary; chosen: boolean; onChoose: () => void }) {
+  useT();
   // Moving onto a season chooses it; A goes down into its episodes.
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: seasonKey(season.id),
@@ -191,13 +196,14 @@ function SeasonTab({ season, chosen, onChoose }: { season: ItemSummary; chosen: 
       pressed={chosen}
       className="relative focus-visible:bg-transparent focus:text-label"
     >
-      {season.title.trim() || episodeLabel(season.season, null)}
+      {titleOf(season)}
       {focused && <Lamp />}
     </Toggle>
   );
 }
 
 function Episodes({ episodes }: { episodes: ItemSummary[] }) {
+  const t = useT();
   const list = useRef<HTMLDivElement>(null);
   const ctx = useActionContext();
   const latest = useRef(ctx);
@@ -220,7 +226,7 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
   }, []);
 
   if (episodes.length === 0) {
-    return <p className="pt-light font-display text-body text-label-faint">No episodes in this season yet.</p>;
+    return <p className="pt-light font-display text-body text-label-faint">{t("show.noEpisodes")}</p>;
   }
   return (
     <div ref={list} onKeyDownCapture={toShow} className="wall-fade relative min-h-0 flex-1 overflow-y-auto">
@@ -228,7 +234,7 @@ function Episodes({ episodes }: { episodes: ItemSummary[] }) {
         id="show-episodes"
         orientation="vertical"
         reveals
-        aria-label="Episodes"
+        aria-label={t("show.episodes")}
         className="flex flex-col gap-work-gap py-light"
       >
         {episodes.map((e) => (
@@ -260,7 +266,7 @@ export function episodeLines(e: ItemSummary): { title: string; state: string } {
   const left = done !== null && e.runtime_min ? runtime(Math.max(1, Math.round(e.runtime_min * (1 - done)))) : null;
   return {
     title: facts([episodeLabel(null, e.episode), e.title, runtime(e.runtime_min)]),
-    state: facts([e.watched ? WATCHED : left && `${left} left`, e.available ? null : OFFLINE]),
+    state: facts([e.watched ? t("work.watched") : left && t("placard.left", { time: left }), e.available ? null : t("work.offline")]),
   };
 }
 

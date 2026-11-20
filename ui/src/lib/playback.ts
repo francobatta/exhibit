@@ -8,6 +8,7 @@ import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { create } from "zustand";
 import { toast } from "@/components/ui/toast";
+import { t } from "@/i18n";
 import { useNav } from "@/nav/stack";
 import * as api from "./api";
 import { isApiError, plain, type Id, type PlayEnded } from "./api";
@@ -75,12 +76,12 @@ export const usePlayback = create<PlaybackState>()((set, get) => ({
 function advice(e: unknown): string {
   switch (isApiError(e) ? e.kind : null) {
     case "source_offline":
-      return "Connect its drive, then play it again.";
+      return t("playback.adviceOffline");
     case "not_found":
     case "io":
-      return "Check that the file is still in its folder, then play it again.";
+      return t("playback.adviceMissing");
     default:
-      return "Play it again. If it keeps failing, restart Exhibit.";
+      return t("playback.adviceRetry");
   }
 }
 

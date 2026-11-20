@@ -17,10 +17,23 @@ import { DownloadButton, DownloadNote } from "@/components/ToolsDownload";
 import { ErrorState, Loading } from "@/components/states";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "@/components/ui/toast";
+import { Toggle } from "@/components/ui/toggle";
 import { focusItem } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
+import {
+  DATE_FORMATS,
+  LANGUAGE_NAMES,
+  LANGUAGES,
+  currentDateFormat,
+  language,
+  setLocale,
+  useT,
+  type DateFormat,
+  type Language,
+} from "@/i18n";
 import * as api from "@/lib/api";
-import { keyRejected, plain, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
+import { keyRejected, plain, type ApiError, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
+import { writeDate } from "@/lib/format";
 import { keys, useFullscreen, useStatus, useTools } from "@/lib/queries";
 import { clearLabel } from "@/lib/tools";
 import type { SettingsPart } from "@/nav/stack";
@@ -40,6 +53,7 @@ export function Settings({ part }: { part?: SettingsPart }) {
   // Settings stands on the bare wall: no work's picture and no tint behind it. Back gives the
   // screen beneath its own backdrop again.
   useScreenBackdrop(null, null);
+  const t = useT();
   const status = useStatus();
   // Detected again as Settings opens, before it shows, so it can land on a tool.
   const tools = useTools();
@@ -49,8 +63,8 @@ export function Settings({ part }: { part?: SettingsPart }) {
     return (
       <ErrorState
         message={plain(failed.error)}
-        hint="Settings could not be read. Try again, or restart Exhibit if it keeps happening."
-        action={{ label: "Try again", onAction: () => void failed.refetch() }}
+        hint={t("settings.readFailed")}
+        action={{ label: t("common.tryAgain"), onAction: () => void failed.refetch() }}
       />
     );
   }
@@ -60,6 +74,7 @@ export function Settings({ part }: { part?: SettingsPart }) {
 function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStatus[]; part?: SettingsPart }) {
   // Settings takes focus as it opens, wherever it was opened from (the top bar, a dialog).
   // Where to land is fixed as Settings opens, so detecting the tools again never moves focus.
+  const t = useT();
   const [landing] = useState(() => settingsLanding(part, tools));
   useEffect(() => {
     focusItem(landing);
@@ -68,15 +83,17 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
     <FocusScope id="settings" restoreKey={landing} fallbackKey="folders:add">
       {/* The parts scroll under the title, clear of the top bar. */}
       <div className="absolute inset-0 flex flex-col pt-bar">
-        <h1 className="px-edge pt-4 pb-6 font-display text-title font-title tracking-title text-label">Settings</h1>
+        <h1 className="px-edge pt-4 pb-6 font-display text-title font-title tracking-title text-label">{t("settings.title")}</h1>
         <div className="wall-fade min-h-0 flex-1 overflow-y-auto px-edge pb-edge">
           <Folders sources={status.sources} />
           <Tools tools={tools} />
           <TmdbKey status={status} />
-          <Part title="Agent key" note="Used from the next version of Exhibit.">
+          <Part title={t("settings.agentKey")} note={t("settings.agentNote")}>
             <SetLine set={status.agent_key} />
-            <SecretForm name="agent" label="Agent key" isSet={status.agent_key} />
+            <SecretForm name="agent" label={t("settings.agentKey")} isSet={status.agent_key} />
           </Part>
+          <LanguagePart />
+          <DatesPart />
           <Display intro={status.intro} />
         </div>
       </div>
@@ -111,10 +128,12 @@ function Row({ name, lines, actions }: { name: string; lines: ReactNode; actions
 }
 
 function SetLine({ set }: { set: boolean }) {
-  return <p className={line}>{set ? "Set" : "Not set"}</p>;
+  const t = useT();
+  return <p className={line}>{set ? t("settings.set") : t("settings.notSet")}</p>;
 }
 
 function Folders({ sources }: { sources: Source[] }) {
+  const t = useT();
   const client = useQueryClient();
   const { browser, browse } = useBrowse();
   const changed = () => void client.invalidateQueries({ queryKey: keys.library });
@@ -122,33 +141,33 @@ function Folders({ sources }: { sources: Source[] }) {
   const add = () =>
     browse({
       mode: "folder",
-      title: "Add a folder",
-      placeholder: "Or type a folder's path",
+      title: t("settings.addAFolder"),
+      placeholder: t("settings.typeFolder"),
       onPick: (path) => {
         api.addSource(path).then(changed, (e: unknown) => toast(plain(e)));
       },
     });
   const remove = async (source: Source) => {
     const go = await confirm({
-      title: "Remove this folder from Exhibit?",
-      body: "Your files are not touched.",
-      confirm: "Remove",
+      title: t("settings.removeTitle"),
+      body: t("settings.removeBody"),
+      confirm: t("common.remove"),
     });
     if (go) await api.removeSource(source.id).then(changed, (e: unknown) => toast(plain(e)));
   };
 
   return (
-    <Part title="Folders" note="Where your films, shows and other videos are. Exhibit only reads them.">
-      {sources.length === 0 && <p className={line}>No folders yet. Add the folders that hold your films and shows.</p>}
+    <Part title={t("settings.folders")} note={t("settings.foldersNote")}>
+      {sources.length === 0 && <p className={line}>{t("settings.noFolders")}</p>}
       {sources.map((s) => (
         <Row
           key={s.id}
           name={s.path}
-          lines={<p className={line}>{s.online ? "Connected" : "Not connected"}</p>}
+          lines={<p className={line}>{s.online ? t("settings.connected") : t("settings.notConnected")}</p>}
           actions={
             <FocusGroup id={`source-${s.id}`} orientation="horizontal">
               <FocusButton focusKey={`source:${s.id}:remove`} variant="plain" onSelect={() => void remove(s)}>
-                Remove
+                {t("common.remove")}
               </FocusButton>
             </FocusGroup>
           }
@@ -156,10 +175,10 @@ function Folders({ sources }: { sources: Source[] }) {
       ))}
       <FocusGroup id="folders-actions" orientation="horizontal" className="flex gap-3">
         <FocusButton focusKey="folders:add" onSelect={add}>
-          Add folder
+          {t("settings.addFolder")}
         </FocusButton>
         <FocusButton focusKey="folders:scan" onSelect={() => api.refresh(null).catch((e: unknown) => toast(plain(e)))}>
-          Scan now
+          {t("settings.scanNow")}
         </FocusButton>
       </FocusGroup>
       {browser}
@@ -168,23 +187,24 @@ function Folders({ sources }: { sources: Source[] }) {
 }
 
 function Tools({ tools }: { tools: ToolStatus[] }) {
+  const t = useT();
   const { browser, choose, set } = useSetToolPath();
   return (
-    <Part title="Tools" note="Free programs Exhibit uses to play your files and read them.">
-      {tools.map((t) => (
+    <Part title={t("settings.tools")} note={t("settings.toolsNote")}>
+      {tools.map((tool) => (
         <Row
-          key={t.tool}
-          name={t.tool}
-          lines={<ToolLines tool={t} />}
+          key={tool.tool}
+          name={tool.tool}
+          lines={<ToolLines tool={tool} />}
           actions={
-            <FocusGroup id={`tool-${t.tool}`} orientation="horizontal" className="flex gap-3">
-              {t.source === "manual" && (
-                <FocusButton focusKey={`tool:${t.tool}:clear`} variant="plain" onSelect={() => void set(t.tool, null)}>
-                  {clearLabel(t)}
+            <FocusGroup id={`tool-${tool.tool}`} orientation="horizontal" className="flex gap-3">
+              {tool.source === "manual" && (
+                <FocusButton focusKey={`tool:${tool.tool}:clear`} variant="plain" onSelect={() => void set(tool.tool, null)}>
+                  {clearLabel(tool)}
                 </FocusButton>
               )}
-              <FocusButton focusKey={`tool:${t.tool}:set`} onSelect={() => choose(t.tool)}>
-                Set path
+              <FocusButton focusKey={`tool:${tool.tool}:set`} onSelect={() => choose(tool.tool)}>
+                {t("settings.setPath")}
               </FocusButton>
             </FocusGroup>
           }
@@ -205,7 +225,7 @@ function Tools({ tools }: { tools: ToolStatus[] }) {
  */
 function useKeyCheck() {
   const [checking, setChecking] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const stage = useRef<"idle" | "queued" | "running">("idle");
   useEffect(() => {
     const off = api.onJobStatus((s) => {
@@ -213,7 +233,7 @@ function useKeyCheck() {
       else if (stage.current === "running" && s.phase === null) {
         stage.current = "idle";
         setChecking(false);
-        setError(s.last_error === null ? null : keyError(s.last_error));
+        setError(s.last_error);
       }
     });
     return () => {
@@ -229,33 +249,160 @@ function useKeyCheck() {
 }
 
 /** The identification's failure as Settings says it, beside the key: a rejected key says to check it here. */
-export function keyError(message: string): string {
-  return keyRejected(message) ? "TMDB rejected the key. Check the key, then save it again." : plain(message);
+export function keyError(e: ApiError, t: ReturnType<typeof useT>): string {
+  return keyRejected(e) ? t("settings.keyRejected") : plain(e);
 }
 
 function TmdbKey({ status }: { status: LibraryStatus }) {
+  const t = useT();
   const check = useKeyCheck();
   const saved = () => {
     check.start();
     api.identify("unmatched_and_review").catch((e: unknown) => toast(plain(e)));
   };
   return (
-    <Part title="TMDB key" note="Names your films and shows and brings their posters. A key is free from themoviedb.org.">
+    <Part title={t("settings.tmdbKey")} note={t("settings.tmdbNote")}>
       <div className="flex flex-col gap-1">
         <SetLine set={status.tmdb_key} />
-        {check.checking && <p className={line}>Looking up titles with the new key</p>}
+        {check.checking && <p className={line}>{t("settings.checkingKey")}</p>}
         {check.error !== null && (
           <p role="alert" className="font-display text-body text-label">
-            {check.error}
+            {keyError(check.error, t)}
           </p>
         )}
       </div>
-      <SecretForm name="tmdb" label="TMDB key" isSet={status.tmdb_key} paste onSaved={saved} />
+      <SecretForm name="tmdb" label={t("settings.tmdbKey")} isSet={status.tmdb_key} paste onSaved={saved} />
     </Part>
   );
 }
 
+/**
+ * The language: Exhibit's own words and the library's text from TMDB. A choice speaks at once;
+ * the library's text in a language it has not held before follows as the worker fetches it.
+ */
+function LanguagePart() {
+  const t = useT();
+  const client = useQueryClient();
+  const choose = (lang: Language) => {
+    if (lang === language()) return;
+    const before = language();
+    setLocale(lang, null);
+    api.setLanguage(lang).then(
+      () => client.invalidateQueries({ queryKey: keys.library }),
+      (e: unknown) => {
+        setLocale(before, null);
+        toast(plain(e));
+      },
+    );
+  };
+  return (
+    <Part title={t("settings.language")} note={t("settings.languageNote")}>
+      <Choices
+        id="language"
+        label={t("settings.language")}
+        options={LANGUAGES.map((l) => ({ value: l, label: LANGUAGE_NAMES[l], lang: l }))}
+        value={language()}
+        onChoose={choose}
+      />
+    </Part>
+  );
+}
+
+/** How dates are written, each choice shown by today's date written that way. */
+function DatesPart() {
+  const t = useT();
+  const client = useQueryClient();
+  const today = new Date();
+  const example = (format: DateFormat) => writeDate(today, { format });
+  const choose = (format: DateFormat) => {
+    if (format === currentDateFormat()) return;
+    const before = currentDateFormat();
+    setLocale(null, format);
+    api.setDateFormat(format).then(
+      () => client.invalidateQueries({ queryKey: keys.status }),
+      (e: unknown) => {
+        setLocale(null, before);
+        toast(plain(e));
+      },
+    );
+  };
+  return (
+    <Part title={t("settings.dates")} note={t("settings.datesNote")}>
+      <Choices
+        id="dates"
+        label={t("settings.dates")}
+        options={DATE_FORMATS.map((f) => ({
+          value: f,
+          label: f === "auto" ? t("settings.automaticAs", { example: example(f) }) : example(f),
+        }))}
+        value={currentDateFormat()}
+        onChoose={choose}
+      />
+    </Part>
+  );
+}
+
+/**
+ * One of a few, as the wall's Sort is: toggles in a row, the chosen one pressed. Moving onto a
+ * choice never makes it; A (Enter, a click) does.
+ */
+function Choices<V extends string>({
+  id,
+  label,
+  options,
+  value,
+  onChoose,
+}: {
+  id: string;
+  label: string;
+  options: Array<{ value: V; label: string; lang?: string }>;
+  value: V;
+  onChoose: (value: V) => void;
+}) {
+  return (
+    <FocusGroup id={id} orientation="horizontal" aria-label={label} className="-ml-4 flex flex-wrap items-center gap-1">
+      {options.map((o) => (
+        <Choice key={o.value} focusKey={`${id}:${o.value}`} lang={o.lang} pressed={o.value === value} onPress={() => onChoose(o.value)}>
+          {o.label}
+        </Choice>
+      ))}
+    </FocusGroup>
+  );
+}
+
+function Choice({
+  focusKey,
+  lang,
+  pressed,
+  onPress,
+  children,
+}: {
+  focusKey: string;
+  lang?: string;
+  pressed: boolean;
+  onPress: () => void;
+  children: ReactNode;
+}) {
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey });
+  return (
+    <Toggle
+      ref={ref}
+      {...props}
+      lang={lang}
+      variant="plain"
+      pressed={pressed}
+      // A pressed choice stays pressed: another one is chosen instead.
+      onPressedChange={(on) => on && onPress()}
+      className="relative focus-visible:bg-transparent focus:text-label"
+    >
+      {children}
+      {focused && <Lamp />}
+    </Toggle>
+  );
+}
+
 function Display({ intro }: { intro: boolean }) {
+  const t = useT();
   const client = useQueryClient();
   const { on, set } = useFullscreen();
   const setIntro = (next: boolean) =>
@@ -264,18 +411,18 @@ function Display({ intro }: { intro: boolean }) {
       (e: unknown) => toast(plain(e)),
     );
   return (
-    <Part title="Display" note="The intro plays as Exhibit opens.">
+    <Part title={t("settings.display")} note={t("settings.displayNote")}>
       <FocusGroup id="display" orientation="vertical" className="flex flex-col items-start gap-6">
         {/* The switch appears once the window has said whether it is full screen, never showing a guess. */}
         {on !== undefined && (
           <SettingSwitch
             focusKey="display:fullscreen"
-            label="Full screen"
+            label={t("settings.fullScreen")}
             on={on}
             onChange={(next) => set(next).catch((e: unknown) => toast(plain(e)))}
           />
         )}
-        <SettingSwitch focusKey="display:intro" label="Intro" on={intro} onChange={(next) => void setIntro(next)} />
+        <SettingSwitch focusKey="display:intro" label={t("settings.intro")} on={intro} onChange={(next) => void setIntro(next)} />
       </FocusGroup>
     </Part>
   );

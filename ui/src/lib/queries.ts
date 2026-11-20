@@ -13,6 +13,7 @@ import {
   type QueryKey,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo } from "react";
+import { setLocale, t } from "@/i18n";
 import * as api from "./api";
 import type {
   ApiError,
@@ -46,9 +47,16 @@ export const keys = {
 
 const PAGE = 500;
 
-/** Mount once, inside the QueryClientProvider: refreshes the library when it changes. */
+/**
+ * Mount once: the library's changes reach every query, and the window speaks the library's
+ * language and writes its dates as it says, from the start and whenever they change.
+ */
 export function LibrarySync(): null {
   const client = useQueryClient();
+  const status = useStatus().data;
+  useEffect(() => {
+    if (status !== undefined) setLocale(status.language, status.date_format);
+  }, [status]);
   useEffect(() => {
     const off = api.onLibraryChanged(() => {
       void client.invalidateQueries({ queryKey: keys.library });
@@ -153,17 +161,17 @@ export interface AskResult {
 }
 
 /** The kinds Ask groups by, in order; seasons are reached through their shows. */
-const ASK_GROUPS: Array<[ItemKind, string]> = [
-  ["movie", "Movies"],
-  ["show", "Shows"],
-  ["episode", "Episodes"],
-  ["other", "Other"],
-];
+const ASK_GROUPS = [
+  ["movie", "sections.movies"],
+  ["show", "sections.shows"],
+  ["episode", "sections.episodes"],
+  ["other", "sections.other"],
+] as const satisfies Array<[ItemKind, string]>;
 
 /** The library search as Ask's groups, by kind; a kind with nothing found is left out. */
 export function askGroups(items: ItemSummary[]): AskResult {
   return {
-    groups: ASK_GROUPS.map(([kind, title]) => ({ title, items: items.filter((i) => i.kind === kind) })).filter(
+    groups: ASK_GROUPS.map(([kind, title]) => ({ title: t(title), items: items.filter((i) => i.kind === kind) })).filter(
       (g) => g.items.length > 0,
     ),
   };
@@ -219,7 +227,7 @@ export function useToolsDownload() {
       client.setQueryData<DownloadStatus>(keys.toolsDownload, {
         running: false,
         step: null,
-        outcome: { kind: "failed", message: api.plain(e) },
+        outcome: { kind: "failed", error: api.isApiError(e) ? e : { kind: "io", code: null, params: {}, message: String(e) } },
       });
     });
   }, [client]);
