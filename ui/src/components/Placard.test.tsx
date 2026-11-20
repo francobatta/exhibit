@@ -106,6 +106,10 @@ describe("splitTitle", () => {
       main: "Dr. Strangelove",
       sub: "or: How I Learned to Stop Worrying and Love the Bomb",
     });
+    expect(splitTitle("Dr. Insólito o: Cómo aprendí a dejar de preocuparme y amar la bomba")).toEqual({
+      main: "Dr. Insólito",
+      sub: "o: Cómo aprendí a dejar de preocuparme y amar la bomba",
+    });
     expect(splitTitle("Mission: Impossible – Dead Reckoning Part One")).toEqual({
       main: "Mission: Impossible",
       sub: "Dead Reckoning Part One",

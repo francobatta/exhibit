@@ -130,7 +130,8 @@ export function splitTitle(title: string): { main: string; sub: string | null } 
     const s = sub.trim();
     return m.length >= 2 && s.length >= 2 ? { main: m, sub: s } : whole;
   };
-  const or = /\s(or[:,]\s)/i.exec(title);
+  // "or:" in English, "o:" in Spanish.
+  const or = /\s((?:or|o)[:,]\s)/i.exec(title);
   if (or) return at(title.slice(0, or.index), title.slice(or.index + 1));
   const dash = Math.max(title.lastIndexOf(" – "), title.lastIndexOf(" — "), title.lastIndexOf(" - "));
   if (dash > 0) return at(title.slice(0, dash), title.slice(dash + 3));
