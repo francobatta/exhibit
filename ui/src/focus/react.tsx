@@ -29,6 +29,7 @@ import {
 } from "react";
 import {
   findItem,
+  goBack,
   groupsIn,
   installBridge,
   installShortcuts,
@@ -79,7 +80,9 @@ const focusGroup = definePrimitive({
       key: "stop",
       orientation: () => (context.options().orientation === "vertical" ? "vertical" : "horizontal"),
       remember,
-      disabled: (item) => item.props.disabled === true,
+      // No `disabled`: it would hand the stop past an unavailable action, so a screen would open
+      // on the next one ("Mark watched" under an offline Play) and A would run it. Focus lands
+      // where the layout puts it, and a disabled item says why it can't run.
       ...(move !== undefined
         ? { move: (event: globalThis.KeyboardEvent, c: RovingFocusMoveContext<ItemProps>) => context.options().move?.(event, c) }
         : orientation === "spatial"
@@ -540,8 +543,11 @@ export function FocusScope({
           if (!next) latest.current.onClosed?.();
         }}
         onDismissAttempt={(details) => {
-          // Escape reaches the bridge unhandled; a press outside the overlay means Back.
-          if (details.reason === "outside-press") latest.current.onBack?.();
+          // The Dialog takes Escape on its content and marks it handled, so the bridge's
+          // document listener skips it: Escape is Back from here, as Backspace is there.
+          if (details.reason === "escape-key") goBack();
+          // A press outside the overlay means the modal's own Back.
+          else if (details.reason === "outside-press") latest.current.onBack?.();
         }}
       >
         {backdropClassName !== undefined && <DialogBackdrop className={backdropClassName} />}

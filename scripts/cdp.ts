@@ -1,4 +1,5 @@
-// Drives a dev window started with `scripts/dev.ps1 -Cdp` over WebView2's DevTools protocol.
+// Drives a dev window started with `scripts/dev.ps1 -Cdp` (or the release smoke test) over
+// WebView2's DevTools protocol.
 //
 //   bun scripts/cdp.ts shot <out.jpg>          1920x1080 JPEG of the page
 //   bun scripts/cdp.ts shot <out.jpg> --window JPEG at the window's own size and scale
@@ -29,7 +30,8 @@ const KEYS: Record<string, { code: string; keyCode: number }> = {
 
 function keyInfo(key: string): { code: string; keyCode: number; text?: string } {
   const named = KEYS[key];
-  if (named) return { ...named, text: key.length === 1 ? key : undefined };
+  // Enter carries "\r", as a keyboard's does: without it Chromium never clicks a focused button.
+  if (named) return { ...named, text: key === "Enter" ? "\r" : key.length === 1 ? key : undefined };
   if (/^[a-z0-9]$/i.test(key)) {
     const upper = key.toUpperCase();
     const code = /\d/.test(key) ? `Digit${key}` : `Key${upper}`;
@@ -40,7 +42,10 @@ function keyInfo(key: string): { code: string; keyCode: number; text?: string } 
 
 async function connect(): Promise<(method: string, params?: object) => Promise<any>> {
   const targets: Target[] = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
-  const page = targets.find((t) => t.type === "page" && t.url.startsWith("http://localhost:1420"));
+  // The dev server, or a release build (scripts/release.ps1 smoke test) serving its own files.
+  const page = targets.find(
+    (t) => t.type === "page" && (t.url.startsWith("http://localhost:1420") || t.url.startsWith("http://tauri.localhost")),
+  );
   if (!page) throw new Error(`No Exhibit page on CDP port ${port}. Start it with scripts/dev.ps1 -Cdp.`);
   const ws = new WebSocket(page.webSocketDebuggerUrl);
   await new Promise((ok, fail) => {

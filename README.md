@@ -16,7 +16,7 @@ the owner's whole-app check. The design and the plans are in `docs/superpowers/`
 | `crates/exhibit-cli` | The `exhibit` command line over the core |
 | `crates/exhibit-app` | Tauri 2 shell: one command per library operation, a worker, folder watching, playback |
 | `ui/` | React 19, TypeScript, Vite, Tailwind 4, Vercel UI SDK, Motion, TanStack Query (see `ui/AGENTS.md`) |
-| `scripts/` | `dev.ps1` (run in dev mode), `cdp.ts` (drive and screenshot a dev window), `shot.ps1` |
+| `scripts/` | `dev.ps1` (run in dev mode), `cdp.ts` (drive and screenshot a dev window), `shot.ps1`, `release.ps1` (build, tag and publish a release) |
 | `docs/superpowers/` | Spec, stage plans, screenshots |
 
 ## Prerequisites
@@ -68,4 +68,4 @@ cargo test --workspace
 cd ui; bun test --parallel; bunx --bun tsc --noEmit; bun run build
 ```
 
-Release build: run `bun run tauri build` in `ui/`.
+Release: `scripts/release.ps1 -Tag x.y.z` runs the checks, builds the exe and the installer, smoke-tests the build on an empty library, then tags and publishes a GitHub release. `-DryRun` stops before the commit. A bare build is `bun run tauri build` in `ui/`.

@@ -11,6 +11,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
+/// The uninstaller removes `%APPDATA%\exhibit` (`crates/exhibit-app/installer-hooks.nsh`).
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("EXHIBIT_DATA_DIR") {
         return PathBuf::from(d);

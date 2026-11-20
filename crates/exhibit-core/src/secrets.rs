@@ -16,6 +16,7 @@ pub struct OsSecrets {
 
 impl OsSecrets {
     /// Service name is `exhibit`, or `EXHIBIT_KEYRING_SERVICE` when set (read once here).
+    /// The uninstaller deletes the `exhibit` targets (`crates/exhibit-app/installer-hooks.nsh`).
     pub fn new() -> Self {
         let service = std::env::var("EXHIBIT_KEYRING_SERVICE").unwrap_or_else(|_| "exhibit".into());
         OsSecrets { service }

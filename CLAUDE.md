@@ -53,6 +53,8 @@ Use the `/dev` skill (`.claude/skills/dev/SKILL.md`).
 - Drive and screenshot: `bun scripts/cdp.ts keys|shot|eval`.
 - Stop: `scripts/dev.ps1 -Stop`.
 
+To build, tag and publish a Windows release, use the `/release` skill (`.claude/skills/release/SKILL.md`, which runs `scripts/release.ps1`).
+
 When you change the UI, look at the result in the running window before you say it works. A screenshot shows the look; also drive the change with keys to check its motion and focus.
 
 ## Where things stand

@@ -95,6 +95,7 @@ pub struct Env {
 
 /// Exhibit's tools folder: `<EXHIBIT_DATA_DIR>\tools` when that is set (dev, tests), else
 /// `%LOCALAPPDATA%\exhibit\tools`. Not roaming `%APPDATA%`: the tools are large and per machine.
+/// The uninstaller removes it (`crates/exhibit-app/installer-hooks.nsh`).
 pub fn default_tools_dir() -> PathBuf {
     if std::env::var_os("EXHIBIT_DATA_DIR").is_some() {
         return crate::db::data_dir().join("tools");
