@@ -153,7 +153,7 @@ mod tests {
             ["letter", "boxd"].concat(),
             ["mdb", "list"].concat(),
             ["wiki", "data"].concat(),
-            ["rotten", " tomatoes"].concat(),
+            ["toma", "to"].concat(),
             ["meta", "critic"].concat(),
         ];
         let mut files = vec![std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src")];
