@@ -22,6 +22,8 @@ use crate::query::{
 };
 use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
+use crate::service::{Account, Service, SyncInput, normalize_username};
+use crate::sync::{self, ServiceState, SyncReport};
 use crate::tmdb::{Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
 use crate::translate::{self, TranslateReport};
@@ -396,6 +398,64 @@ impl Library {
 
     pub fn set_taste_profile(&self, text: &str) -> Result<()> {
         query::set_taste_profile(&self.conn, text)
+    }
+
+    pub fn service_states(&self) -> Result<Vec<ServiceState>> {
+        sync::service_states(&self.conn)
+    }
+
+    /// Switched off, a service's facts count nowhere; they are kept for when it is back on.
+    pub fn set_service_enabled(&self, service: &str, on: bool) -> Result<()> {
+        sync::set_service_enabled(&self.conn, service, on)
+    }
+
+    /// `None` forgets the service: its facts, films, state and `wanted` rows go.
+    pub fn set_service_username(&self, service: &str, username: Option<&str>) -> Result<()> {
+        sync::set_service_username(&self.conn, service, username)
+    }
+
+    /// Asks the service whether `username` is good: how many recent entries it shows, or a
+    /// coded error that says what is wrong.
+    pub fn check_service(&self, svc: &dyn Service, username: &str) -> Result<u32> {
+        let username = normalize_username(username);
+        let key = self.secrets.get(svc.info().id)?;
+        let account = Account {
+            username: Some(&username),
+            key: key.as_deref(),
+        };
+        svc.check(&account, &*self.http)
+    }
+
+    /// Snapshot replaces the service's facts, then reads `Since(None)` at once; Since adds and
+    /// updates. Without a TMDB key, films are not searched and no wanted rows are made.
+    pub fn sync_activity(
+        &self,
+        svc: &dyn Service,
+        input: SyncInput,
+        on: &mut dyn FnMut(Id),
+    ) -> Result<SyncReport> {
+        let id = svc.info().id;
+        let username = sync::service_username(&self.conn, id)?;
+        let key = self.secrets.get(id)?;
+        let account = Account {
+            username: username.as_deref(),
+            key: key.as_deref(),
+        };
+        let tmdb = if self.has_secret(TMDB_KEY)? {
+            Some(self.provider()?)
+        } else {
+            None
+        };
+        let images = self.image_dir();
+        let tmdb = tmdb
+            .as_ref()
+            .map(|t| (t as &dyn MetadataProvider, images.as_path()));
+        sync::sync(&self.conn, svc, &account, input, &*self.http, tmdb, on)
+    }
+
+    /// The films of `service` left out because no match was sure, by title.
+    pub fn service_unmatched(&self, service: &str) -> Result<Vec<(String, Option<i32>)>> {
+        sync::service_unmatched(&self.conn, service)
     }
 
     /// Blocks until the player exits.

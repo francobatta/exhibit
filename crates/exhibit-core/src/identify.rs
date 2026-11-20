@@ -390,7 +390,7 @@ fn identify_single(
         Route::NfoMovie { id, title, year } => match p.movie(id) {
             Ok(meta) => {
                 let how = How::certain(MatchSource::Nfo);
-                save_movie(c, p, cache_dir, item.item_id, &meta, how)?;
+                save_movie(c, p, cache_dir, Some(item.item_id), &meta, how)?;
                 Ok((1, 0))
             }
             Err(Error::NotFound(_)) => match_movie(c, p, cache_dir, posters, item, &title, year),
@@ -460,7 +460,7 @@ fn match_movie(
         c,
         p,
         cache_dir,
-        item.item_id,
+        Some(item.item_id),
         &meta,
         How::lookup(best.score),
     )?;
@@ -523,16 +523,17 @@ pub(crate) fn sort_candidates(scored: &mut [Candidate]) {
 }
 
 /// Makes `item_id` the movie `m`; when another movie item already has that TMDB id, moves
-/// the files there instead (a second version) and deletes `item_id`.
-fn save_movie(
+/// the files there instead (a second version) and deletes `item_id`. Without an `item_id` the
+/// movie gets a new `wanted` row with no files, unless it has a row already. Returns its row.
+pub(crate) fn save_movie(
     c: &Connection,
     p: &dyn MetadataProvider,
     cache_dir: &Path,
-    item_id: Id,
+    item_id: Option<Id>,
     m: &MovieMeta,
     how: How,
-) -> Result<()> {
-    let existing = find_item(c, ItemKind::Movie, m.tmdb_id)?.filter(|id| *id != item_id);
+) -> Result<Id> {
+    let existing = find_item(c, ItemKind::Movie, m.tmdb_id)?.filter(|id| Some(*id) != item_id);
     let (poster, backdrop) = match existing {
         Some(_) => (None, None),
         None => artwork(
@@ -562,6 +563,13 @@ fn save_movie(
                 tmdb_id: Some(m.tmdb_id),
                 ..Fill::new(ItemKind::Movie, &m.title)
             };
+            let Some(item_id) = item_id else {
+                let id = insert_item(&tx, &fill, how, db::now())?;
+                tx.prepare_cached("UPDATE items SET wanted = 1 WHERE id = ?1")?
+                    .execute([id])?;
+                tx.commit()?;
+                return Ok(id);
+            };
             let (kind, added_at): (String, i64) = tx.query_row(
                 "SELECT kind, added_at FROM items WHERE id=?1",
                 [item_id],
@@ -576,9 +584,11 @@ fn save_movie(
             }
         }
     };
-    absorb(&tx, item_id, target)?;
+    if let Some(item_id) = item_id {
+        absorb(&tx, item_id, target)?;
+    }
     tx.commit()?;
-    Ok(())
+    Ok(target)
 }
 
 pub(crate) fn find_item(c: &Connection, kind: ItemKind, tmdb_id: i64) -> Result<Option<Id>> {
@@ -591,7 +601,8 @@ pub(crate) fn find_item(c: &Connection, kind: ItemKind, tmdb_id: i64) -> Result<
 
 /// Moves every file of `from` to `into` and deletes `from`, keeping what the owner did with
 /// it: play history moves over, the newer resume state wins and the owner's watched and loved
-/// choices fill in where `into` has none. `into` now has a file, so it is no longer wanted.
+/// choices fill in where `into` has none. `into` now has a file, so it is no longer wanted;
+/// a wanted row takes the file's arrival as the time it was added.
 pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
     if from != into {
         for sql in [
@@ -605,6 +616,8 @@ pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
              last_played_at=excluded.last_played_at \
              WHERE excluded.last_played_at > play_state.last_played_at",
             "UPDATE items SET wanted = 0, \
+             added_at = CASE WHEN wanted = 1 \
+                 THEN (SELECT added_at FROM items WHERE id=?1) ELSE added_at END, \
              watched_choice = coalesce(watched_choice, \
                  (SELECT watched_choice FROM items WHERE id=?1)), \
              loved_choice = coalesce(loved_choice, (SELECT loved_choice FROM items WHERE id=?1)) \
@@ -996,7 +1009,9 @@ pub fn apply_match(
     }
     let how = How::certain(source);
     match kind {
-        ItemKind::Movie => save_movie(c, p, cache_dir, item_id, &p.movie(tmdb_id)?, how),
+        ItemKind::Movie => {
+            save_movie(c, p, cache_dir, Some(item_id), &p.movie(tmdb_id)?, how).map(drop)
+        }
         ItemKind::Show => identify_show::apply(c, p, cache_dir, item_id, tmdb_id, how),
         other => Err(Error::Invalid(
             format!("cannot match to a {}; use movie or show", enum_str(other)).into(),
