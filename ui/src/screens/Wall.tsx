@@ -11,11 +11,12 @@ import { Placard, placardLines } from "@/components/Placard";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { TechLines } from "@/components/TechLines";
 import { jobLine } from "@/components/TopBar";
-import { WallControls, clearFilters, hasFilters, wallQuery } from "@/components/WallControls";
+import { WallControls, clearFilters, sorts } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { useLanguage, useT } from "@/i18n";
-import { mainAction, runMain, useActionContext } from "@/lib/actions";
+import { mainAction, mainHint, runMain, useActionContext } from "@/lib/actions";
+import { filterCount, wallQuery } from "@/lib/filters";
 import { plain, type Id, type ItemSummary } from "@/lib/api";
 import { seconds } from "@/lib/motion";
 import { useItem, useItemSources, useItems, useJobStatus } from "@/lib/queries";
@@ -93,15 +94,16 @@ export interface WallProps {
 
 export function Wall({ kind, view, onView }: WallProps) {
   const t = useT();
-  // Genres are named in the language they were chosen in: another language forgets the choice.
+  // Genres are named in the language they were chosen in: another language forgets them.
   const lang = useLanguage();
   const spoken = useRef(lang);
   useEffect(() => {
     if (spoken.current === lang) return;
     spoken.current = lang;
-    if (view.genre !== null) onView({ ...view, genre: null });
+    const { genres, without_genres, ...rest } = view.filters;
+    if (genres?.length || without_genres?.length) onView({ ...view, filters: rest });
   }, [lang, view, onView]);
-  const query = useMemo(() => wallQuery(kind, view), [kind, view]);
+  const query = useMemo(() => wallQuery(kind, view, sorts(kind)), [kind, view]);
   const result = useItems(query);
   const job = jobLine(useJobStatus());
   // With no work in focus the wall goes back to its own colour.
@@ -121,7 +123,7 @@ export function Wall({ kind, view, onView }: WallProps) {
       />
     );
   }
-  if (result.items.length === 0 && !hasFilters(view)) {
+  if (result.items.length === 0 && filterCount(view.filters) === 0) {
     return (
       <Empty
         title={t(NOUN[kind].none)}
@@ -144,15 +146,6 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
   const hung = useMemo(() => (kind === "other" ? byFolder(items) : { items, headings: undefined }), [kind, items]);
   // The focused work as the library last reported it; the first one before anything has focus.
   const current = hung.items.find((i) => i.id === focused) ?? hung.items[0];
-  // The genres on this wall as its other filters leave it, so choosing one never hides the rest.
-  // With no genre chosen that is the wall itself; with one, it is fetched once the list is opened.
-  const [wantGenres, setWantGenres] = useState(false);
-  const pool = useItems(
-    useMemo(() => wallQuery(kind, { ...view, genre: null }), [kind, view]),
-    view.genre === null || wantGenres,
-  ).items;
-  const genres = useMemo(() => [...new Set(pool.flatMap((i) => i.genres))].sort(byName), [pool]);
-
   const [selected, setSelected] = useState<ReadonlySet<Id> | null>(null);
   const ctx = useActionContext();
   const latest = useRef({ ctx, selected, current });
@@ -207,7 +200,7 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
       {items.length === 0 ? (
         <Empty
           title={t("wall.noMatches")}
-          body="Turn one of them off, or clear them all."
+          body={t("wall.noMatchesBody")}
           action={{ label: t("wall.clearFilters"), onAction: () => onView(clearFilters(view)) }}
         />
       ) : (
@@ -221,6 +214,7 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
               columns={columns}
               shape={kind === "other" ? "wide" : "poster"}
               onOpen={open}
+              hintOf={selected === null ? mainHint : () => t("hints.choose")}
               onFocusItem={focus}
               onMenu={menu}
               onBack={selected === null ? undefined : done}
@@ -239,8 +233,6 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
         view={view}
         onView={onView}
         total={complete ? items.length : null}
-        genres={genres}
-        onGenres={() => setWantGenres(true)}
         selection={selected === null ? undefined : { count: selected.size, onMark: (w) => void mark(w), onDone: done }}
       />
     </div>

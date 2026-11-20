@@ -11,6 +11,7 @@ use crate::cast;
 use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
 use crate::error::{Detail, Error, Fault, Result};
+use crate::filter::{self, Facets};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::lang;
 use crate::model::{Candidate, CastMember, Id, ItemKind, MatchSource, Source};
@@ -344,6 +345,10 @@ impl Library {
 
     pub fn search(&self, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
         query::search(&self.conn, &*self.volumes, q)
+    }
+
+    pub fn facets(&self, kind: Option<ItemKind>) -> Result<Facets> {
+        filter::facets(&self.conn, &*self.volumes, kind)
     }
 
     pub fn item(&self, id: Id) -> Result<ItemDetail> {

@@ -5,6 +5,7 @@
 // Stage 4 swaps only `useAsk`'s source for the agent.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { BackButton } from "@/components/BackButton";
 import { Lamp } from "@/components/Lamp";
 import { itemKey, Shelf } from "@/components/Shelf";
 import { ErrorState } from "@/components/states";
@@ -13,7 +14,7 @@ import { dialogBackdrop } from "@/components/ui/dialog";
 import { focusItem, useFocusState } from "@/focus/bridge";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { useT } from "@/i18n";
-import { runMain, useActionContext } from "@/lib/actions";
+import { mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary } from "@/lib/api";
 import { revealRow } from "@/lib/motion";
 import { useAsk, type AskResult } from "@/lib/queries";
@@ -138,10 +139,14 @@ export function Ask({ open, onClosed }: { open: boolean; onClosed?: () => void }
       onClosed={onClosed}
       backdropClassName={cn(dialogBackdrop, "bg-wall")}
       className={cn(
-        "fixed inset-0 z-50 flex flex-col pt-(--ask-top) outline-none",
+        "fixed inset-0 z-50 flex flex-col outline-none",
         "transition-opacity duration-(--dur-screen) data-starting-style:opacity-0 data-ending-style:opacity-0",
       )}
     >
+      {/* Ask covers the bar, so it carries Back where the bar's stands. */}
+      <FocusGroup id="ask-back" orientation="horizontal" className="flex h-bar shrink-0 items-center px-edge">
+        <BackButton focusKey="ask:back" onBack={() => closeAsk()} className="-ml-4" />
+      </FocusGroup>
       <FocusGroup id="ask-field" orientation="horizontal" className="px-edge">
         <TextField
           focusKey={FIELD}
@@ -182,13 +187,14 @@ function Results({
   onChosen: () => void;
   onReveal: (el: HTMLElement) => void;
 }) {
+  const t = useT();
   const ctx = useActionContext();
   if (result.groups.length === 0) {
     return (
       <div className="px-edge">
-        <h2 className="font-display text-heading font-title tracking-title text-label">Nothing matches “{text}”</h2>
+        <h2 className="font-display text-heading font-title tracking-title text-label">{t("ask.noMatches", { text })}</h2>
         <p className="mt-4 font-reading text-lead leading-reading text-label-dim">
-          Check the spelling, or search for someone who made it or is in it.
+          {t("ask.noMatchesBody")}
         </p>
       </div>
     );
@@ -209,6 +215,7 @@ function Results({
           light="ask-light"
           onReveal={onReveal}
           onOpen={open}
+          hintOf={mainHint}
         />
       ))}
     </div>

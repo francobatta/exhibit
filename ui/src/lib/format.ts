@@ -211,3 +211,8 @@ export function started(watched: boolean, progress: number | null): number | nul
 export function confidence(score: number): string {
   return score >= 0.8 ? t("match.likely") : score >= 0.6 ? t("match.possible") : t("match.unlikely");
 }
+
+/** "English or French", "inglés, francés o neerlandés". */
+export function either(parts: string[]): string {
+  return new Intl.ListFormat(language(), { style: "long", type: "disjunction" }).format(parts);
+}

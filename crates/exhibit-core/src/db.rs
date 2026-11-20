@@ -12,7 +12,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
-/// The uninstaller removes `%APPDATA%\exhibit` (`crates/exhibit-app/installer-hooks.nsh`).
+/// The uninstaller and a clean install remove `%APPDATA%\exhibit` (`crates/exhibit-app/installer-hooks.nsh`).
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("EXHIBIT_DATA_DIR") {
         return PathBuf::from(d);
@@ -36,6 +36,7 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
     let c = Connection::open(data_dir.join("exhibit.db"))?;
     c.busy_timeout(std::time::Duration::from_millis(5000))?;
     c.pragma_update(None, "foreign_keys", "ON")?;
+    crate::filter::register(&c)?;
     use_wal(&c)?;
     migrate(&c)?;
     Ok(c)

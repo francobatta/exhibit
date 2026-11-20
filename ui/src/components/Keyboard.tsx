@@ -12,7 +12,7 @@ import { FocusGroup, FocusScope, useFocusItem, type GroupMove } from "@/focus/re
 import { language, t, useT, type Language } from "@/i18n";
 import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
-import { HintLine } from "./Hints";
+import { HintLine, type Hint } from "./Hints";
 
 type Page = "letters" | "symbols";
 
@@ -96,12 +96,12 @@ export function gridMove(rows: KeyDef[][], from: string, key: string, col: numbe
 /** Where focus lands as the keyboard opens: the first letter. */
 const FIRST = "key:1:0";
 
-const hintPairs = (): Array<[string, string]> => [
-  ["A", t("keyboard.type")],
-  ["X", t("keyboard.delete")],
-  ["Y", t("keyboard.space")],
-  [t("hints.menu"), t("common.done")],
-  ["B", t("keyboard.close")],
+const keyboardHints = (): Hint[] => [
+  { action: "select", label: t("keyboard.type") },
+  { action: "menu", label: t("keyboard.delete") },
+  { action: "ask", label: t("keyboard.space") },
+  { action: "done", label: t("common.done") },
+  { action: "back", label: t("keyboard.close") },
 ];
 
 function Key({ def, onPress, onFocused }: { def: KeyDef; onPress: (act: Act) => void; onFocused: (def: KeyDef) => void }) {
@@ -206,6 +206,7 @@ export function Keyboard({ open, label, value, onChange, onDone, onClose, secret
       onMenu={() => press({ type: "delete" })}
       onAsk={() => press({ type: "space" })}
       onDone={onDone}
+      ownHints
       className={cn(
         "fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-7 border-t border-line bg-wall px-edge pt-10 pb-8 outline-none",
         "transition-[opacity,translate] duration-(--dur-screen) ease-out",
@@ -237,7 +238,7 @@ export function Keyboard({ open, label, value, onChange, onDone, onClose, secret
           <Key key={def.key} def={def} onPress={press} onFocused={onFocused} />
         ))}
       </FocusGroup>
-      <HintLine pairs={hintPairs()} className="self-end" />
+      <HintLine hints={keyboardHints()} className="self-end" />
     </FocusScope>
   );
 }

@@ -10,7 +10,12 @@ export type Id = number;
 export type ItemKind = "movie" | "show" | "season" | "episode" | "other";
 export type MatchState = "unmatched" | "matched" | "needsreview" | "manual";
 export type MatchSource = "nfo" | "lookup" | "agent" | "manual";
-export type Sort = "title" | "added" | "year" | "runtime";
+/** A listing's order; `descending` unset takes the sort's own direction (`SORT_DESCENDS`). */
+export type Sort = "title" | "year" | "added" | "runtime" | "played";
+export type Seen = "unwatched" | "started" | "watched";
+export type Resolution = "uhd" | "full_hd" | "hd" | "sd";
+export type Picture = "dolby_vision" | "hdr10" | "hlg" | "sdr";
+export type Sound = "atmos" | "dts_x" | "lossless" | "surround";
 export type Shelf = "continue_watching" | "recently_added" | "unwatched" | "loved";
 export type Tool = "mpv" | "ffmpeg";
 
@@ -163,21 +168,54 @@ export interface HistoryEntry {
   position_s: number;
 }
 
-export interface SearchQuery {
-  text?: string | null;
-  kind?: ItemKind | null;
-  genre?: string | null;
+/**
+ * What a listing is narrowed to; anything left out leaves it whole. Within a facet the choices are
+ * alternatives, across facets they all apply; a work matches a technical one when any of its files
+ * does. Genres are all required unless `any_genre`. Languages are named as `facets` names them.
+ */
+export interface Filters {
+  genres?: string[];
+  any_genre?: boolean;
+  without_genres?: string[];
   year_min?: number | null;
   year_max?: number | null;
-  runtime_max_min?: number | null;
-  watched?: boolean | null;
+  /** Minutes. */
+  runtime_min?: number | null;
+  runtime_max?: number | null;
+  seen?: Seen[];
   loved?: boolean | null;
-  min_width?: number | null;
-  min_height?: number | null;
   available?: boolean | null;
+  resolution?: Resolution[];
+  picture?: Picture[];
+  sound?: Sound[];
+  audio?: string[];
+  subtitles?: string[];
+}
+
+export interface SearchQuery extends Filters {
+  text?: string | null;
+  kind?: ItemKind | null;
   sort?: Sort | null;
+  descending?: boolean | null;
   limit?: number | null;
   offset?: number | null;
+}
+
+export interface Count<T> {
+  value: T;
+  count: number;
+}
+
+/** What a listing can be narrowed by, over all of it. Genres and languages most common first. */
+export interface Facets {
+  genres: Count<string>[];
+  years: Count<number>[];
+  runtimes: Count<number>[];
+  resolution: Count<Resolution>[];
+  picture: Count<Picture>[];
+  sound: Count<Sound>[];
+  audio: Count<string>[];
+  subtitles: Count<string>[];
 }
 
 export interface Source {
@@ -331,6 +369,7 @@ export async function boot(): Promise<Boot> {
 
 export const status = () => invoke<LibraryStatus>("status");
 export const search = (query: SearchQuery) => invoke<ItemSummary[]>("search", { query });
+export const facets = (kind: ItemKind | null) => invoke<Facets>("facets", { kind });
 export const item = (id: Id) => invoke<ItemDetail>("item", { id });
 /** A work's cast with portraits; the first ask fetches and caches them. */
 export const cast = (id: Id) => invoke<CastMember[]>("cast", { id });

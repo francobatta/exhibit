@@ -2,6 +2,7 @@ pub mod cast;
 pub mod db;
 pub mod download;
 pub mod error;
+pub mod filter;
 pub mod identify;
 mod identify_show;
 pub mod lang;

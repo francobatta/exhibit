@@ -4,6 +4,7 @@
 
 use crate::db;
 use crate::error::{Detail, Error, Result};
+use crate::filter::{self, Filters};
 use crate::lang;
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
@@ -58,13 +59,25 @@ pub struct ItemDetail {
     pub next_episode: Option<ItemSummary>,
 }
 
+/// A listing's order. Works without the value sorted by (no year) come last either way; ties go
+/// by title.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Sort {
     Title,
-    Added,
     Year,
+    Added,
     Runtime,
+    /// When it was last played; for a show, any of its episodes.
+    Played,
+}
+
+impl Sort {
+    /// The direction a listing takes unless asked: titles A to Z, runtimes shortest first, the
+    /// rest newest first.
+    pub fn descending(self) -> bool {
+        matches!(self, Sort::Year | Sort::Added | Sort::Played)
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -72,16 +85,11 @@ pub enum Sort {
 pub struct SearchQuery {
     pub text: Option<String>,
     pub kind: Option<ItemKind>,
-    pub genre: Option<String>,
-    pub year_min: Option<i32>,
-    pub year_max: Option<i32>,
-    pub runtime_max_min: Option<i32>,
-    pub watched: Option<bool>,
-    pub loved: Option<bool>,
-    pub min_width: Option<u32>,
-    pub min_height: Option<u32>,
-    pub available: Option<bool>,
+    #[serde(flatten)]
+    pub filters: Filters,
     pub sort: Option<Sort>,
+    /// `None` takes the sort's own direction (`Sort::descending`).
+    pub descending: Option<bool>,
     pub limit: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -104,28 +112,28 @@ pub struct HistoryEntry {
 }
 
 /// `tree(root_id, id)`: every item paired with itself and each of its descendants.
-const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
+pub(crate) const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
      UNION ALL SELECT tree.root_id, i.id FROM tree JOIN items i ON i.parent_id = tree.id)";
 
 /// `lib(item_id, avail)`: items with at least one file in their subtree; `avail` is 1 when
 /// one of those files is on a source whose id is in the JSON array bound as `?1`.
-const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
+pub(crate) const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
      max(f.source_id IN (SELECT value FROM json_each(?1))) \
      FROM tree t JOIN files f ON f.item_id = t.id GROUP BY t.root_id)";
 
 /// Bound parameters of one statement; `bind` returns the `?N` placeholder for a value.
 /// `?1` is always the JSON array of online source ids, `?2` the language in effect.
-struct Params(Vec<Value>);
+pub(crate) struct Params(pub(crate) Vec<Value>);
 
 impl Params {
-    fn new(c: &Connection, online_sources: &[Id]) -> Result<Params> {
+    pub(crate) fn new(c: &Connection, online_sources: &[Id]) -> Result<Params> {
         Ok(Params(vec![
             Value::Text(json_ids(online_sources)),
             Value::Text(lang::language(c)?.to_string()),
         ]))
     }
 
-    fn bind(&mut self, v: impl Into<Value>) -> String {
+    pub(crate) fn bind(&mut self, v: impl Into<Value>) -> String {
         self.0.push(v.into());
         format!("?{}", self.0.len())
     }
@@ -136,7 +144,7 @@ fn json_ids(ids: &[Id]) -> String {
 }
 
 /// Ids of the sources that are online right now, computed once per public call.
-fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>> {
+pub(crate) fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>> {
     Ok(scan::list_sources(c, v)?
         .into_iter()
         .filter(|s| s.online)
@@ -194,6 +202,8 @@ fn list(
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
              i.loved, lib.avail AS available, i.match_state, {LOCAL_GENRES} AS genres, i.added_at, \
+             nullif((SELECT max(q.last_played_at) FROM tree t JOIN play_state q ON q.item_id = t.id \
+                WHERE t.root_id = i.id), 0) AS played_at, \
              (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path \
            FROM items i JOIN lib ON lib.item_id = i.id \
            LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 \
@@ -240,7 +250,7 @@ fn fts_query(text: &str) -> Option<String> {
 }
 
 /// Listings show movies, shows and other items unless a kind is asked for.
-const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
+pub(crate) const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
 
 /// Shelves are Home's, and Home is for films and shows: Other has its own wall.
 const SHELF_KINDS: &str = "b.kind IN ('movie', 'show')";
@@ -259,44 +269,23 @@ pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<It
             p.bind(m)
         ));
     }
-    if let Some(g) = &q.genre {
-        w.push(format!(
-            "EXISTS (SELECT 1 FROM json_each(b.genres) WHERE lower(value) = lower({}))",
-            p.bind(g.clone())
-        ));
-    }
-    if let Some(y) = q.year_min {
-        w.push(format!("b.year >= {}", p.bind(y)));
-    }
-    if let Some(y) = q.year_max {
-        w.push(format!("b.year <= {}", p.bind(y)));
-    }
-    if let Some(r) = q.runtime_max_min {
-        w.push(format!("b.runtime_min <= {}", p.bind(r)));
-    }
-    if let Some(x) = q.watched {
-        w.push(format!("b.watched = {}", p.bind(x)));
-    }
-    if let Some(x) = q.loved {
-        w.push(format!("b.loved = {}", p.bind(x)));
-    }
-    if let Some(width) = q.min_width {
-        w.push(format!("b.width >= {}", p.bind(width)));
-    }
-    if let Some(h) = q.min_height {
-        w.push(format!("b.height >= {}", p.bind(h)));
-    }
-    if let Some(x) = q.available {
-        w.push(format!("b.available = {}", p.bind(x)));
-    }
-    let order = match q.sort.unwrap_or(Sort::Title) {
-        Sort::Title => "b.title COLLATE NOCASE, b.id",
-        Sort::Added => "b.added_at DESC, b.id DESC",
-        Sort::Year => "b.year IS NULL, b.year DESC, b.title COLLATE NOCASE, b.id",
-        Sort::Runtime => "b.runtime_min IS NULL, b.runtime_min, b.title COLLATE NOCASE, b.id",
+    w.extend(filter::conditions(&q.filters, &mut p));
+    let sort = q.sort.unwrap_or(Sort::Title);
+    let dir = if q.descending.unwrap_or(sort.descending()) {
+        "DESC"
+    } else {
+        "ASC"
+    };
+    let by_title = "b.title COLLATE NOCASE, b.id";
+    let order = match sort {
+        Sort::Title => format!("b.title COLLATE NOCASE {dir}, b.id {dir}"),
+        Sort::Year => format!("b.year IS NULL, b.year {dir}, {by_title}"),
+        Sort::Added => format!("b.added_at {dir}, {by_title}"),
+        Sort::Runtime => format!("b.runtime_min IS NULL, b.runtime_min {dir}, {by_title}"),
+        Sort::Played => format!("b.played_at IS NULL, b.played_at {dir}, {by_title}"),
     };
     let limit = q.limit.unwrap_or(DEFAULT_LIMIT).min(MAX_LIMIT);
-    list(c, p, &w, order, limit, q.offset.unwrap_or(0))
+    list(c, p, &w, &order, limit, q.offset.unwrap_or(0))
 }
 
 /// Full details of one item, hidden or not. Children are the seasons of a show or the
@@ -624,7 +613,8 @@ pub fn set_taste_profile(c: &Connection, text: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::TechInfo;
+    use crate::filter::{Picture, Resolution, Seen, Sound};
+    use crate::model::{AudioTrack, SubTrack, TechInfo};
     use crate::volume::FakeVolumes;
     use tempfile::TempDir;
 
@@ -740,6 +730,13 @@ mod tests {
                 .into_iter()
                 .map(|s| s.title)
                 .collect()
+        }
+
+        fn filter(&self, filters: Filters) -> Vec<String> {
+            self.search(&SearchQuery {
+                filters,
+                ..Default::default()
+            })
         }
 
         fn text(&self, t: &str) -> Vec<String> {
@@ -867,22 +864,77 @@ mod tests {
         e.file(e.src, c, Some(2160));
         e.file(e.src, a, Some(720));
         e.play(a, 0.0, 0.0, true, 1);
+        let d = e.with_file(ItemKind::Movie, "D", None);
+        e.exec(&format!(
+            "UPDATE items SET genres='[\"Comedy\"]' WHERE id={d}"
+        ));
+        e.play(d, 30.0, 100.0, false, 1);
         let q = |f: fn(&mut SearchQuery)| {
             let mut q = SearchQuery::default();
             f(&mut q);
             e.search(&q)
         };
-        assert_eq!(q(|q| q.genre = Some("drama".into())), ["A", "B"]);
-        assert_eq!(q(|q| q.year_min = Some(2000)), ["B", "C"]);
-        assert_eq!(q(|q| q.year_max = Some(2000)), ["A", "B"]);
-        assert_eq!(q(|q| q.runtime_max_min = Some(120)), ["A", "B"]);
-        assert_eq!(q(|q| q.watched = Some(true)), ["A"]);
-        assert_eq!(q(|q| q.watched = Some(false)), ["B", "C"]);
-        assert_eq!(q(|q| q.loved = Some(true)), ["B"]);
-        assert_eq!(q(|q| q.min_height = Some(1080)), ["C"]);
-        assert_eq!(q(|q| q.min_height = Some(720)), ["A", "C"]);
-        assert_eq!(q(|q| q.sort = Some(Sort::Year)), ["C", "B", "A"]);
-        assert_eq!(q(|q| q.sort = Some(Sort::Runtime)), ["A", "B", "C"]);
+        fn genres(g: &[&str]) -> Vec<String> {
+            g.iter().map(|s| s.to_string()).collect()
+        }
+        assert_eq!(q(|q| q.filters.genres = vec!["drama".into()]), ["A", "B"]);
+        assert_eq!(
+            q(|q| q.filters.genres = genres(&["Drama", "Comedy"])),
+            ["B"]
+        );
+        assert_eq!(
+            q(|q| {
+                q.filters.genres = genres(&["Drama", "Comedy"]);
+                q.filters.any_genre = true;
+            }),
+            ["A", "B", "D"]
+        );
+        assert_eq!(
+            q(|q| q.filters.without_genres = genres(&["Comedy"])),
+            ["A", "C"]
+        );
+        assert_eq!(q(|q| q.filters.year_min = Some(2000)), ["B", "C"]);
+        assert_eq!(
+            q(|q| {
+                q.filters.year_min = Some(1995);
+                q.filters.year_max = Some(2005);
+            }),
+            ["B"]
+        );
+        assert_eq!(q(|q| q.filters.runtime_max = Some(120)), ["A", "B"]);
+        assert_eq!(q(|q| q.filters.runtime_min = Some(120)), ["B", "C"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Watched]), ["A"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Started]), ["D"]);
+        assert_eq!(q(|q| q.filters.seen = vec![Seen::Unwatched]), ["B", "C"]);
+        assert_eq!(
+            q(|q| q.filters.seen = vec![Seen::Unwatched, Seen::Started]),
+            ["B", "C", "D"]
+        );
+        assert_eq!(q(|q| q.filters.loved = Some(true)), ["B"]);
+        assert_eq!(q(|q| q.filters.resolution = vec![Resolution::Uhd]), ["C"]);
+        assert_eq!(
+            q(|q| q.filters.resolution = vec![Resolution::Uhd, Resolution::Hd]),
+            ["A", "C"]
+        );
+        // Works without the value sorted by come last, in either direction.
+        assert_eq!(q(|q| q.sort = Some(Sort::Year)), ["C", "B", "A", "D"]);
+        assert_eq!(
+            q(|q| {
+                q.sort = Some(Sort::Year);
+                q.descending = Some(false);
+            }),
+            ["A", "B", "C", "D"]
+        );
+        assert_eq!(q(|q| q.sort = Some(Sort::Runtime)), ["A", "B", "C", "D"]);
+        assert_eq!(
+            q(|q| {
+                q.sort = Some(Sort::Runtime);
+                q.descending = Some(true);
+            }),
+            ["C", "B", "A", "D"]
+        );
+        assert_eq!(q(|q| q.descending = Some(true)), ["D", "C", "B", "A"]);
+        assert_eq!(q(|q| q.sort = Some(Sort::Played)), ["A", "D", "B", "C"]);
         assert_eq!(
             q(|q| {
                 q.limit = Some(1);
@@ -890,6 +942,180 @@ mod tests {
             }),
             ["B"]
         );
+    }
+
+    fn track(lang: &str, codec: &str, profile: Option<&str>, channels: u32) -> AudioTrack {
+        AudioTrack {
+            codec: codec.into(),
+            channels,
+            lang: Some(lang.into()),
+            profile: profile.map(Into::into),
+            ..Default::default()
+        }
+    }
+
+    fn subs(lang: &str) -> SubTrack {
+        SubTrack {
+            codec: "subrip".into(),
+            lang: Some(lang.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Three films and a show, each with what its files hold.
+    fn formats() -> Env {
+        let e = env();
+        let file = |item: Id,
+                    height: u32,
+                    hdr: Option<&str>,
+                    audio: Vec<AudioTrack>,
+                    subtitles: Vec<SubTrack>| {
+            let tech = serde_json::to_string(&TechInfo {
+                duration_s: 100.0,
+                width: height * 16 / 9,
+                height,
+                video_codec: "hevc".into(),
+                hdr: hdr.map(Into::into),
+                audio,
+                subtitles,
+            })
+            .unwrap();
+            e.c.execute(
+                "INSERT INTO files(source_id, rel_path, item_id, tech) VALUES (?1, ?2, ?3, ?4)",
+                params![e.src, format!("t{}.mkv", e.n("files")), item, tech],
+            )
+            .unwrap();
+        };
+        let dune = e.add(ItemKind::Movie, "Dune", None);
+        file(
+            dune,
+            2160,
+            Some("Dolby Vision"),
+            vec![track(
+                "eng",
+                "truehd",
+                Some("Dolby TrueHD + Dolby Atmos"),
+                8,
+            )],
+            vec![subs("spa")],
+        );
+        file(dune, 1080, None, vec![track("ger", "ac3", None, 6)], vec![]);
+        let heat = e.add(ItemKind::Movie, "Heat", None);
+        file(
+            heat,
+            1080,
+            None,
+            vec![
+                track("en", "dts", Some("DTS-HD MA + DTS:X"), 8),
+                track("spa", "ac3", None, 2),
+            ],
+            vec![subs("eng")],
+        );
+        let mut commentary = track("fre", "aac", None, 2);
+        commentary.commentary = true;
+        let old = e.add(ItemKind::Movie, "Old", None);
+        file(
+            old,
+            480,
+            Some("HLG"),
+            vec![track("eng", "aac", None, 2), commentary],
+            vec![],
+        );
+        let show = e.add(ItemKind::Show, "Show", None);
+        let season = e.add(ItemKind::Season, "", Some(show));
+        let ep = e.add(ItemKind::Episode, "", Some(season));
+        file(
+            ep,
+            2160,
+            Some("HDR10"),
+            vec![track("es-419", "flac", None, 2)],
+            vec![],
+        );
+        e
+    }
+
+    #[test]
+    fn technical_filters_match_any_file_beneath_a_work() {
+        let e = formats();
+        let q = |f: fn(&mut Filters)| {
+            let mut filters = Filters::default();
+            f(&mut filters);
+            e.filter(filters)
+        };
+        assert_eq!(
+            q(|f| f.resolution = vec![Resolution::Uhd]),
+            ["Dune", "Show"]
+        );
+        assert_eq!(
+            q(|f| f.resolution = vec![Resolution::FullHd]),
+            ["Dune", "Heat"]
+        );
+        assert_eq!(q(|f| f.resolution = vec![Resolution::Sd]), ["Old"]);
+        assert_eq!(q(|f| f.picture = vec![Picture::DolbyVision]), ["Dune"]);
+        assert_eq!(
+            q(|f| f.picture = vec![Picture::Hdr10, Picture::Hlg]),
+            ["Old", "Show"]
+        );
+        assert_eq!(q(|f| f.picture = vec![Picture::Sdr]), ["Dune", "Heat"]);
+        assert_eq!(q(|f| f.sound = vec![Sound::Atmos]), ["Dune"]);
+        assert_eq!(q(|f| f.sound = vec![Sound::DtsX]), ["Heat"]);
+        assert_eq!(
+            q(|f| f.sound = vec![Sound::Lossless]),
+            ["Dune", "Heat", "Show"]
+        );
+        assert_eq!(q(|f| f.sound = vec![Sound::Surround]), ["Dune", "Heat"]);
+        // "eng", "en" and "ENG" are one language; a commentary is not one the film is heard in.
+        assert_eq!(q(|f| f.audio = vec!["en".into()]), ["Dune", "Heat", "Old"]);
+        assert_eq!(
+            q(|f| f.audio = vec!["de".into(), "es-419".into()]),
+            ["Dune", "Show"]
+        );
+        assert!(q(|f| f.audio = vec!["fr".into()]).is_empty());
+        assert_eq!(q(|f| f.subtitles = vec!["es".into()]), ["Dune"]);
+        // Across facets every choice applies.
+        assert_eq!(
+            q(|f| {
+                f.resolution = vec![Resolution::FullHd];
+                f.audio = vec!["es".into()];
+            }),
+            ["Heat"]
+        );
+    }
+
+    #[test]
+    fn facets_list_what_a_listing_holds() {
+        let e = formats();
+        e.exec(
+            "UPDATE items SET year = 2021, runtime_min = 155, genres = '[\"Drama\",\"Science Fiction\"]' WHERE title = 'Dune';\
+             UPDATE items SET year = 1995, runtime_min = 170, genres = '[\"Drama\",\"Crime\"]' WHERE title = 'Heat';",
+        );
+        let f = filter::facets(&e.c, &e.v, Some(ItemKind::Movie)).unwrap();
+        let said = |list: &[filter::Count<String>]| {
+            list.iter()
+                .map(|c| format!("{} {}", c.value, c.count))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(said(&f.genres), ["Drama 2", "Crime 1", "Science Fiction 1"]);
+        assert_eq!(
+            f.years
+                .iter()
+                .map(|c| (c.value, c.count))
+                .collect::<Vec<_>>(),
+            [(1995, 1), (2021, 1)]
+        );
+        assert_eq!(f.runtimes.len(), 2);
+        assert_eq!(said(&f.resolution), ["full_hd 2", "sd 1", "uhd 1"]);
+        assert_eq!(said(&f.picture), ["dolby_vision 1", "hlg 1", "sdr 2"]);
+        assert_eq!(
+            said(&f.sound),
+            ["atmos 1", "dts_x 1", "lossless 2", "surround 2"]
+        );
+        assert_eq!(said(&f.audio), ["en 3", "de 1", "es 1"]);
+        assert_eq!(said(&f.subtitles), ["en 1", "es 1"]);
+        // The show's facets are its episodes'.
+        let shows = filter::facets(&e.c, &e.v, Some(ItemKind::Show)).unwrap();
+        assert_eq!(said(&shows.audio), ["es-419 1"]);
+        assert_eq!(said(&shows.resolution), ["uhd 1"]);
     }
 
     #[test]
@@ -929,7 +1155,7 @@ mod tests {
         let both = e.with_file(ItemKind::Movie, "Both", None);
         e.file(99, both, None);
         let avail = |a| {
-            e.search(&SearchQuery {
+            e.filter(Filters {
                 available: Some(a),
                 ..Default::default()
             })
@@ -958,11 +1184,11 @@ mod tests {
         }
         assert!(e.summary(show).watched);
         assert_eq!(e.summary(show).progress, Some(1.0));
-        let watched = SearchQuery {
-            watched: Some(true),
+        let watched = Filters {
+            seen: vec![Seen::Watched],
             ..Default::default()
         };
-        assert_eq!(e.search(&watched), ["S"]);
+        assert_eq!(e.filter(watched), ["S"]);
         // A movie's progress is position over duration.
         let m = e.with_file(ItemKind::Movie, "M", None);
         e.play(m, 30.0, 120.0, false, 1);
@@ -1054,16 +1280,14 @@ mod tests {
             (e.summary(m).width, e.summary(m).height),
             (Some(3840), Some(1604))
         );
-        let q = |min_width, min_height| {
-            e.search(&SearchQuery {
-                min_width,
-                min_height,
+        let q = |r| {
+            e.filter(Filters {
+                resolution: vec![r],
                 ..Default::default()
             })
         };
-        assert_eq!(q(Some(3800), None), ["Wide"]);
-        assert!(q(None, Some(2160)).is_empty());
-        assert!(q(Some(3841), None).is_empty());
+        assert_eq!(q(Resolution::Uhd), ["Wide"]);
+        assert!(q(Resolution::FullHd).is_empty());
     }
 
     #[test]
@@ -1071,9 +1295,16 @@ mod tests {
         let q: SearchQuery = serde_json::from_str(r#"{"kind":"movie","sort":"year"}"#).unwrap();
         assert_eq!(q.kind, Some(ItemKind::Movie));
         assert_eq!(q.sort, Some(Sort::Year));
-        assert_eq!((q.text, q.limit, q.min_width), (None, None, None));
+        assert_eq!((q.text, q.limit, q.descending), (None, None, None));
+        let q: SearchQuery = serde_json::from_str(
+            r#"{"genres":["Drama"],"resolution":["full_hd"],"sound":["dts_x"]}"#,
+        )
+        .unwrap();
+        assert_eq!(q.filters.genres, ["Drama"]);
+        assert_eq!(q.filters.resolution, [Resolution::FullHd]);
+        assert_eq!(q.filters.sound, [Sound::DtsX]);
         let q: SearchQuery = serde_json::from_str("{}").unwrap();
-        assert_eq!(q.sort, None);
+        assert_eq!(q, SearchQuery::default());
         let shelf: Shelf = serde_json::from_str(r#""continue_watching""#).unwrap();
         assert_eq!(shelf, Shelf::ContinueWatching);
         assert_eq!(
@@ -1316,8 +1547,11 @@ mod tests {
             height: 1080,
             video_codec: "hevc".into(),
             hdr: None,
-            audio: vec![],
-            subtitles: vec![],
+            audio: vec![
+                track("eng", "dts", Some("DTS-HD MA"), 6),
+                track("spa", "ac3", None, 6),
+            ],
+            subtitles: vec![subs("eng"), subs("spa")],
         })
         .unwrap();
         let mut n = 0;
@@ -1445,6 +1679,42 @@ mod tests {
                 shelf(&e.c, &e.v, s, 50).unwrap();
             });
         }
+        time("search (every filter, by year)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    genres: vec!["Drama".into()],
+                    without_genres: vec!["Horror".into()],
+                    year_min: Some(1995),
+                    seen: vec![Seen::Unwatched],
+                    resolution: vec![Resolution::FullHd],
+                    picture: vec![Picture::Sdr],
+                    sound: vec![Sound::Surround],
+                    audio: vec!["en".into()],
+                    subtitles: vec!["es".into()],
+                    ..Default::default()
+                },
+                sort: Some(Sort::Year),
+                limit: Some(500),
+                ..Default::default()
+            };
+            search(&e.c, &e.v, &q).unwrap();
+        });
+        time("search (audio language, all pages)", &|| {
+            let q = SearchQuery {
+                kind: Some(ItemKind::Movie),
+                filters: Filters {
+                    audio: vec!["en".into()],
+                    ..Default::default()
+                },
+                limit: Some(500),
+                ..Default::default()
+            };
+            assert_eq!(search(&e.c, &e.v, &q).unwrap().len(), 500);
+        });
+        time("facets (movies)", &|| {
+            filter::facets(&e.c, &e.v, Some(ItemKind::Movie)).unwrap();
+        });
         time("item (show)", &|| {
             assert_eq!(item(&e.c, &e.v, a_show).unwrap().children.len(), 2);
         });

@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use exhibit_core::filter::Facets;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Candidate, CastMember, Id, ItemKind, Source};
 use exhibit_core::query::{HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
@@ -45,6 +46,11 @@ pub fn status() -> ApiResult<LibraryStatus> {
 #[tauri::command(async)]
 pub fn search(state: State<'_, AppState>, query: SearchQuery) -> ApiResult<Vec<ItemSummary>> {
     Ok(state.lib().search(&query)?)
+}
+
+#[tauri::command(async)]
+pub fn facets(state: State<'_, AppState>, kind: Option<ItemKind>) -> ApiResult<Facets> {
+    Ok(state.lib().facets(kind)?)
 }
 
 #[tauri::command(async)]

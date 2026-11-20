@@ -1,7 +1,8 @@
-// The bar over every screen: the mark, the top-level sections, the ask field, settings, and a
-// quiet line saying what the library is doing.
+// The bar over every screen: the mark (Back, on a screen stacked over another), the top-level
+// sections, the ask field, settings, and a quiet line saying what the library is doing.
 
 import { isTypeaheadKey } from "@ui-sdk/core";
+import { motion } from "motion/react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { liveGroups, type Dir } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
@@ -9,9 +10,11 @@ import { t, useT } from "@/i18n";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
 import { useJobStatus, useStatus } from "@/lib/queries";
+import { easeOut, seconds } from "@/lib/motion";
 import { cn } from "@/lib/utils";
 import { openSettings } from "@/nav/Screens";
 import { openAsk, samePlace, useNav, type Route } from "@/nav/stack";
+import { BackButton } from "./BackButton";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
 
@@ -96,7 +99,7 @@ const startsSearch = (e: globalThis.KeyboardEvent) => e.isTrusted && isTypeahead
 
 /** Looks like a field and opens Ask, as Y, `/` and Ctrl+K do; a letter typed on it starts the search. */
 function AskField({ label }: { label: string }) {
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "ask", onSelect: () => openAsk() });
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: "ask", onSelect: () => openAsk(), hint: t("hints.search") });
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (startsSearch(e.nativeEvent)) {
       e.preventDefault();
@@ -138,7 +141,9 @@ function intoScreen(dir: Dir): void {
 export function TopBar() {
   const t = useT();
   const root = useNav((s) => s.entries[0]!.route);
-  const replaceRoot = useNav((s) => s.replaceRoot);
+  const stacked = useNav((s) => s.entries.length > 1);
+  const { replaceRoot, toRoot, back } = useNav.getState();
+  const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: seconds("--dur-screen"), ease: easeOut() } };
   const { data: status } = useStatus();
   const job = jobLine(useJobStatus());
   const review = status?.needs_review ?? 0;
@@ -148,9 +153,22 @@ export function TopBar() {
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
       <FocusGroup id="topbar" orientation="horizontal" onEdge={intoScreen} className="flex h-full items-center gap-12">
-        <span className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]">
-          Exhibit
-        </span>
+        {/* Back takes the mark's place, so the sections never move. */}
+        <div className="flex h-full w-(--bar-lead) shrink-0 items-center">
+          {stacked ? (
+            <motion.div key="back" {...fade} className="-ml-4">
+              <BackButton focusKey="back" onBack={back} />
+            </motion.div>
+          ) : (
+            <motion.span
+              key="mark"
+              {...fade}
+              className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
+            >
+              Exhibit
+            </motion.span>
+          )}
+        </div>
 
         <nav aria-label={t("sections.label")} className="-ml-4 flex items-center gap-1">
           {sections.map(({ id, label, route }) => {
@@ -161,7 +179,8 @@ export function TopBar() {
                 focusKey={`section:${id}`}
                 aria-current={here ? "page" : undefined}
                 className={cn(here && "text-label")}
-                onSelect={() => replaceRoot(route)}
+                // The section already under the stack returns as it was left.
+                onSelect={() => (here ? toRoot() : replaceRoot(route))}
               >
                 {t(label)}
                 {route.screen === "review" && (

@@ -46,6 +46,7 @@ fn main() {
             commands::boot,
             commands::status,
             commands::search,
+            commands::facets,
             commands::item,
             commands::shelf,
             commands::needs_review,

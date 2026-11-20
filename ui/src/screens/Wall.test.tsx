@@ -82,13 +82,58 @@ test("groupByFolder keeps groups in path order and items in title order", () => 
   expect(groups.map((g) => g.items.map((i) => i.title))).toEqual([["Ana turns five", "Ana turns six"], ["Kyoto", "Lisbon"]]);
 });
 
-test("a filter toggled on asks the library for exactly that", async () => {
+test("sorting: A picks a sort, A again turns its order round, a third A clears it", async () => {
+  const pressed = () => [...document.querySelectorAll("[data-focus-key^='wall:sort:'][aria-pressed='true']")].length;
   wall(films(3));
   await settle();
-  expect(searches()[0]).toMatchObject({ kind: "movie" });
-  expect(searches()[0]).not.toHaveProperty("watched");
-  await click(byText("[data-focus-key^='wall:filter:']", "Not watched"));
-  expect(searches().at(-1)).toMatchObject({ kind: "movie", watched: false });
+  expect(searches()[0]).toEqual({ kind: "movie", limit: 500, offset: 0 });
+  await click(document.querySelector("[data-focus-key='wall:sort:year']"));
+  expect(searches().at(-1)).toMatchObject({ kind: "movie", sort: "year" });
+  expect(searches().at(-1)).not.toHaveProperty("descending");
+  await click(document.querySelector("[data-focus-key='wall:sort:year']"));
+  expect(searches().at(-1)).toMatchObject({ sort: "year", descending: false });
+  await click(document.querySelector("[data-focus-key='wall:sort:year']"));
+  expect(searches().at(-1)).toEqual({ kind: "movie", limit: 500, offset: 0 });
+  expect(pressed()).toBe(0);
+  await click(document.querySelector("[data-focus-key='wall:sort:title']"));
+  expect(pressed()).toBe(1);
+  await click(document.querySelector("[data-focus-key='wall:sort:title']"));
+  expect(searches().at(-1)).toMatchObject({ descending: true });
+  expect(searches().at(-1)).not.toHaveProperty("sort");
+  await click(document.querySelector("[data-focus-key='wall:sort:title']"));
+  expect(searches().at(-1)).toEqual({ kind: "movie", limit: 500, offset: 0 });
+  expect(pressed()).toBe(0);
+});
+
+test("the filter sheet asks the library for exactly what is chosen, and the row says it", async () => {
+  tauri.handle("facets", () => ({
+    genres: [{ value: "Drama", count: 2 }, { value: "Horror", count: 1 }],
+    years: [], runtimes: [], resolution: [{ value: "uhd", count: 1 }], picture: [], sound: [],
+    audio: [{ value: "es", count: 1 }], subtitles: [],
+  }));
+  wall(films(3));
+  await settle();
+  await click(document.querySelector("[data-focus-key='wall:filters']"));
+  await until(() => document.querySelector("[data-focus-key='filters-seen:unwatched']") !== null);
+  await click(document.querySelector("[data-focus-key='filters-seen:unwatched']"));
+  expect(searches().at(-1)).toEqual({ kind: "movie", seen: ["unwatched"], limit: 500, offset: 0 });
+  // A genre is wanted, then left out.
+  await click(document.querySelector("[data-focus-key='filters:genre:Horror']"));
+  expect(searches().at(-1)).toMatchObject({ genres: ["Horror"] });
+  await click(document.querySelector("[data-focus-key='filters:genre:Horror']"));
+  expect(searches().at(-1)).toMatchObject({ without_genres: ["Horror"] });
+  expect(searches().at(-1)).not.toHaveProperty("genres");
+  await click(document.querySelector("[data-focus-key='filters-resolution:uhd']"));
+  await click(document.querySelector("[data-focus-key='filters-audio:es']"));
+  expect(searches().at(-1)).toMatchObject({ resolution: ["uhd"], audio: ["es"] });
+  // No years or runtimes in the wall: no ranges to choose.
+  expect(document.querySelector("[data-focus-key^='filters-year']")).toBeNull();
+  await click(document.querySelector("[data-focus-key='filters:done']"));
+  await settle(300);
+  const row = document.querySelector("[data-focus-group='wall-controls']")!.textContent;
+  expect(row).toContain("not Horror · Not watched · 4K · Spanish audio");
+  await click(byText("button", "Clear filters"));
+  expect(searches().at(-1)).toEqual({ kind: "movie", limit: 500, offset: 0 });
 });
 
 test("selection mode marks every selected work watched, one call each, and ends", async () => {
@@ -123,7 +168,7 @@ test("an empty wall says what to do; filters that match nothing offer to clear t
   await settle();
   expect(document.body.textContent).toContain("No movies yet");
   cleanup();
-  wall([], { ...DEFAULT_VIEW, unwatched: true });
+  wall([], { ...DEFAULT_VIEW, filters: { seen: ["unwatched"] } });
   await settle();
   expect(document.body.textContent).toContain("Nothing matches these filters");
   expect(byText("button", "Clear filters")).not.toBeNull();

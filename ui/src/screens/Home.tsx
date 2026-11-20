@@ -15,7 +15,7 @@ import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
 import { t, useT } from "@/i18n";
-import { runMain, useActionContext } from "@/lib/actions";
+import { mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
@@ -269,6 +269,7 @@ function Shelves({
               title={row.title}
               items={row.items}
               onOpen={onOpen}
+              hintOf={mainHint}
               onFocusItem={handlers.get(row.shelf)!.focus}
               inert={row.shelf !== active && row.shelf !== reach}
               onEnter={handlers.get(row.shelf)!.enter}

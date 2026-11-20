@@ -221,6 +221,7 @@ function Search({ detail, onDone }: { detail: ItemDetail; onDone: () => void }) 
             menu={false}
             light="match-light"
             onOpen={(w) => choose(candidates[w.id]!)}
+            hintOf={() => t("hints.choose")}
           />
         )}
       </div>

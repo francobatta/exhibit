@@ -50,7 +50,16 @@
     "back": "Atrás",
     "type": "Escribir",
     "find": "Buscar",
-    "choose": "Elegir"
+    "choose": "Elegir",
+    "search": "Buscar",
+    "sections": "Secciones",
+    "select": "Seleccionar",
+    "sort": "Ordenar",
+    "include": "Incluir",
+    "exclude": "Excluir",
+    "remove": "Quitar",
+    "adjust": "Ajustar",
+    "unsort": "Quitar orden"
   },
   "units": {
     "file_one": "{{count, number}} archivo",
@@ -222,24 +231,12 @@
     "type": "Escribir",
     "close": "Cerrar"
   },
-  "genre": {
-    "title": "Género",
-    "list": "Géneros",
-    "any": "Cualquier género"
-  },
   "wall": {
     "sort": "Ordenar",
     "filters": "Filtros",
     "sortAndFilter": "Ordenar y filtrar",
     "chosen": "Títulos elegidos",
     "selected": "{{count, number}} elegidos",
-    "byTitle": "Título",
-    "byYear": "Año",
-    "byRuntime": "Duración",
-    "unwatched": "Sin ver",
-    "loved": "Favoritos",
-    "available": "Disponibles ahora",
-    "uhd": "4K",
     "hanging": "Colgando la colección",
     "noMovies": "Todavía no hay películas",
     "noShows": "Todavía no hay series",
@@ -293,7 +290,9 @@
   "ask": {
     "searchFailed": "No se pudo buscar en la biblioteca. Vuelve a intentarlo o reinicia Exhibit si sigue pasando.",
     "recent": "Búsquedas recientes",
-    "hint": "Escribe un título o el nombre de alguien que lo hizo o que sale en él."
+    "hint": "Escribe un título o el nombre de alguien que lo hizo o que sale en él.",
+    "noMatches": "Nada coincide con “{{text}}”",
+    "noMatchesBody": "Revisa la ortografía, o busca a alguien que la hizo o que actúa en ella."
   },
   "review": {
     "title": "Por revisar",
@@ -436,5 +435,63 @@
     "job": {
       "crashed": "La última tarea se detuvo de forma inesperada. Se vuelve a hacer en el próximo escaneo."
     }
+  },
+  "keys": {
+    "enter": "Enter",
+    "esc": "Esc"
+  },
+  "sorts": {
+    "title": "Título",
+    "year": "Año",
+    "runtime": "Duración",
+    "played": "Visto por última vez",
+    "alpha": {
+      "asc": "De la A a la Z",
+      "desc": "De la Z a la A"
+    },
+    "time": {
+      "asc": "Lo más antiguo primero",
+      "desc": "Lo más reciente primero"
+    },
+    "length": {
+      "asc": "Lo más corto primero",
+      "desc": "Lo más largo primero"
+    }
+  },
+  "filters": {
+    "title": "Filtros",
+    "clear": "Quitar todos",
+    "watching": "Visionado",
+    "seen": {
+      "unwatched": "Sin ver",
+      "started": "A medias",
+      "watched": "Visto"
+    },
+    "collection": "Colección",
+    "loved": "Favoritos",
+    "available": "Disponibles ahora",
+    "genres": "Géneros",
+    "allOf": "Con todos ellos",
+    "anyOf": "Con alguno de ellos",
+    "without": "sin {{genres}}",
+    "year": "Año",
+    "runtime": "Duración",
+    "from": "Desde {{value}}",
+    "upTo": "Hasta {{value}}",
+    "start": "Desde",
+    "end": "Hasta",
+    "leapYears": "10 años",
+    "leapMinutes": "30 min",
+    "picture": "Imagen",
+    "soundTitle": "Sonido",
+    "sound": {
+      "lossless": "Sin pérdida",
+      "surround": "Envolvente"
+    },
+    "audio": "Audio",
+    "subtitles": "Subtítulos",
+    "audioIn": "Audio en {{languages}}",
+    "subtitlesIn": "Subtítulos en {{languages}}",
+    "left": "Excluido"
   }
 }

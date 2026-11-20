@@ -35,6 +35,7 @@ export const keys = {
   status: ["library", "status"] as const,
   shelf: (shelf: Shelf, limit: number) => ["library", "shelf", shelf, limit] as const,
   items: (query: SearchQuery) => ["library", "items", query] as const,
+  facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
@@ -102,6 +103,11 @@ export function useItems(query: Omit<SearchQuery, "limit" | "offset">, enabled =
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
   const items = useMemo(() => result.data?.pages.flat() ?? [], [result.data]);
   return { ...result, items };
+}
+
+/** What a wall can be narrowed by; a library change refreshes it. */
+export function useFacets(kind: ItemKind | null) {
+  return useQuery({ queryKey: keys.facets(kind), queryFn: () => api.facets(kind), staleTime: ITEM_STALE });
 }
 
 /** Library changes refresh a record through `library-changed`; nothing else makes it stale. */

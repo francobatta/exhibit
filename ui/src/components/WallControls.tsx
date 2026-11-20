@@ -1,57 +1,25 @@
-// The row above a wall: how it is sorted, what it is narrowed to, and how many works that leaves.
-// Each control maps onto one `SearchQuery` field. Up from the wall reaches it; it is one focus
-// group of UI SDK toggles; Genre opens a list of the genres on the wall. While several works are
-// being chosen it becomes what to do with them.
+// The row above a wall: its order, the filters in force in a line, and how many works they leave.
+// Up from the wall reaches it; it is one focus group. A sort is chosen with A, A again turns its
+// order round, and a third A clears it (the library's own order, titles A to Z); the arrow beside
+// it shows which way it runs. Filters opens the
+// sheet with every choice. While several works are being chosen it becomes what to do with them.
 
 import { useState, type ReactNode } from "react";
-import { GenreDialog } from "@/components/GenreDialog";
+import { FilterSheet } from "@/components/FilterSheet";
 import { Lamp } from "@/components/Lamp";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { t, useT } from "@/i18n";
-import type { SearchQuery, Sort } from "@/lib/api";
-import { UHD } from "@/lib/format";
+import type { Sort } from "@/lib/api";
+import { SORTS, describe, descends, direction, filterCount, sortName } from "@/lib/filters";
 import { cn } from "@/lib/utils";
-import { DEFAULT_VIEW, type WallKind, type WallView } from "@/nav/stack";
+import type { WallKind, WallView } from "@/nav/stack";
 
-type Filter = Exclude<keyof WallView, "sort" | "genre">;
+/** Other hangs by folder, so it has no sort. */
+export const sorts = (kind: WallKind) => kind !== "other";
 
-const SORTS = [
-  { sort: "title", label: "wall.byTitle" },
-  { sort: "added", label: "wall.byAdded" },
-  { sort: "year", label: "wall.byYear" },
-  { sort: "runtime", label: "wall.byRuntime" },
-] as const satisfies Array<{ sort: Sort; label: string }>;
-
-const FILTERS = [
-  { filter: "unwatched", label: "wall.unwatched" },
-  { filter: "loved", label: "wall.loved" },
-  { filter: "available", label: "wall.available" },
-  { filter: "uhd", label: "wall.uhd" },
-] as const satisfies Array<{ filter: Filter; label: string }>;
-
-/** Other hangs by folder, so it has no Sort control. */
-const sorts = (kind: WallKind) => kind !== "other";
-
-/**
- * The library query a wall's view asks for: only what is set (title order is the library's own,
- * and Other's folder order needs none).
- */
-export function wallQuery(kind: WallKind, view: WallView): SearchQuery {
-  return {
-    kind,
-    ...(sorts(kind) && view.sort !== "title" && { sort: view.sort }),
-    ...(view.unwatched && { watched: false }),
-    ...(view.loved && { loved: true }),
-    ...(view.available && { available: true }),
-    ...(view.uhd && { min_width: UHD.width }),
-    ...(view.genre !== null && { genre: view.genre }),
-  };
-}
-
-export const hasFilters = (view: WallView) => view.genre !== null || FILTERS.some((f) => view[f.filter]);
-export const clearFilters = (view: WallView): WallView => ({ ...DEFAULT_VIEW, sort: view.sort });
+export const clearFilters = (view: WallView): WallView => ({ ...view, filters: {} });
 
 /** "412 movies", "1 show", "30 items". */
 export function countLine(kind: WallKind, n: number): string {
@@ -61,21 +29,45 @@ export function countLine(kind: WallKind, n: number): string {
 
 const control = "relative focus-visible:bg-transparent focus:text-label";
 
-function ControlToggle({
-  focusKey,
-  pressed,
-  onPress,
-  children,
-}: {
-  focusKey: string;
-  pressed: boolean;
-  onPress: (pressed: boolean) => void;
-  children: ReactNode;
-}) {
-  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey });
+function SortToggle({ sort, view, onView }: { sort: Sort; view: WallView; onView: (view: WallView) => void }) {
+  const t = useT();
+  const on = view.sort === sort;
+  const way = on ? view.descending : descends(sort);
+  // Three presses: the sort in its own order, the other order, then none (the library's own).
+  const reversed = on && view.descending !== descends(sort);
+  const next: WallView = !on
+    ? { ...view, sort, descending: descends(sort) }
+    : reversed
+      ? { ...view, sort: null, descending: false }
+      : { ...view, descending: !view.descending };
+  // A names what it does.
+  const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
+    key: `wall:sort:${sort}`,
+    hint: !on ? t("hints.sort") : reversed ? t("hints.unsort") : direction(sort, !view.descending),
+  });
   return (
-    <Toggle ref={ref} {...props} variant="plain" pressed={pressed} onPressedChange={onPress} className={control}>
-      {children}
+    <Toggle
+      ref={ref}
+      {...props}
+      variant="plain"
+      pressed={on}
+      onPressedChange={() => onView(next)}
+      aria-label={on ? `${sortName(sort)}, ${direction(sort, way)}` : sortName(sort)}
+      className={cn(control, "gap-1.5")}
+    >
+      {sortName(sort)}
+      <svg
+        viewBox="0 0 12 12"
+        aria-hidden
+        fill="none"
+        data-up={way ? undefined : ""}
+        className={cn(
+          "size-[0.8em] transition-[opacity,rotate] duration-(--dur-control) data-up:rotate-180",
+          on ? "opacity-100" : "opacity-0",
+        )}
+      >
+        <path d="M6 2v8M2.5 6.5 6 10l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
       {focused && <Lamp />}
     </Toggle>
   );
@@ -89,15 +81,23 @@ function ControlButton({
 }: {
   focusKey: string;
   onSelect: () => void;
-  onBack: () => void;
+  onBack?: () => void;
   children: ReactNode;
 }) {
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey, onSelect, onBack });
   return (
-    <Button ref={ref} {...props} className={control}>
+    <Button ref={ref} {...props} className={cn(control, "gap-2")}>
       {children}
       {focused && <Lamp />}
     </Button>
+  );
+}
+
+function FilterIcon() {
+  return (
+    <svg viewBox="0 0 16 16" aria-hidden fill="none" className="size-[1em]">
+      <path d="M2 4h12M4.5 8h7M7 12h2" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -116,17 +116,19 @@ export interface WallControlsProps {
   onView: (view: WallView) => void;
   /** How many works the view leaves; null until every page of them has arrived. */
   total: number | null;
-  /** The genres the Genre control offers, sorted. */
-  genres: string[];
-  /** The Genre list is about to open: the screen fetches every genre on the wall if it has not. */
-  onGenres: () => void;
   selection?: WallSelection;
   className?: string;
 }
 
-export function WallControls({ kind, view, onView, total, genres, onGenres, selection, className }: WallControlsProps) {
+export function WallControls({ kind, view, onView, total, selection, className }: WallControlsProps) {
   const t = useT();
-  const [picking, setPicking] = useState(false);
+  const [open, setOpen] = useState(false);
+  // The last count holds, dimmed, while a changed view is counted, so the number never blinks out.
+  const [known, setKnown] = useState(total);
+  if (total !== null && total !== known) setKnown(total);
+  const counted = known === null ? null : countLine(kind, known);
+  const count = filterCount(view.filters);
+  const summary = describe(view.filters).join(" · ");
   return (
     <>
       <FocusGroup
@@ -154,59 +156,44 @@ export function WallControls({ kind, view, onView, total, genres, onGenres, sele
               <>
                 <span className={cn(caption, "mr-3")}>{t("wall.sort")}</span>
                 <div role="group" aria-label={t("wall.sort")} className="contents">
-                  {SORTS.map(({ sort, label }) => (
-                    <ControlToggle
-                      key={sort}
-                      focusKey={`wall:sort:${sort}`}
-                      pressed={view.sort === sort}
-                      onPress={(on) => on && onView({ ...view, sort })}
-                    >
-                      {t(label)}
-                    </ControlToggle>
+                  {SORTS.map((s) => (
+                    <SortToggle key={s} sort={s} view={view} onView={onView} />
                   ))}
                 </div>
-                <span aria-hidden className="mx-5 h-5 w-px bg-line" />
+                <span aria-hidden className="mx-5 h-5 w-px shrink-0 bg-line" />
               </>
             )}
-            <div role="group" aria-label={t("wall.filters")} className="contents">
-              {FILTERS.map(({ filter, label }) => (
-                <ControlToggle
-                  key={filter}
-                  focusKey={`wall:filter:${filter}`}
-                  pressed={view[filter]}
-                  onPress={(on) => onView({ ...view, [filter]: on })}
-                >
-                  {t(label)}
-                </ControlToggle>
-              ))}
-              {(genres.length > 0 || view.genre !== null) && (
-                <ControlToggle
-                  focusKey="wall:filter:genre"
-                  pressed={view.genre !== null}
-                  onPress={() => {
-                    onGenres();
-                    setPicking(true);
-                  }}
-                >
-                  {view.genre ?? t("genre.title")}
-                </ControlToggle>
+            <ControlButton focusKey="wall:filters" onSelect={() => setOpen(true)}>
+              <FilterIcon />
+              {t("wall.filters")}
+              {count > 0 && (
+                <span className="inline-flex size-[1.4em] items-center justify-center rounded-full bg-label text-caption leading-none text-wall tabular-nums">
+                  {count}
+                </span>
               )}
-            </div>
+            </ControlButton>
+            {count > 0 && (
+              <>
+                <p className={cn(caption, "mx-3 min-w-0 truncate text-label-dim")}>{summary}</p>
+                <ControlButton focusKey="wall:clear" onSelect={() => onView(clearFilters(view))}>
+                  {t("wall.clearFilters")}
+                </ControlButton>
+              </>
+            )}
           </>
         )}
-        <p role="status" className={cn(caption, "ml-auto tabular-nums")}>
-          {total !== null && countLine(kind, total)}
+        <p role="status" className={cn(caption, "ml-auto shrink-0 pl-6 tabular-nums transition-opacity", total === null && "opacity-50")}>
+          {counted}
         </p>
       </FocusGroup>
-      <GenreDialog
-        open={picking}
-        genres={genres}
-        value={view.genre}
-        onChoose={(genre) => {
-          setPicking(false);
-          onView({ ...view, genre });
-        }}
-        onBack={() => setPicking(false)}
+      <FilterSheet
+        open={open}
+        kind={kind}
+        filters={view.filters}
+        onFilters={(filters) => onView({ ...view, filters })}
+        count={counted}
+        counting={total === null}
+        onClose={() => setOpen(false)}
       />
     </>
   );

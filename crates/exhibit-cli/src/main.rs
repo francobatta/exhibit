@@ -8,7 +8,9 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
+use exhibit_core::filter::{Picture, Resolution, Seen, Sound};
 use exhibit_core::model::Id;
+use exhibit_core::query::Sort;
 use exhibit_core::{Error, Library};
 use serde_json::{Value, json};
 
@@ -47,7 +49,12 @@ enum Command {
         #[arg(long)]
         item: Option<Id>,
     },
-    Search(SearchArgs),
+    Search(Box<SearchArgs>),
+    /// What a listing can be narrowed by: genres, years, runtimes, picture, sound and languages
+    Facets {
+        #[arg(long)]
+        kind: Option<KindArg>,
+    },
     Item {
         id: Id,
     },
@@ -159,28 +166,49 @@ struct SearchArgs {
     text: Option<String>,
     #[arg(long)]
     kind: Option<KindArg>,
+    /// Repeat for more; all are required unless --any-genre
     #[arg(long)]
-    genre: Option<String>,
+    genre: Vec<String>,
+    #[arg(long)]
+    any_genre: bool,
+    #[arg(long)]
+    without_genre: Vec<String>,
     #[arg(long)]
     year_min: Option<i32>,
     #[arg(long)]
     year_max: Option<i32>,
+    /// Minutes
+    #[arg(long)]
+    runtime_min: Option<i32>,
     #[arg(long)]
     runtime_max: Option<i32>,
-    #[arg(long, conflicts_with = "unwatched")]
-    watched: bool,
-    #[arg(long)]
-    unwatched: bool,
+    /// unwatched, started or watched; repeat for more
+    #[arg(long, value_parser = named::<Seen>)]
+    seen: Vec<Seen>,
     #[arg(long)]
     loved: bool,
     #[arg(long)]
-    min_width: Option<u32>,
-    #[arg(long)]
-    min_height: Option<u32>,
-    #[arg(long)]
     available: bool,
+    /// uhd, full_hd, hd or sd; repeat for more
+    #[arg(long, value_parser = named::<Resolution>)]
+    resolution: Vec<Resolution>,
+    /// dolby_vision, hdr10, hlg or sdr; repeat for more
+    #[arg(long, value_parser = named::<Picture>)]
+    picture: Vec<Picture>,
+    /// atmos, dts_x, lossless or surround; repeat for more
+    #[arg(long, value_parser = named::<Sound>)]
+    sound: Vec<Sound>,
+    /// A language a work can be heard in, as `facets` names it ("en"); repeat for more
     #[arg(long)]
-    sort: Option<SortArg>,
+    audio: Vec<String>,
+    #[arg(long)]
+    subtitles: Vec<String>,
+    /// title, year, added, runtime or played
+    #[arg(long, value_parser = named::<Sort>)]
+    sort: Option<Sort>,
+    /// Against the sort's own direction (titles A to Z, runtimes shortest first, the rest newest first)
+    #[arg(long)]
+    reverse: bool,
     #[arg(long)]
     limit: Option<u32>,
     #[arg(long)]
@@ -201,12 +229,9 @@ enum MatchKind {
     Show,
 }
 
-#[derive(Clone, Copy, ValueEnum)]
-enum SortArg {
-    Title,
-    Added,
-    Year,
-    Runtime,
+/// Parses a value by its name in the core's JSON (`full_hd`, `dts_x`).
+fn named<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, String> {
+    serde_json::from_value(Value::String(s.into())).map_err(|e| e.to_string())
 }
 
 #[derive(Clone, Copy, ValueEnum)]

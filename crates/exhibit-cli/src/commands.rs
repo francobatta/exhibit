@@ -1,9 +1,10 @@
 //! One small function per command group; each returns the JSON to print.
 
 use exhibit_core::download::DownloadEvent;
+use exhibit_core::filter::Filters;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Id, ItemKind};
-use exhibit_core::query::{SearchQuery, Shelf, Sort};
+use exhibit_core::query::{SearchQuery, Shelf};
 use exhibit_core::scan::ScanEvent;
 use exhibit_core::tools::Tool;
 use exhibit_core::{Error, Library, RefreshEvent, RefreshOptions, RefreshPhase, Result};
@@ -12,8 +13,8 @@ use serde_json::{Value, json};
 use std::io::{BufRead, IsTerminal};
 
 use crate::{
-    Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ShelfArg, SortArg,
-    SourceCmd, TasteCmd, ToolArg, ToolsCmd,
+    Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ShelfArg, SourceCmd,
+    TasteCmd, ToolArg, ToolsCmd,
 };
 
 fn ok() -> Result<Value> {
@@ -49,7 +50,8 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
             };
             to_json(lib.identify(scope, &mut |id| progress(format!("identified item {id}")))?)
         }
-        Command::Search(args) => to_json(lib.search(&search_query(args))?),
+        Command::Search(args) => to_json(lib.search(&search_query(*args))?),
+        Command::Facets { kind } => to_json(lib.facets(kind.map(kind_of))?),
         Command::Item { id } => to_json(lib.item(id)?),
         Command::Shelf { shelf, limit } => {
             let shelf = match shelf {
@@ -157,29 +159,42 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
     }))
 }
 
+fn kind_of(k: KindArg) -> ItemKind {
+    match k {
+        KindArg::Movie => ItemKind::Movie,
+        KindArg::Show => ItemKind::Show,
+        KindArg::Other => ItemKind::Other,
+        KindArg::Episode => ItemKind::Episode,
+    }
+}
+
 fn search_query(a: SearchArgs) -> SearchQuery {
+    let sort = a.sort;
     SearchQuery {
         text: a.text,
-        kind: a.kind.map(|k| match k {
-            KindArg::Movie => ItemKind::Movie,
-            KindArg::Show => ItemKind::Show,
-            KindArg::Other => ItemKind::Other,
-            KindArg::Episode => ItemKind::Episode,
-        }),
-        genre: a.genre,
-        year_min: a.year_min,
-        year_max: a.year_max,
-        runtime_max_min: a.runtime_max,
-        watched: (a.watched || a.unwatched).then_some(a.watched),
-        loved: a.loved.then_some(true),
-        min_width: a.min_width,
-        min_height: a.min_height,
-        available: a.available.then_some(true),
-        sort: a.sort.map(|s| match s {
-            SortArg::Title => Sort::Title,
-            SortArg::Added => Sort::Added,
-            SortArg::Year => Sort::Year,
-            SortArg::Runtime => Sort::Runtime,
+        kind: a.kind.map(kind_of),
+        filters: Filters {
+            genres: a.genre,
+            any_genre: a.any_genre,
+            without_genres: a.without_genre,
+            year_min: a.year_min,
+            year_max: a.year_max,
+            runtime_min: a.runtime_min,
+            runtime_max: a.runtime_max,
+            seen: a.seen,
+            loved: a.loved.then_some(true),
+            available: a.available.then_some(true),
+            resolution: a.resolution,
+            picture: a.picture,
+            sound: a.sound,
+            audio: a.audio,
+            subtitles: a.subtitles,
+        },
+        sort,
+        descending: a.reverse.then(|| {
+            !sort
+                .unwrap_or(exhibit_core::query::Sort::Title)
+                .descending()
         }),
         limit: a.limit,
         offset: a.offset,

@@ -144,6 +144,9 @@ export function runSelected(action: Action, item: ActionItem, ctx: ActionContext
   else void runAction(action, item, ctx);
 }
 
+/** What A does on `item`, for the hints: "Play", "Resume from 1:02:00", "Details". */
+export const mainHint = (item: ActionItem): string => mainAction(item).label;
+
 /** Runs A on `item`; one that cannot run says why. */
 export function runMain(item: ActionItem, ctx: ActionContext): void {
   runSelected(mainAction(item), item, ctx);

@@ -15,7 +15,6 @@
     "foundNothing": "Exhibit no encontró nada que mostrar en tus carpetas. Agrega otra carpeta en Configuración."
   },
   "wall": {
-    "byAdded": "Agregado recientemente",
     "noMoviesBody": "Agrega una carpeta de películas en Configuración o espera a que termine el escaneo.",
     "noShowsBody": "Agrega una carpeta de series en Configuración o espera a que termine el escaneo.",
     "noOtherBody": "Aquí cuelgan los videos caseros, los clips y los archivos que Exhibit no sabe nombrar. Agrega una carpeta en Configuración o espera a que termine el escaneo."
@@ -37,5 +36,8 @@
     "tmdb": {
       "no_key": "No hay clave de TMDB. Agrega una en Configuración."
     }
+  },
+  "sorts": {
+    "added": "Agregado"
   }
 }

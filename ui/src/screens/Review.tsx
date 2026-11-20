@@ -167,6 +167,7 @@ function Entry({ entry, source, onReveal }: { entry: ItemDetail; source: Source 
           light="review-light"
           onReveal={onReveal}
           onOpen={(w) => choose(candidates[w.id]!)}
+          hintOf={() => t("hints.choose")}
           className="min-w-0 flex-1"
         />
       ) : (

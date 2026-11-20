@@ -7,6 +7,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
+import { BackButton } from "@/components/BackButton";
 import { FocusButton } from "@/components/FocusButton";
 import { useT } from "@/i18n";
 import { useBrowse } from "@/components/FolderBrowser";
@@ -50,7 +51,7 @@ export function FirstRun() {
 
   return (
     <FocusScope key={step} id={`first-run-${step}`} restoreKey={LANDING[step]} onBack={step === "folder" ? undefined : () => go(-1)}>
-      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length}>
+      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length} onBack={step === "folder" ? undefined : () => go(-1)}>
         {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={() => go(1)} />}
         {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={() => go(1)} />}
         {step === "tmdb" && <TmdbStep onDone={finish} />}
@@ -60,7 +61,7 @@ export function FirstRun() {
 }
 
 /** A step: which of how many, then its own content, rising into place as it opens. */
-function Stage({ at, of, children }: { at: number; of: number | null; children: ReactNode }) {
+function Stage({ at, of, onBack, children }: { at: number; of: number | null; onBack?: () => void; children: ReactNode }) {
   const t = useT();
   return (
     <motion.div
@@ -69,6 +70,12 @@ function Stage({ at, of, children }: { at: number; of: number | null; children: 
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: seconds("--dur-screen"), ease: easeOut() }}
     >
+      {/* Back to the step before, where the bar's Back stands on other screens. */}
+      {onBack && (
+        <FocusGroup id="first-back" orientation="horizontal" className="absolute inset-x-0 top-0 flex h-bar items-center px-edge">
+          <BackButton focusKey="first:back" onBack={onBack} className="-ml-4" />
+        </FocusGroup>
+      )}
       {/* The count waits for the tools to be detected, so it never changes under the owner. */}
       <p className="h-[1lh] font-display text-body text-label-faint">{of !== null && t("firstRun.step", { at, of })}</p>
       {children}

@@ -155,6 +155,32 @@
     );
   }
 
+  /* RangeField's thumbs: two native range inputs over one track. Only the thumbs take the pointer,
+     so each end can be dragged; the focused end carries the lamp. */
+  .range-thumb::-webkit-slider-runnable-track {
+    height: 100%;
+    background: transparent;
+  }
+  .range-thumb::-webkit-slider-thumb {
+    pointer-events: auto;
+    appearance: none;
+    cursor: grab;
+    margin-top: calc((var(--range-height) - var(--range-thumb)) / 2);
+    width: var(--range-thumb);
+    height: var(--range-thumb);
+    border-radius: 9999px;
+    background: var(--label-dim);
+    box-shadow: 0 0 0 0.25rem var(--wall-raised);
+    transition: transform var(--dur-control);
+  }
+  .range-thumb:focus::-webkit-slider-thumb {
+    background: var(--lamp);
+    transform: scale(1.2);
+  }
+  .range-thumb:active::-webkit-slider-thumb {
+    cursor: grabbing;
+  }
+
   /* A wall's grid region: works scroll softly out under the controls and at the window's foot. */
   .wall-fade {
     mask-image: linear-gradient(
