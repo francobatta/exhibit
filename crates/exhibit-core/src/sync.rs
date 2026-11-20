@@ -194,7 +194,8 @@ fn run(
         }
         since => (svc.activity(account, since, http)?.facts, None),
     };
-    let films = resolve(c, service, &facts, tmdb.map(|(p, _)| p))?;
+    let again = export.is_some();
+    let films = resolve(c, service, &facts, again, tmdb.map(|(p, _)| p))?;
 
     let tx = db::write_tx(c)?;
     let mut touched = BTreeSet::new();
@@ -207,8 +208,12 @@ fn run(
         for id in s.query_map([service, KIND], |r| r.get::<_, i64>(0))? {
             touched.insert(id?);
         }
-        tx.prepare_cached("DELETE FROM service_facts WHERE service = ?1")?
-            .execute([service])?;
+        for sql in [
+            "DELETE FROM service_facts WHERE service = ?1",
+            "UPDATE service_films SET tried = 0 WHERE service = ?1 AND tmdb_id IS NULL",
+        ] {
+            tx.prepare_cached(sql)?.execute([service])?;
+        }
         tx.prepare_cached(
             "UPDATE service_state SET export_name = ?2, export_at = ?3 WHERE service = ?1",
         )?
@@ -260,11 +265,13 @@ struct Film {
 
 /// The film each key in `facts` names. A TMDB id from the service is used as is and fixes
 /// a film left out before; a film without one is searched for once, and kept only when the
-/// match is sure. Without a provider nothing is searched.
+/// match is sure. With `again` (an export) the films left out are searched once more, since
+/// the owner may have one of them now. Without a provider nothing is searched.
 fn resolve(
     c: &Connection,
     service: &str,
     facts: &[Dated],
+    again: bool,
     p: Option<&dyn MetadataProvider>,
 ) -> Result<HashMap<String, Film>> {
     let mut known = c.prepare_cached(
@@ -281,7 +288,7 @@ fn resolve(
                 title: film.title.clone(),
                 year: film.year,
                 tmdb_id,
-                tried,
+                tried: tried && !(again && tmdb_id.is_none()),
             };
             films.insert(film.key.clone(), f);
         }
@@ -813,12 +820,36 @@ mod tests {
         assert!(state.export_at.is_some() && state.synced_at.is_some());
         assert_eq!((state.unmatched, state.enabled), (1, true));
 
+        // Recent activity never searches again; the next export does, once, for what is left out.
         let (solaris_searches, untitled) = (p.searches("Solaris"), p.searches("Untitled Thing"));
         assert!(untitled > 0);
-        let r = e.sync(&s, Some(&p), export());
+        s.feed(vec![dated(
+            by_title("Untitled Thing", None),
+            Fact::Like,
+            None,
+        )]);
+        let r = e.sync(&s, Some(&p), SyncInput::Since(None));
         assert_eq!(r.unmatched, 1);
         assert_eq!(p.searches("Untitled Thing"), untitled);
+        s.feed(Vec::new());
+        let r = e.sync(&s, Some(&p), export());
+        assert_eq!(r.unmatched, 1);
+        assert_eq!(p.searches("Untitled Thing"), 2 * untitled);
         assert_eq!(p.searches("Solaris"), solaris_searches);
+    }
+
+    #[test]
+    fn the_next_export_searches_again_and_finds_the_namesake_since_owned() {
+        let e = env();
+        let p = namesakes();
+        assert_eq!(taxi_driver(&e, &p).unmatched, 1);
+        let searched = p.searches("Taxi Driver");
+        let drive = tempfile::tempdir().unwrap();
+        own(&e, &drive, 612_176, true);
+        let r = taxi_driver(&e, &p);
+        assert_eq!((r.liked, r.unmatched), (1, 0), "{r:?}");
+        assert_eq!(p.searches("Taxi Driver"), 2 * searched);
+        assert_eq!(e.facts(), [(612_176, "like".into(), 0, "{}".into())]);
     }
 
     #[test]
