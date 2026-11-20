@@ -1,0 +1,8 @@
+[package]
+name = "exhibit-services"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+exhibit-core = { version = "0.0.1", path = "../exhibit-core" }
+exhibit-letterboxd = { path = "../exhibit-letterboxd" }

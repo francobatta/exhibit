@@ -1275,6 +1275,7 @@ version = "0.0.1"
 dependencies = [
  "clap",
  "exhibit-core",
+ "exhibit-services",
  "serde",
  "serde_json",
  "tempfile",
@@ -1307,6 +1308,14 @@ dependencies = [
  "exhibit-core",
  "roxmltree",
  "zip",
+]
+
+[[package]]
+name = "exhibit-services"
+version = "0.0.1"
+dependencies = [
+ "exhibit-core",
+ "exhibit-letterboxd",
 ]
 
 [[package]]

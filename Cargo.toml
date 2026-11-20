@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/exhibit-core", "crates/exhibit-cli", "crates/exhibit-app", "crates/exhibit-letterboxd"]
+members = ["crates/exhibit-core", "crates/exhibit-cli", "crates/exhibit-app", "crates/exhibit-letterboxd", "crates/exhibit-services"]
 
 [workspace.package]
 edition = "2024"
