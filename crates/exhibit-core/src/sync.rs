@@ -28,6 +28,8 @@ pub struct ServiceState {
     pub export_name: Option<String>,
     pub export_at: Option<i64>,
     pub synced_at: Option<i64>,
+    /// The code of the last sync's failure (`service.unreachable`), for the window to word;
+    /// `service.failed` when the failure had none.
     pub error: Option<String>,
     /// Films the matcher could not place surely; they are left out.
     pub unmatched: u32,
@@ -137,7 +139,8 @@ pub fn service_unmatched(c: &Connection, service: &str) -> Result<Vec<(String, O
 /// and is followed at once by its recent activity (`Since(None)`), which a snapshot may not
 /// hold yet; `Since` adds and updates. Films are resolved and wanted rows made only with
 /// `tmdb`, the provider and the artwork folder. `on` gets each item whose facts changed. A
-/// failure is recorded as the service's error and returned.
+/// failure is recorded as the service's error code and returned; a snapshot whose recent
+/// activity cannot be read is stored all the same, with that failure recorded.
 pub fn sync(
     c: &Connection,
     svc: &dyn Service,
@@ -153,9 +156,14 @@ pub fn sync(
             "INSERT INTO service_state(service, error) VALUES (?1, ?2) \
              ON CONFLICT(service) DO UPDATE SET error = excluded.error",
         )?
-        .execute([svc.info().id, e.to_string().as_str()])?;
+        .execute([svc.info().id, code(e)])?;
     }
     done
+}
+
+/// The code the window words a failure from: the error's own, else `service.failed`.
+fn code(e: &Error) -> &'static str {
+    e.detail().and_then(|d| d.code).unwrap_or("service.failed")
 }
 
 fn run(
@@ -168,12 +176,17 @@ fn run(
     on: &mut dyn FnMut(Id),
 ) -> Result<SyncReport> {
     let service = svc.info().id;
+    // A snapshot is kept when its recent activity cannot be read, offline for one.
+    let mut late = None;
     let (facts, export) = match input {
         SyncInput::Snapshot(path) => {
             let mut facts = svc
                 .activity(account, SyncInput::Snapshot(path), http)?
                 .facts;
-            facts.extend(svc.activity(account, SyncInput::Since(None), http)?.facts);
+            match svc.activity(account, SyncInput::Since(None), http) {
+                Ok(recent) => facts.extend(recent.facts),
+                Err(e) => late = Some(code(&e)),
+            }
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
             (facts, Some(name.unwrap_or_default()))
         }
@@ -218,8 +231,8 @@ fn run(
         }
     }
     let mut items: BTreeSet<Id> = prune_wanted(&tx)?.into_iter().collect();
-    tx.prepare_cached("UPDATE service_state SET synced_at = ?2, error = NULL WHERE service = ?1")?
-        .execute(params![service, db::now()])?;
+    tx.prepare_cached("UPDATE service_state SET synced_at = ?2, error = ?3 WHERE service = ?1")?
+        .execute(params![service, db::now(), late])?;
     tx.commit()?;
 
     if let Some((p, cache_dir)) = tmdb {
@@ -490,6 +503,7 @@ mod tests {
         export: Mutex<Vec<Dated>>,
         feed: Mutex<Vec<Dated>>,
         fail: Mutex<bool>,
+        feed_fails: Mutex<bool>,
     }
 
     impl FakeService {
@@ -516,6 +530,9 @@ mod tests {
             }
             let facts = match input {
                 SyncInput::Snapshot(_) => self.export.lock().unwrap().clone(),
+                SyncInput::Since(_) if *self.feed_fails.lock().unwrap() => {
+                    return Err(Error::Provider("connection refused".into()));
+                }
                 SyncInput::Since(_) => self.feed.lock().unwrap().clone(),
             };
             Ok(ActivityBatch { facts })
@@ -1054,10 +1071,34 @@ mod tests {
         *s.fail.lock().unwrap() = true;
         assert!(e.try_sync(&s, None, export(), &mut |_| {}).is_err());
         let state = &service_states(&e.c).unwrap()[0];
-        assert!(state.error.as_deref().unwrap().contains("no such user"));
+        assert_eq!(state.error.as_deref(), Some("service.no_user"));
         assert_eq!(state.synced_at, None);
 
         *s.fail.lock().unwrap() = false;
+        e.sync(&s, None, SyncInput::Since(None));
+        assert_eq!(service_states(&e.c).unwrap()[0].error, None);
+    }
+
+    #[test]
+    fn a_snapshot_is_kept_when_the_recent_activity_cannot_be_read() {
+        let e = env();
+        let s = FakeService::default();
+        *s.feed_fails.lock().unwrap() = true;
+        s.export(vec![dated(
+            by_id("Stalker", Some(1979), 1398),
+            Fact::Like,
+            None,
+        )]);
+        let r = e.sync(&s, None, export());
+        assert_eq!(r.liked, 1, "{r:?}");
+        assert_eq!(e.facts(), [(1398, "like".into(), 0, "{}".into())]);
+        let state = &service_states(&e.c).unwrap()[0];
+        // The failure had no code of its own.
+        assert_eq!(state.error.as_deref(), Some("service.failed"));
+        assert_eq!(state.export_name.as_deref(), Some("diary-export.zip"));
+        assert!(state.synced_at.is_some());
+
+        *s.feed_fails.lock().unwrap() = false;
         e.sync(&s, None, SyncInput::Since(None));
         assert_eq!(service_states(&e.c).unwrap()[0].error, None);
     }
