@@ -19,6 +19,7 @@ pub mod query;
 mod rows;
 pub mod scan;
 pub mod secrets;
+pub mod service;
 pub mod tmdb;
 pub mod tools;
 pub mod translate;
