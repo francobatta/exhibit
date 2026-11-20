@@ -265,3 +265,30 @@ test("forgetting_asks_first", async () => {
   await settle();
   expect(calls("forget_service")).toEqual([{ id: "letterboxd" }]);
 });
+
+test("an_import_report_leaves_out_what_is_zero", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("job_status", () => ({
+    phase: null,
+    done: 0,
+    last_error: null,
+    last_import: { logged: 49, rated: 40, reviewed: 1, liked: 0, watchlisted: 0, not_in_library: 0, unmatched: 0 },
+  }));
+  screens({ screen: "settings" });
+  await settle(160);
+  const text = servicesPart()!.textContent!;
+  expect(text).toContain("49 films logged, 40 rated, 1 review.");
+  expect(text).not.toContain("watchlist (");
+  expect(text).not.toContain("on your watchlist");
+});
+
+test("an_old_export_says_to_download_a_new_one", async () => {
+  const old = Math.floor(Date.now() / 1000) - 60 * 24 * 3600;
+  tauri.handle("services", () => [service({ username: "ana", export_at: old })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  const text = servicesPart()!.textContent!;
+  expect(text).toContain("Download a new export from Letterboxd");
+  expect(text).not.toContain("Watchlist from");
+  expect(calls("find_service_export")).toEqual([]);
+});

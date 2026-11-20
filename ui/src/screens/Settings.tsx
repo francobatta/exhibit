@@ -35,8 +35,8 @@ import {
   type Language,
 } from "@/i18n";
 import * as api from "@/lib/api";
-import { keyRejected, plain, type ApiError, type LibraryStatus, type ServiceView, type Source, type ToolStatus } from "@/lib/api";
-import { writeDate } from "@/lib/format";
+import { keyRejected, plain, type ApiError, type LibraryStatus, type ServiceView, type SyncReport, type Source, type ToolStatus } from "@/lib/api";
+import { facts, writeDate } from "@/lib/format";
 import {
   keys,
   useConnectService,
@@ -296,6 +296,22 @@ function serviceError(code: string, t: ReturnType<typeof useT>): string {
   return translated(`errors.${code}`, {}) ?? t("errors.unknown");
 }
 
+/** What an import brought in, each part only when there is something: "49 films logged, 40 rated." */
+function importedSentence(r: SyncReport, t: ReturnType<typeof useT>): string {
+  const watchlist =
+    r.watchlisted > 0
+      ? t("services.importedWatchlist", { count: r.watchlisted }) +
+        (r.not_in_library > 0 ? ` (${t("services.importedWanted", { count: r.not_in_library })})` : "")
+      : null;
+  const sentence = facts([
+    r.logged > 0 ? t("services.importedLogged", { count: r.logged }) : null,
+    r.rated > 0 ? t("services.importedRated", { count: r.rated }) : null,
+    r.reviewed > 0 ? t("services.importedReviewed", { count: r.reviewed }) : null,
+    watchlist,
+  ]);
+  return sentence === "" ? "" : `${sentence}.`;
+}
+
 const NEWER_AFTER_S = 30 * 24 * 3600;
 
 /**
@@ -336,17 +352,16 @@ function ServiceLine({ view }: { view: ServiceView }) {
   const canExport = view.needs.includes("export_file") && view.exportPage !== null && state.username !== null;
   const stale = state.export_at !== null && Date.now() / 1000 - state.export_at > NEWER_AFTER_S;
 
-  // Polled while the step is open; once when the last export is old, to tell whether a newer one waits.
+  // Polled while the step is open.
   const file = useQuery({
     queryKey: ["service-export", id],
     queryFn: () => api.findServiceExport(id),
-    enabled: canExport && (step || stale),
+    enabled: canExport && step,
     refetchInterval: step ? 2000 : false,
     staleTime: 0,
     retry: false,
   });
   const waiting = file.data ?? null;
-  const newer = file.data != null && state.export_at !== null && file.data.modified > state.export_at;
 
   const unmatched = useQuery({
     queryKey: ["service-unmatched", id, state.unmatched],
@@ -401,19 +416,13 @@ function ServiceLine({ view }: { view: ServiceView }) {
   else if (state.error !== null) status.push(serviceError(state.error, t));
   else if (found !== null) status.push(t("services.found", { name: found.name, count: found.count }));
   else if (report) {
-    status.push(
-      t("services.imported", {
-        logged: report.logged,
-        rated: report.rated,
-        reviewed: report.reviewed,
-        watchlist: report.watchlisted,
-        wanted: report.not_in_library,
-      }),
-    );
-  } else if (state.export_at !== null) {
-    status.push(t("services.watchlistFrom", { date: writeDate(new Date(state.export_at * 1000)) }));
+    const sentence = importedSentence(report, t);
+    if (sentence !== "") status.push(sentence);
   }
-  if (status.length > 0 && !failed && stale && newer) status.push(t("services.newerExport", { service: name }));
+  if (status.length === 0 && state.export_at !== null) {
+    const date = writeDate(new Date(state.export_at * 1000));
+    status.push(stale ? t("services.newerExport", { date, service: name }) : t("services.watchlistFrom", { date }));
+  }
 
   return (
     <div className="flex flex-col gap-5">
