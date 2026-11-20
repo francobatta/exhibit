@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { activity, detail, service, summary } from "../../test/fixtures";
-import { facetsOf, hasActivity, itemActions, runAction, type ActionContext } from "./actions";
+import { activity, detail, mediaFile, service, summary } from "../../test/fixtures";
+import { facetsOf, hasActivity, itemActions, mainAction, runAction, runMain, type ActionContext } from "./actions";
 
 const labels = (list: ReturnType<typeof itemActions>) => list.map((a) => a.label);
 
@@ -16,7 +16,7 @@ describe("itemActions", () => {
 
   test("a half-watched movie resumes from where it stopped, or starts again", () => {
     const list = itemActions(
-      detail({ play: { item_id: 1, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 } }),
+      detail({ files: [mediaFile()], play: { item_id: 1, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 } }),
     );
     expect(labels(list).slice(0, 2)).toEqual(["Resume from 1:04:12", "Play from the start"]);
     expect(list[0]!.id).toBe("resume");
@@ -168,6 +168,24 @@ describe("the merged state", () => {
 
   test("a summary is already merged", () => {
     expect(facetsOf(summary({ watched: true, loved: true }))).toMatchObject({ watched: true, loved: true });
+  });
+});
+
+describe("a film the owner does not have", () => {
+  test("a_wanted_film_opens_details_and_offers_no_play", () => {
+    const wanted = summary({ in_library: false, available: false });
+    expect(mainAction(wanted)).toEqual({ id: "details", label: "Details" });
+    const ids = itemActions(wanted).map((a) => a.id);
+    expect(ids).not.toContain("play");
+    expect(ids).not.toContain("other");
+    expect(mainAction(detail({ files: [], available: false }, { kind: "movie" })).id).toBe("details");
+    // A show keeps its files on its episodes: it is no wanted film.
+    expect(mainAction(detail({ files: [] }, { kind: "show" })).id).toBe("details");
+    expect(itemActions(detail({ files: [] }, { kind: "show" }))[0]!.id).toBe("play");
+    const ctx = context();
+    runMain(wanted, ctx);
+    expect(ctx.open).toHaveBeenCalledWith(wanted);
+    expect(ctx.failOffline).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,11 @@ export const SEEN: Seen[] = ["unwatched", "started", "watched"];
 export const RESOLUTIONS: Resolution[] = ["uhd", "full_hd", "hd", "sd"];
 export const PICTURES: Picture[] = ["dolby_vision", "hdr10", "hlg", "sdr"];
 export const SOUNDS: Sound[] = ["atmos", "dts_x", "lossless", "surround"];
+/** What a service that brings the owner's activity adds to a wall: these filters, and the sort by their rating. */
+export const ACTIVITY = ["rated", "reviewed", "logged", "watchlist"] as const satisfies ReadonlyArray<keyof Filters>;
+export type ActivityFilter = (typeof ACTIVITY)[number];
+const ACTIVITY_NAME = { rated: "activity.rated", reviewed: "activity.reviewed", logged: "activity.logged", watchlist: "activity.onWatchlist" } as const;
+export const activityName = (f: ActivityFilter) => t(ACTIVITY_NAME[f]);
 
 /** The direction a sort takes first: titles A to Z, runtimes shortest first, dates newest first. */
 export const descends = (sort: Sort) => sort === "year" || sort === "added" || sort === "played" || sort === "my_rating";
@@ -57,6 +62,7 @@ export function filterCount(f: Filters): number {
     set("seen"),
     set("loved"),
     set("available"),
+    ...ACTIVITY.map((k) => set(k)),
     set("resolution"),
     set("picture"),
     set("sound"),
@@ -110,6 +116,7 @@ export function describe(f: Filters): string[] {
   if (c.without_genres) parts.push(t("filters.without", { genres: either(c.without_genres) }));
   parts.push(span(c.year_min, c.year_max, String), span(c.runtime_min, c.runtime_max, minutes));
   if (c.seen) parts.push(either(c.seen.map(seenName)));
+  for (const k of ACTIVITY) if (c[k]) parts.push(activityName(k));
   if (c.loved) parts.push(t("filters.loved"));
   if (c.available) parts.push(t("filters.available"));
   for (const formats of [c.resolution, c.picture, c.sound]) {
@@ -134,4 +141,17 @@ export function wallQuery(kind: ItemKind, view: View, sorted = true): SearchQuer
     ...(sorted && view.sort !== null && view.sort !== "title" && { sort: view.sort }),
     ...(sorted && view.sort !== null && view.descending !== descends(view.sort) && { descending: view.descending }),
   };
+}
+
+/**
+ * `view` without what a service that is now off gave it: its filters, and the sort by the owner's
+ * rating (back to the wall's own order). Null when it holds none of them.
+ */
+export function withoutActivity(view: View): View | null {
+  const held = ACTIVITY.filter((k) => view.filters[k] !== null && view.filters[k] !== undefined);
+  const sorted = view.sort === "my_rating";
+  if (held.length === 0 && !sorted) return null;
+  const filters = { ...view.filters };
+  for (const k of ACTIVITY) delete filters[k];
+  return sorted ? { sort: null, descending: false, filters } : { ...view, filters };
 }

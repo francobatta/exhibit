@@ -3,9 +3,9 @@
 // text, commas between facts, a missing fact leaves no trace.
 
 import { t, useT } from "@/i18n";
-import type { AudioTrack, ItemDetail, Source, SubTrack } from "@/lib/api";
-import { channels, clock, codec, day, facts, languageName, resolution, soundFormat } from "@/lib/format";
-import { useItemSources } from "@/lib/queries";
+import type { AudioTrack, ItemDetail, ServiceView, Source, SubTrack } from "@/lib/api";
+import { EXHIBIT, channels, clock, codec, day, facts, languageName, loggedLine, resolution, soundFormat } from "@/lib/format";
+import { useItemSources, useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /** Tracks listed by name before the rest are counted. */
@@ -37,19 +37,30 @@ function subtitles(tracks: SubTrack[]): string {
   return names.length > 0 ? more(names) : t("units.track", { count: tracks.length });
 }
 
-function played(detail: ItemDetail): string {
+/**
+ * How far the owner got, as the eye says it (the merged state): watched here; stopped part-way here;
+ * watched by a service's log, newest first ("Logged on Letterboxd 3 March 2019"); else not yet.
+ */
+function played(detail: ItemDetail, services: ServiceView[] | undefined): string {
   const play = detail.play;
-  const state = play?.watched
-    ? t("work.watched")
-    : play !== null && play.position_s > 0
-      ? t("tech.stoppedAt", { time: clock(play.position_s) })
-      : t("tech.notYet");
+  const { watched, watches } = detail.activity;
+  const logged = watches.find((w) => w.service !== EXHIBIT);
+  const state =
+    watched && play?.watched
+      ? t("work.watched")
+      : play !== null && !play.watched && play.position_s > 0
+        ? t("tech.stoppedAt", { time: clock(play.position_s) })
+        : watched
+          ? logged === undefined
+            ? t("work.watched")
+            : loggedLine(logged, services)
+          : t("tech.notYet");
   const last = play !== null && play.last_played_at > 0 ? day(play.last_played_at) : null;
   return facts([state, last === null ? null : t("tech.lastPlayed", { day: last })]);
 }
 
 /** The lines, label and value, for a full record; none when its file has not been read. */
-export function techLines(detail: ItemDetail, sources: Source[]): Array<{ label: string; value: string }> {
+export function techLines(detail: ItemDetail, sources: Source[], services?: ServiceView[]): Array<{ label: string; value: string }> {
   const tech = detail.files.find((f) => f.tech !== null)?.tech;
   if (!tech) return [];
   const lines = [
@@ -57,14 +68,14 @@ export function techLines(detail: ItemDetail, sources: Source[]): Array<{ label:
     { label: t("tech.audio"), value: audio(tech.audio) },
     { label: t("tech.subtitles"), value: subtitles(tech.subtitles) },
     { label: t("tech.drive"), value: facts(sources.map((s) => (s.online ? s.path : t("tech.notConnected", { path: s.path })))) },
-    { label: t("tech.played"), value: played(detail) },
+    { label: t("tech.played"), value: played(detail, services) },
   ];
   return lines.filter((l) => l.value !== "");
 }
 
 export function TechLines({ detail, className }: { detail: ItemDetail; className?: string }) {
   useT();
-  const lines = techLines(detail, useItemSources(detail));
+  const lines = techLines(detail, useItemSources(detail), useServices().data);
   if (lines.length === 0) return null;
   return (
     <dl className={cn("grid grid-cols-[auto_minmax(0,1fr)] gap-x-5 gap-y-1.5 font-display text-body", className)}>

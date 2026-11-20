@@ -1,7 +1,8 @@
 // Everything a wall can be narrowed by, in a sheet at its right. Each choice applies at once, so the
 // wall behind it rehangs and the count above says how many works are left; B or Done closes it. A
 // section shows only where the wall has something to choose (no runtimes on Shows, no genres in
-// Other). Genres take three states: wanted, left out, neither.
+// Other). Genres take three states: wanted, left out, neither. "Your activity" is there only while a
+// service brings the owner's activity in, each choice with how many works it leaves.
 
 import type { ReactNode } from "react";
 import { Lamp } from "@/components/Lamp";
@@ -11,12 +12,15 @@ import { DialogTitle } from "@/components/ui/dialog";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, FocusScope, useFocusItem } from "@/focus/react";
 import { useT } from "@/i18n";
+import { hasActivity } from "@/lib/actions";
 import type { Count, Facets, Filters, ItemKind } from "@/lib/api";
 import {
+  ACTIVITY,
   PICTURES,
   RESOLUTIONS,
   SEEN,
   SOUNDS,
+  activityName,
   compact,
   cycleGenre,
   formatName,
@@ -28,7 +32,8 @@ import {
   toggled,
   type GenreState,
 } from "@/lib/filters";
-import { useFacets } from "@/lib/queries";
+import { number } from "@/lib/format";
+import { useFacets, useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 const sheet = cn(
@@ -50,12 +55,15 @@ function Chip({
   focusKey,
   state,
   excludes = false,
+  count,
   onPress,
   children,
 }: {
   focusKey: string;
   state: GenreState;
   excludes?: boolean;
+  /** How many works choosing it leaves, after its name. */
+  count?: number;
   onPress: () => void;
   children: ReactNode;
 }) {
@@ -81,6 +89,11 @@ function Chip({
     >
       {state === "out" && <span aria-hidden>−</span>}
       {children}
+      {count !== undefined && (
+        <span data-slot="count" className="tabular-nums opacity-60">
+          {number(count)}
+        </span>
+      )}
       {focused && <Lamp />}
     </Toggle>
   );
@@ -164,6 +177,10 @@ export function FilterSheet({ open, kind, filters: f, onFilters, count, counting
   const audio = languages(values(facets?.audio), f.audio);
   const subtitles = languages(values(facets?.subtitles), f.subtitles);
   const pictureShown = [...values(facets?.resolution), ...values(facets?.picture)].length > 0;
+  // A choice with nothing to leave is not offered, unless it is chosen and so can be taken off.
+  const activity = hasActivity(useServices().data)
+    ? ACTIVITY.filter((k) => (facets?.activity?.[k] ?? 0) > 0 || f[k])
+    : [];
 
   return (
     <FocusScope
@@ -199,6 +216,23 @@ export function FilterSheet({ open, kind, filters: f, onFilters, count, counting
         <Section title={t("filters.watching")}>
           <Choices id="filters-seen" order={SEEN} present={SEEN} chosen={f.seen} name={seenName} onToggle={(v) => set({ seen: toggled(f.seen, v) })} />
         </Section>
+        {activity.length > 0 && (
+          <Section title={t("filters.activity")}>
+            <FocusGroup id="filters-activity" orientation="spatial" className="-mx-1 flex flex-wrap gap-2">
+              {activity.map((k) => (
+                <Chip
+                  key={k}
+                  focusKey={`filters:${k}`}
+                  state={f[k] ? "in" : "off"}
+                  count={facets?.activity?.[k]}
+                  onPress={() => set({ [k]: f[k] ? null : true })}
+                >
+                  {activityName(k)}
+                </Chip>
+              ))}
+            </FocusGroup>
+          </Section>
+        )}
         <Section title={t("filters.collection")}>
           <FocusGroup id="filters-collection" orientation="spatial" className="-mx-1 flex flex-wrap gap-2">
             <Chip focusKey="filters:loved" state={f.loved ? "in" : "off"} onPress={() => set({ loved: f.loved ? null : true })}>

@@ -50,7 +50,7 @@ test("searches once typing pauses, and shows the results as a shelf per kind", a
   expect(tauri.calls().filter((c) => c.cmd === "search")).toEqual([]);
   await act(() => sleep(250));
   expect(tauri.calls().filter((c) => c.cmd === "search").map((c) => c.args)).toEqual([
-    { query: { text: "heat", limit: 40 } },
+    { query: { text: "heat", limit: 40, with_wanted: true } },
     { query: { text: "heat", kind: "episode", limit: 40 } },
   ]);
   // The results arrive and render.

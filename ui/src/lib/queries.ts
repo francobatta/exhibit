@@ -189,14 +189,15 @@ const ASK_LIMIT = 40;
 
 /**
  * Ask's results for `text` (already debounced): in this stage, the library search by kind. The
- * plain search finds titles (an episode's hit counts for its show), so episodes are asked apart.
+ * plain search finds titles (an episode's hit counts for its show), so episodes are asked apart. The
+ * films on the owner's watchlist that they do not have are found too, after the ones they have.
  */
 export function useAsk(text: string) {
   return useQuery({
     queryKey: keys.ask(text),
     queryFn: async (): Promise<AskResult> => {
       const [titles, episodes] = await Promise.all([
-        api.search({ text, limit: ASK_LIMIT }),
+        api.search({ text, limit: ASK_LIMIT, with_wanted: true }),
         api.search({ text, kind: "episode", limit: ASK_LIMIT }),
       ]);
       return askGroups([...titles, ...episodes]);
@@ -259,9 +260,13 @@ export function useNeedsReview() {
   return useQuery({ queryKey: keys.needsReview, queryFn: api.needsReview });
 }
 
-/** The services and where the owner stands with each; a library change refreshes it. */
+/**
+ * The services and where the owner stands with each; a library change refreshes it. A failure to
+ * say counts as no service, and is not asked again each time a part that reads it mounts: screens
+ * wait for the first answer, so asking again would send them back to waiting.
+ */
 export function useServices() {
-  return useQuery({ queryKey: keys.services, queryFn: api.services, staleTime: ITEM_STALE });
+  return useQuery({ queryKey: keys.services, queryFn: api.services, staleTime: ITEM_STALE, retryOnMount: false });
 }
 
 /** What a service changes reaches every list, shelf and record, so each of these refreshes the library. */

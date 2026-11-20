@@ -62,6 +62,8 @@ export function facetsOf(item: ActionItem) {
       inProgress: play !== null && !play.watched && play.position_s > 0,
       resumeAt: play !== null && play.position_s > 0 ? play.position_s : null,
       matchState: item.item.match_state,
+      // A show keeps its files on its episodes; only a film with none is one the owner does not have.
+      wanted: item.item.kind === "movie" && item.files.length === 0,
       seen: seenOf(item.children.length > 0 && item.children.every((c) => c.watched), item.children.some((c) => c.watched || (c.progress ?? 0) > 0)),
     };
   }
@@ -75,6 +77,7 @@ export function facetsOf(item: ActionItem) {
     inProgress: !item.watched && item.progress !== null && item.progress > 0,
     resumeAt: null,
     matchState: item.match_state,
+    wanted: item.in_library === false,
     seen: seenOf(item.watched, (item.progress ?? 0) > 0),
   };
 }
@@ -92,21 +95,24 @@ function playLabel(item: ActionItem): string {
   return label ? t("actions.playEpisode", { episode: label }) : t("actions.playNext");
 }
 
-/** What can be done to `item`, the main action first. */
+/**
+ * What can be done to `item`, the main action first. A film the owner does not have (on their
+ * watchlist) has nothing to play or send to Other: its Details come first.
+ */
 export function itemActions(item: ActionItem): Action[] {
   const f = facetsOf(item);
   const offline = f.available ? {} : { disabled: t("actions.offline"), offline: true as const };
   const list: Action[] = [];
   const container = f.kind === "show" || f.kind === "season";
 
-  if (!container && f.inProgress) {
+  if (!f.wanted && !container && f.inProgress) {
     list.push({
       id: "resume",
       label: f.resumeAt !== null ? t("actions.resumeFrom", { time: clock(f.resumeAt) }) : t("actions.resume"),
       ...offline,
     });
     list.push({ id: "restart", label: t("actions.restart"), ...offline });
-  } else {
+  } else if (!f.wanted) {
     list.push({ id: "play", label: playLabel(item), ...offline });
   }
   // A season is only ever seen on its show's screen, which is its details.
@@ -125,11 +131,11 @@ export function itemActions(item: ActionItem): Action[] {
   if (f.kind === "movie" || f.kind === "show" || f.kind === "other") {
     list.push({ id: "fix", label: t("actions.fix") });
   }
-  if (f.kind === "movie" || f.kind === "show") list.push({ id: "other", label: t("actions.other") });
+  if ((f.kind === "movie" && !f.wanted) || f.kind === "show") list.push({ id: "other", label: t("actions.other") });
   return list;
 }
 
-/** What A does on a work: a show (or season) opens; anything else plays or resumes. */
+/** What A does on a work: a show (or season) opens, as does a film the owner does not have; anything else plays or resumes. */
 export function mainAction(item: ActionItem): Action {
   const actions = itemActions(item);
   const { kind } = facetsOf(item);

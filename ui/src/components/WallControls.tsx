@@ -11,13 +11,22 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { t, useT } from "@/i18n";
+import { hasActivity } from "@/lib/actions";
 import type { Sort } from "@/lib/api";
 import { SORTS, describe, descends, direction, filterCount, sortName } from "@/lib/filters";
+import { facts } from "@/lib/format";
+import { useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import type { WallKind, WallView } from "@/nav/stack";
 
-/** Other hangs by folder, so it has no sort. */
-export const sorts = (kind: WallKind) => kind !== "other";
+/**
+ * The orders a wall offers: none on Other, which hangs by folder; on Movies also the owner's own
+ * rating, while a service brings it (`activity`).
+ */
+export function sorts(kind: WallKind, activity = false): Sort[] {
+  if (kind === "other") return [];
+  return kind === "movie" && activity ? [...SORTS, "my_rating"] : SORTS;
+}
 
 export const clearFilters = (view: WallView): WallView => ({ ...view, filters: {} });
 
@@ -25,6 +34,11 @@ export const clearFilters = (view: WallView): WallView => ({ ...view, filters: {
 export function countLine(kind: WallKind, n: number): string {
   const unit = ({ movie: "units.movie", show: "units.show", other: "units.item" } as const)[kind];
   return t(unit, { count: n });
+}
+
+/** "96 films on your watchlist, 71 not in your library": the watchlist view, the ones the owner does not have counted apart. */
+export function watchlistLine(n: number, wanted: number): string {
+  return facts([t("activity.watchlistCount", { count: n }), wanted > 0 ? t("activity.notInLibraryCount", { count: wanted }) : null]);
 }
 
 const control = "relative focus-visible:bg-transparent focus:text-label";
@@ -116,17 +130,21 @@ export interface WallControlsProps {
   onView: (view: WallView) => void;
   /** How many works the view leaves; null until every page of them has arrived. */
   total: number | null;
+  /** How many of them the owner does not have (the watchlist view lists those too). */
+  wanted?: number;
   selection?: WallSelection;
   className?: string;
 }
 
-export function WallControls({ kind, view, onView, total, selection, className }: WallControlsProps) {
+export function WallControls({ kind, view, onView, total, wanted = 0, selection, className }: WallControlsProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const offered = sorts(kind, hasActivity(useServices().data));
   // The last count holds, dimmed, while a changed view is counted, so the number never blinks out.
-  const [known, setKnown] = useState(total);
-  if (total !== null && total !== known) setKnown(total);
-  const counted = known === null ? null : countLine(kind, known);
+  const line =
+    total === null ? null : kind === "movie" && view.filters.watchlist ? watchlistLine(total, wanted) : countLine(kind, total);
+  const [counted, setCounted] = useState(line);
+  if (line !== null && line !== counted) setCounted(line);
   const count = filterCount(view.filters);
   const summary = describe(view.filters).join(" · ");
   return (
@@ -152,11 +170,11 @@ export function WallControls({ kind, view, onView, total, selection, className }
           </>
         ) : (
           <>
-            {sorts(kind) && (
+            {offered.length > 0 && (
               <>
                 <span className={cn(caption, "mr-3")}>{t("wall.sort")}</span>
                 <div role="group" aria-label={t("wall.sort")} className="contents">
-                  {SORTS.map((s) => (
+                  {offered.map((s) => (
                     <SortToggle key={s} sort={s} view={view} onView={onView} />
                   ))}
                 </div>

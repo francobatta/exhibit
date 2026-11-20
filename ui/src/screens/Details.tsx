@@ -30,7 +30,7 @@ import {
   type Sourced,
   type WatchFact,
 } from "@/lib/api";
-import { bytes, clock, facts, initials, languageName, listed, resolution, shortDay } from "@/lib/format";
+import { EXHIBIT, bytes, clock, facts, initials, languageName, listed, loggedLine, resolution, serviceName, shortDay } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
 import { useCast, useItem, useItemSources, useServices } from "@/lib/queries";
@@ -259,9 +259,6 @@ const REVIEW = "[data-focus-group='details-review']";
 const CAST = "[data-focus-group='details-cast']";
 /** The first focus item of a group, by its selector. */
 const focusable = (group: string) => document.querySelector<HTMLElement>(`${group} [data-focus-key]`);
-
-/** The service id of what Exhibit holds itself. */
-const EXHIBIT = "exhibit";
 
 /** A part of the second movement, named quietly above it. */
 function Part({ title, children, inert, ref }: { title: string; children: ReactNode; inert?: boolean; ref?: Ref<HTMLElement> }) {
@@ -516,9 +513,6 @@ export function historyLine(detail: ItemDetail): string {
 /** Watches listed one by one before the rest are counted. */
 const WATCHES = 5;
 
-/** A service's name as its adapter gives it, or its id while the services are not known. */
-const serviceName = (id: string, services: ServiceView[] | undefined) => services?.find((s) => s.id === id)?.name ?? id;
-
 /** One watch: "Played in Exhibit 12 March", "Logged on Letterboxd 3 March 2019, rewatch". */
 function watchLine(watch: Sourced<WatchFact>, services: ServiceView[] | undefined): string {
   let line: string;
@@ -526,10 +520,7 @@ function watchLine(watch: Sourced<WatchFact>, services: ServiceView[] | undefine
     const date = watch.on === null ? null : shortDay(watch.on);
     line = date ? t("activity.playedInExhibitOn", { date }) : t("activity.playedInExhibit");
   } else {
-    const service = serviceName(watch.service, services);
-    // A service's day is midnight UTC: read as that day wherever the window is.
-    const date = watch.on === null ? null : shortDay(watch.on, { utc: true });
-    line = date ? t("activity.loggedOn", { service, date }) : t("activity.loggedOnUndated", { service });
+    line = loggedLine(watch, services);
   }
   return watch.rewatch ? t("activity.withRewatch", { line }) : line;
 }

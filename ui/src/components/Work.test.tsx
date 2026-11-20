@@ -51,6 +51,24 @@ describe("Work", () => {
     expect(root.hasAttribute("data-lit")).toBe(true);
   });
 
+  test("a_wanted_work_is_unlit_never_grey_and_says_it_is_not_in_the_library", () => {
+    const wanted = summary({ title: "Paris, Texas", year: 1984, in_library: false, available: false });
+    const { container, rerender } = render(<Work item={wanted} shape="poster" focused={false} />);
+    const root = container.firstElementChild as HTMLElement;
+    const art = () => root.querySelector(".rounded-work")!.className;
+    expect(root.hasAttribute("data-wanted")).toBe(true);
+    expect(root.hasAttribute("data-offline")).toBe(false);
+    expect(art()).toContain("[filter:var(--work-dim)]");
+    expect(art()).not.toContain("grayscale");
+    expect(art()).not.toContain("--offline");
+    // Focused, it brightens like any work.
+    rerender(<Work item={wanted} shape="poster" focused />);
+    expect(art()).not.toContain("[filter:");
+    expect(art()).not.toContain("grayscale");
+    expect(workLabel(wanted)).toBe("Paris, Texas, 1984, Not in your library");
+    expect(workLabel(summary({ title: "Heat", year: 1995, available: false }))).toBe("Heat, 1995, Offline");
+  });
+
   test("focus puts the light on the work", () => {
     const { container, rerender } = render(<Work item={summary()} shape="poster" focused={false} />);
     expect(container.querySelector("[data-light]")).toBeNull();

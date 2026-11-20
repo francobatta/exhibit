@@ -2,7 +2,7 @@
 // or "" rather than a broken string.
 
 import { currentDateFormat, language, t, type DateFormat } from "@/i18n";
-import type { ItemSummary } from "./api";
+import type { ItemSummary, ServiceView, Sourced, WatchFact } from "./api";
 
 const finite = (n: number | null | undefined): n is number =>
   typeof n === "number" && Number.isFinite(n);
@@ -236,4 +236,18 @@ export function confidence(score: number): string {
 /** "English or French", "inglés, francés o neerlandés". */
 export function either(parts: string[]): string {
   return new Intl.ListFormat(language(), { style: "long", type: "disjunction" }).format(parts);
+}
+
+/** The service id of what Exhibit holds itself. */
+export const EXHIBIT = "exhibit";
+
+/** A service's name as its adapter gives it, or its id while the services are not known. */
+export const serviceName = (id: string, services: ServiceView[] | undefined) => services?.find((s) => s.id === id)?.name ?? id;
+
+/** A watch a service logged: "Logged on Letterboxd 3 March 2019", or only where when it has no day. */
+export function loggedLine(watch: Sourced<WatchFact>, services: ServiceView[] | undefined): string {
+  const service = serviceName(watch.service, services);
+  // A service's day is midnight UTC: read as that day wherever the window is.
+  const date = watch.on === null ? null : shortDay(watch.on, { utc: true });
+  return date ? t("activity.loggedOn", { service, date }) : t("activity.loggedOnUndated", { service });
 }

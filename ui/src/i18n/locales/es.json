@@ -411,6 +411,9 @@
     "watchlistCount_one": "{{count, number}} película en tu lista por ver",
     "watchlistCount_many": "{{count, number}} películas en tu lista por ver",
     "watchlistCount_other": "{{count, number}} películas en tu lista por ver",
+    "notInLibraryCount_one": "{{count, number}} no está en tu biblioteca",
+    "notInLibraryCount_many": "{{count, number}} no están en tu biblioteca",
+    "notInLibraryCount_other": "{{count, number}} no están en tu biblioteca",
     "shelf": "Tu lista por ver"
   },
   "firstRun": {
@@ -529,7 +532,7 @@
     "year": "Año",
     "runtime": "Duración",
     "played": "Visto por última vez",
-    "my_rating": "Mi puntuación",
+    "my_rating": "Tu puntuación",
     "alpha": {
       "asc": "De la A a la Z",
       "desc": "De la Z a la A"
@@ -551,6 +554,7 @@
     "title": "Filtros",
     "clear": "Quitar todos",
     "watching": "Visionado",
+    "activity": "Tu actividad",
     "seen": {
       "unwatched": "Sin ver",
       "started": "A medias",

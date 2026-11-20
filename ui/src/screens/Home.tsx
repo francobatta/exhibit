@@ -22,13 +22,17 @@ import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus
 import { openSettings } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
 
-/** Home's shelves, in order, each shown only when it has items. */
+/**
+ * Home's shelves, in order, each shown only when it has items. The watchlist (the films the owner
+ * has first, then the ones they do not, unlit) only while a service brings their activity in.
+ */
 const SHELVES = [
   { shelf: "continue_watching", limit: 20, title: "home.continueWatching" },
+  { shelf: "watchlist", limit: 30, title: "activity.shelf", activity: true },
   { shelf: "recently_added", limit: 30, title: "home.recentlyAdded" },
   { shelf: "unwatched", limit: 30, title: "home.notWatchedYet" },
   { shelf: "loved", limit: 30, title: "home.loved" },
-] as const satisfies Array<{ shelf: ShelfName; limit: number; title: string }>;
+] as const satisfies Array<{ shelf: ShelfName; limit: number; title: string; activity?: boolean }>;
 
 interface Row {
   shelf: ShelfName;
@@ -43,6 +47,7 @@ export function Home() {
     useShelf(SHELVES[1]!.shelf, SHELVES[1]!.limit),
     useShelf(SHELVES[2]!.shelf, SHELVES[2]!.limit),
     useShelf(SHELVES[3]!.shelf, SHELVES[3]!.limit),
+    useShelf(SHELVES[4]!.shelf, SHELVES[4]!.limit),
   ];
   const job = useJobStatus();
   const status = useStatus().data;
@@ -64,8 +69,9 @@ export function Home() {
   }
   // Recently added holds every film and show, so when it is empty there are none; Other has its
   // own wall and never comes to Home.
+  const activity = hasActivity(services.data);
   const rows: Row[] = SHELVES.map((s, i) => ({ shelf: s.shelf, title: t(s.title), items: queries[i]!.data ?? [] })).filter(
-    (r) => r.items.length > 0,
+    (r, i) => r.items.length > 0 && (activity || !("activity" in SHELVES[i]!)),
   );
   if (rows.length === 0) {
     // Which empty this is waits for the folders to be known.
@@ -85,7 +91,7 @@ export function Home() {
       />
     );
   }
-  return <Spotlight rows={rows} verdicts={hasActivity(services.data)} />;
+  return <Spotlight rows={rows} verdicts={activity} />;
 }
 
 /**

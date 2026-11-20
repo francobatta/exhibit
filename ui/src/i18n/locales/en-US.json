@@ -412,6 +412,8 @@
     "notInLibrary": "Not in your library",
     "watchlistCount_one": "{{count, number}} film on your watchlist",
     "watchlistCount_other": "{{count, number}} films on your watchlist",
+    "notInLibraryCount_one": "{{count, number}} not in your library",
+    "notInLibraryCount_other": "{{count, number}} not in your library",
     "shelf": "Your watchlist"
   },
   "firstRun": {
@@ -532,7 +534,7 @@
     "added": "Added",
     "runtime": "Runtime",
     "played": "Last watched",
-    "my_rating": "My rating",
+    "my_rating": "Your rating",
     "alpha": {
       "asc": "A to Z",
       "desc": "Z to A"
@@ -554,6 +556,7 @@
     "title": "Filters",
     "clear": "Clear all",
     "watching": "Watching",
+    "activity": "Your activity",
     "seen": {
       "unwatched": "Not watched",
       "started": "In progress",

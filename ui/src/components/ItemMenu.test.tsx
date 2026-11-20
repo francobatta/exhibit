@@ -1,7 +1,7 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { detail, summary } from "../../test/fixtures";
+import { detail, mediaFile, summary } from "../../test/fixtures";
 import { until } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { installBridge } from "@/focus/bridge";
@@ -45,7 +45,14 @@ async function close() {
 
 function setup(item: ItemSummary) {
   tauri.handle("item", () =>
-    detail({ play: { item_id: item.id, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 }, available: item.available }, { id: item.id }),
+    detail(
+      {
+        files: [mediaFile({ item_id: item.id })],
+        play: { item_id: item.id, position_s: 3852, duration_s: 6840, watched: false, last_played_at: 0 },
+        available: item.available,
+      },
+      { id: item.id },
+    ),
   );
   tauri.handle("set_watched", () => null);
   tauri.handle("move_to_other", () => null);

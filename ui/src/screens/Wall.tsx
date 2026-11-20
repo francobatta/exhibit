@@ -15,12 +15,12 @@ import { WallControls, clearFilters, sorts } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { useLanguage, useT } from "@/i18n";
-import { facetsOf, mainAction, mainHint, runAction, runMain, useActionContext, type Action } from "@/lib/actions";
-import { filterCount, wallQuery } from "@/lib/filters";
+import { facetsOf, hasActivity, mainAction, mainHint, runAction, runMain, useActionContext, type Action } from "@/lib/actions";
+import { filterCount, wallQuery, withoutActivity } from "@/lib/filters";
 import { imageUrl, plain, type CastMember, type Id, type ItemSummary } from "@/lib/api";
 import { facts, initials } from "@/lib/format";
 import { seconds } from "@/lib/motion";
-import { useCast, useItem, useItemSources, useItems, useJobStatus } from "@/lib/queries";
+import { useCast, useItem, useItemSources, useItems, useJobStatus, useServices } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
 import type { WallKind, WallView } from "@/nav/stack";
 
@@ -104,7 +104,16 @@ export function Wall({ kind, view, onView }: WallProps) {
     const { genres, without_genres, ...rest } = view.filters;
     if (genres?.length || without_genres?.length) onView({ ...view, filters: rest });
   }, [lang, view, onView]);
-  const query = useMemo(() => wallQuery(kind, view, sorts(kind)), [kind, view]);
+  // What a service gave the view (its filters, the sort by the owner's rating) goes with it when it
+  // is switched off. Only once the services are known: a failure to say keeps the view.
+  const services = useServices();
+  const off = services.data !== undefined && !hasActivity(services.data);
+  useEffect(() => {
+    if (!off) return;
+    const kept = withoutActivity(view);
+    if (kept !== null) onView(kept);
+  }, [off, view, onView]);
+  const query = useMemo(() => wallQuery(kind, view, sorts(kind).length > 0), [kind, view]);
   const result = useItems(query);
   const job = jobLine(useJobStatus());
   // With no work in focus the wall goes back to its own colour.
@@ -113,8 +122,9 @@ export function Wall({ kind, view, onView }: WallProps) {
     if (bare) useBackdrop.getState().show(null, null);
   }, [bare]);
 
-  // A focus scope settles as it mounts, so the wall renders once its data is here.
-  if (result.isPending) return <Loading label={t("wall.hanging")} />;
+  // A focus scope settles as it mounts, so the wall renders once its data is here, and its sorts
+  // and filters once the services are known, so none of them arrives late.
+  if (result.isPending || services.isPending) return <Loading label={t("wall.hanging")} />;
   if (result.isError) {
     return (
       <ErrorState
@@ -145,6 +155,8 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
   const [focused, setFocused] = useState<Id | null>(null);
   // Other hangs grouped by folder, each group under its folder's name.
   const hung = useMemo(() => (kind === "other" ? byFolder(items) : { items, headings: undefined }), [kind, items]);
+  // The watchlist view also lists the films the owner does not have; the count says how many.
+  const wanted = useMemo(() => items.reduce((n, i) => (i.in_library === false ? n + 1 : n), 0), [items]);
   // The focused work as the library last reported it; the first one before anything has focus.
   const current = hung.items.find((i) => i.id === focused) ?? hung.items[0];
   const [selected, setSelected] = useState<ReadonlySet<Id> | null>(null);
@@ -234,6 +246,7 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
         view={view}
         onView={onView}
         total={complete ? items.length : null}
+        wanted={wanted}
         selection={selected === null ? undefined : { count: selected.size, onMark: (w) => void mark(w), onDone: done }}
       />
     </div>
@@ -256,6 +269,8 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   const work = detail ?? item;
   const action = mainAction(work);
   const f = facetsOf(work);
+  // A film the owner does not have has nothing to play: the pill says A opens its Details.
+  const wanted = item.in_library === false;
   const run = (id: Action["id"]) => void runAction({ id, label: "" }, work, ctx);
   const states: States = {
     loved: f.loved,
@@ -277,7 +292,7 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
           action={action}
           drive={drive}
           progress={action.id === "resume" ? placardLines(item, detail).progress : null}
-          onPress={() => runMain(work, ctx)}
+          onPress={wanted ? undefined : () => runMain(work, ctx)}
           states={states}
         />
       ) : (

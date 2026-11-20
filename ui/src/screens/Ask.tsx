@@ -1,6 +1,7 @@
 // Ask: an overlay over any screen, opened by Y, `/`, Ctrl+K or the top bar's field, closed by B
 // back to exactly where focus was. In this stage it is plain search: one large field and, as the
-// owner types (after a 200 ms pause), the library's matches as a shelf per kind. A on a result
+// owner types (after a 200 ms pause), the library's matches as a shelf per kind, with the films on
+// the owner's watchlist they do not have after the ones they have, unlit as on the wall. A on a result
 // runs its main action, X opens its menu. With nothing typed, the last six searches are offered.
 // Stage 4 swaps only `useAsk`'s source for the agent.
 
