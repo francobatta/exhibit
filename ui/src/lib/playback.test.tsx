@@ -1,7 +1,7 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, screens, select, settle } from "../../test/app";
-import { detail } from "../../test/fixtures";
+import { detail, mediaFile } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { SHOW, fakeShow } from "../../test/show";
 import { toast } from "@/components/ui/toast";
@@ -30,7 +30,7 @@ const ended = (p: Partial<PlayEnded>) =>
 
 function film() {
   tauri.handle("status", () => ({ movies: 1, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: true, agent_key: false }));
-  tauri.handle("item", () => detail({}, { id: 7 }));
+  tauri.handle("item", () => detail({ files: [mediaFile({ item_id: 7 })] }, { id: 7 }));
 }
 
 test("a missing player says so in a dialog, names the path tried, and offers Settings to the pad", async () => {

@@ -1,22 +1,39 @@
 // A work's own room, in two movements. The first is the work: its backdrop, its placard in full,
 // and its row of cues as on Home (components/Cues). The rest of what can be done waits in the
-// item menu (X). Below, peeking in, the
-// second: who is in it, as portraits, then its record, the file and its life in Exhibit. Down
-// glides from one movement to the other; the backdrop darkens as it goes.
+// item menu (X). Below, peeking in, the second: the owner's own review when they wrote one, who is
+// in it, as portraits, then its record, the file and its history (every watch, from Exhibit and
+// from each service). Down glides from one movement to the other; the backdrop darkens as it goes.
 
 import { motion } from "motion/react";
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { useScreenBackdrop } from "@/components/Backdrop";
 import { Cues } from "@/components/Cues";
-import { Placard, placardLines, trackLines } from "@/components/Placard";
+import { Placard, placardLines, Stars, trackLines } from "@/components/Placard";
+import { ServiceMark } from "@/components/ServiceMark";
 import { ErrorState, Loading } from "@/components/states";
-import { FocusGroup, useFocusItem } from "@/focus/react";
+import { buttonVariants } from "@/components/ui/button";
+import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
+import type { Dir } from "@/focus/bridge";
+import { FocusGroup, useFocusItem, useInputMode } from "@/focus/react";
 import { t, useT } from "@/i18n";
-import { imageUrl, plain, type CastMember, type Id, type ItemDetail, type MediaFile, type Source } from "@/lib/api";
+import {
+  imageUrl,
+  plain,
+  type CastMember,
+  type Id,
+  type ItemDetail,
+  type MediaFile,
+  type RatingFact,
+  type ReviewFact,
+  type ServiceView,
+  type Source,
+  type Sourced,
+  type WatchFact,
+} from "@/lib/api";
 import { bytes, clock, facts, initials, languageName, listed, resolution, shortDay } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
-import { useCast, useItem, useItemSources } from "@/lib/queries";
+import { useCast, useItem, useItemSources, useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { openAsk, useNav } from "@/nav/stack";
 
@@ -49,18 +66,70 @@ function Shown({ detail }: { detail: ItemDetail }) {
     item.poster ?? parent?.poster ?? show?.poster ?? null,
   );
 
+  const review = detail.activity.reviews[0] ?? null;
+  // The stars beside the review are the rating its own service gave.
+  const reviewRating = review === null ? null : (detail.activity.ratings.find((r) => r.service === review.service) ?? null);
+  const firstItems = review !== null || cast.length > 0;
+
   const scroller = useRef<HTMLDivElement>(null);
   const second = useRef<HTMLElement>(null);
+  const reviewPart = useRef<HTMLElement>(null);
+  const castPart = useRef<HTMLElement>(null);
   const [below, setBelow] = useState(false);
   const belowNow = useRef(below);
+  // Where the scroller is gliding to, so a held key pages on from there, not from mid-glide.
+  const target = useRef(0);
+  const px = (token: string) => rems(token) * remPx();
   // The second movement stands just under the bar.
-  const anchor = (down: boolean) => (down && second.current !== null ? second.current.offsetTop - rems("--space-bar") * remPx() : 0);
-  const glide = (down: boolean) => {
+  const anchor = (down: boolean) => (down && second.current !== null ? second.current.offsetTop - px("--space-bar") : 0);
+  const glide = (down: boolean, to = anchor(down)) => {
     const el = scroller.current;
     if (el === null) return;
     belowNow.current = down;
     setBelow(down);
-    glideScroll(el, "top", anchor(down));
+    target.current = to;
+    glideScroll(el, "top", to);
+  };
+  const lowest = () => {
+    const el = scroller.current;
+    return el === null ? 0 : Math.max(anchor(true), el.scrollHeight - el.clientHeight);
+  };
+  /** Where the movement stands to show the end of a part, or its top when it is short. */
+  const showEnd = (part: HTMLElement | null) => {
+    const el = scroller.current;
+    if (el === null || part === null) return anchor(true);
+    const end = part.offsetTop + part.offsetHeight + px("--space-edge") - el.clientHeight;
+    return Math.min(lowest(), Math.max(anchor(true), end));
+  };
+  // The cast stays where it is when it already shows below the review; after a long review the
+  // movement slides up to bring it under the bar.
+  const castView = () => {
+    const el = scroller.current;
+    const part = castPart.current;
+    if (el === null || part === null) return anchor(true);
+    if (part.offsetTop + part.offsetHeight <= anchor(true) + el.clientHeight) return anchor(true);
+    return Math.min(lowest(), Math.max(anchor(true), part.offsetTop - px("--space-bar")));
+  };
+  /**
+   * A review longer than the window reads a page at a time: Down and Up on it glide through it
+   * before focus moves on. False when it already shows to its end that way.
+   */
+  const page = (dir: 1 | -1): boolean => {
+    const el = scroller.current;
+    const part = reviewPart.current;
+    if (el === null || part === null || part.offsetHeight === 0) return false;
+    const step = el.clientHeight * numberToken("--details-review-page");
+    const at = target.current;
+    if (dir === 1) {
+      const end = showEnd(part);
+      if (end <= at + 1) return false;
+      glide(true, Math.min(at + step, end));
+    } else {
+      const start = Math.max(anchor(true), part.offsetTop - px("--space-bar"));
+      if (start >= at - 1) return false;
+      glide(true, Math.max(at - step, start));
+    }
+    return true;
   };
   // A resized window (full screen, another monitor) keeps the movement in view where it stands.
   useEffect(() => {
@@ -68,7 +137,8 @@ function Shown({ detail }: { detail: ItemDetail }) {
     if (el === null) return;
     const kept = new ResizeObserver(() => {
       stopGlide(el);
-      el.scrollTop = anchor(belowNow.current);
+      target.current = anchor(belowNow.current);
+      el.scrollTop = target.current;
     });
     kept.observe(el);
     return () => {
@@ -76,33 +146,55 @@ function Shown({ detail }: { detail: ItemDetail }) {
       stopGlide(el);
     };
   }, []);
-  // Up from below always comes back to the work first: to its main cue, from the cast (which the
-  // nearest-item search would pass over, the cues being under the bar), or, with no cast, to the
-  // cues' own place.
-  // The cast takes focus only once its movement is in view (it is inert while it peeks, so the
-  // nearest-item search from the bar cannot land on it): Down from the cues brings it in, then
-  // lights the portrait lit last.
+  // Up from below comes back the way Down went: from the cast to the review, and from the review
+  // (or the cast, with no review) to the work's first cue, which the nearest-item search would pass
+  // over, the cues being under the bar; with nothing to focus below, to the cues' own place.
+  // The review and the cast take focus only once their movement is in view (they are inert while
+  // it peeks, so the nearest-item search from the bar cannot land on them): Down from the cues
+  // brings it in, then lights the review, or else the portrait lit last.
   const lastCast = useRef<string | null>(null);
-  const toCast = useRef(false);
+  const toSecond = useRef(false);
+  /** The portrait lit last, else the first. */
+  const portrait = () =>
+    (lastCast.current === null ? null : document.querySelector<HTMLElement>(`[data-focus-key="${lastCast.current}"]`)) ?? focusable(CAST);
   useEffect(() => {
-    if (!below || !toCast.current) return;
-    toCast.current = false;
-    const at = lastCast.current === null ? null : document.querySelector<HTMLElement>(`[data-focus-key="${lastCast.current}"]`);
-    (at ?? document.querySelector<HTMLElement>("[data-focus-group='details-cast'] [data-focus-key]"))?.focus({ preventScroll: true });
+    if (!below || !toSecond.current) return;
+    toSecond.current = false;
+    (focusable(REVIEW) ?? portrait())?.focus({ preventScroll: true });
   }, [below]);
-  const upFirst = (e: KeyboardEvent<HTMLElement>) => {
-    if (!below || e.key !== "ArrowUp") return;
-    const fromCast = (e.target as HTMLElement).closest("[data-focus-group='details-cast']") !== null;
-    if (!fromCast && cast.length > 0) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (fromCast) document.querySelector<HTMLElement>("[data-focus-key='action:main']")?.focus({ preventScroll: true });
+  const secondKeys = (e: KeyboardEvent<HTMLElement>) => {
+    if (!below || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+    const from = e.target as HTMLElement;
+    const fromReview = from.closest(REVIEW) !== null;
+    const fromCast = from.closest(CAST) !== null;
+    const stop = () => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    if (fromReview && page(e.key === "ArrowDown" ? 1 : -1)) return stop();
+    if (e.key === "ArrowDown") {
+      // On from the review's end to the cast, as Up comes back from it.
+      const next = fromReview ? portrait() : null;
+      if (next === null) return;
+      stop();
+      next.focus({ preventScroll: true });
+      return;
+    }
+    if (fromCast && review !== null) {
+      stop();
+      focusable(REVIEW)?.focus({ preventScroll: true });
+      glide(true, showEnd(reviewPart.current));
+      return;
+    }
+    if (!fromCast && !fromReview && firstItems) return;
+    stop();
+    if (fromCast || fromReview) focusable(CUES)?.focus({ preventScroll: true });
     glide(false);
   };
 
   return (
-    // The wheel moves through the cues and the cast, through the arrow keys (focus/input/wheel.ts).
-    <div data-wheel-steps className="details absolute inset-0 overflow-clip" onKeyDownCapture={upFirst}>
+    // The wheel moves through the cues, the review and the cast, through the arrow keys (focus/input/wheel.ts).
+    <div data-wheel-steps className="details absolute inset-0 overflow-clip" onKeyDownCapture={secondKeys}>
       <div aria-hidden className="details-shade pointer-events-none absolute inset-0" />
       <div ref={scroller} className="details-scroller absolute inset-0 overflow-y-hidden">
         <section
@@ -117,23 +209,41 @@ function Shown({ detail }: { detail: ItemDetail }) {
               item={detail}
               drive={drive}
               progress={placardLines(item, detail).progress}
+              play={detail.files.length > 0}
               onFocusCue={() => glide(false)}
               onEdge={(dir) => {
                 if (dir[1] !== 1) return;
-                toCast.current = cast.length > 0;
+                toSecond.current = firstItems;
                 glide(true);
               }}
             />
           </div>
         </section>
         <section ref={second} className="flex min-h-full flex-col gap-(--details-part-gap) px-edge pb-edge">
+          {review !== null && (
+            <YourReview
+              ref={reviewPart}
+              review={review}
+              rating={reviewRating}
+              inert={!below}
+              onFocus={() => {
+                // The pointer reaching it from the first movement; keys bring the movement in first.
+                if (!belowNow.current) glide(true);
+              }}
+              onEdge={(dir) => {
+                // Past the end of the review with no cast below it, the record comes into view.
+                if (dir[1] === 1 && cast.length === 0) glide(true, lowest());
+              }}
+            />
+          )}
           {cast.length > 0 && (
             <Cast
+              ref={castPart}
               cast={cast}
               inert={!below}
               onFocus={(key) => {
                 lastCast.current = key;
-                glide(true);
+                glide(true, castView());
               }}
             />
           )}
@@ -144,20 +254,142 @@ function Shown({ detail }: { detail: ItemDetail }) {
   );
 }
 
+const CUES = "[data-focus-group='details-cues']";
+const REVIEW = "[data-focus-group='details-review']";
+const CAST = "[data-focus-group='details-cast']";
+/** The first focus item of a group, by its selector. */
+const focusable = (group: string) => document.querySelector<HTMLElement>(`${group} [data-focus-key]`);
+
+/** The service id of what Exhibit holds itself. */
+const EXHIBIT = "exhibit";
+
 /** A part of the second movement, named quietly above it. */
-function Part({ title, children, inert }: { title: string; children: ReactNode; inert?: boolean }) {
+function Part({ title, children, inert, ref }: { title: string; children: ReactNode; inert?: boolean; ref?: Ref<HTMLElement> }) {
   return (
-    <section aria-label={title} inert={inert} className="flex flex-col gap-6">
+    <section ref={ref} aria-label={title} inert={inert} className="flex flex-col gap-6">
       <h2 className="font-display text-caption font-ui tracking-[0.14em] text-label-faint uppercase">{title}</h2>
       {children}
     </section>
   );
 }
 
-function Cast({ cast, inert, onFocus }: { cast: CastMember[]; inert: boolean; onFocus: (key: string) => void }) {
+/**
+ * The owner's review: its stars, its day and the mark of the service it was written on, then the
+ * text whole, in the reading face, as written. A review with spoilers is folded behind one press.
+ * It is one focus stop either way, so Down and Up pass through it as through the cast.
+ */
+function YourReview({
+  review,
+  rating,
+  inert,
+  onFocus,
+  onEdge,
+  ref,
+}: {
+  review: Sourced<ReviewFact>;
+  rating: Sourced<RatingFact> | null;
+  inert: boolean;
+  onFocus: () => void;
+  onEdge: (dir: Dir) => void;
+  ref?: Ref<HTMLElement>;
+}) {
+  const t = useT();
+  const [open, setOpen] = useState(!review.spoiler);
+  const when = review.on === null ? null : shortDay(review.on, { utc: true });
+  const text = <ReviewText text={review.text} focus={!review.spoiler} />;
+  return (
+    <Part ref={ref} title={t("activity.yourReview")} inert={inert}>
+      <FocusGroup
+        id="details-review"
+        orientation="vertical"
+        reveals
+        aria-label={t("activity.yourReview")}
+        onFocus={onFocus}
+        onEdge={onEdge}
+        className="flex max-w-(--details-review-measure) flex-col items-start gap-6"
+      >
+        <p data-line="review-head" className="flex items-center gap-4 font-display text-lead text-label-dim">
+          {rating && <Stars rating={rating} className="text-(length:--verdict-star)" />}
+          {when && <span>{when}</span>}
+          <ServiceMark service={review.service} size="panel" />
+        </p>
+        {review.spoiler ? (
+          <Collapsible open={open} onOpenChange={setOpen}>
+            <Fold open={open} />
+            <CollapsiblePanel>{text}</CollapsiblePanel>
+          </Collapsible>
+        ) : (
+          text
+        )}
+      </FocusGroup>
+    </Part>
+  );
+}
+
+/**
+ * The fold over a review with spoilers: A reads it, and A again folds it away. It names the button
+ * of the device in hand ("Press A to read", "Press Enter to read"), or asks for a click.
+ */
+function Fold({ open }: { open: boolean }) {
+  const t = useT();
+  const mode = useInputMode();
+  const { ref, props } = useFocusItem<HTMLButtonElement>({
+    key: "review:fold",
+    hint: open ? t("activity.hideReview") : t("activity.readReview"),
+  });
+  // The trigger opens itself on a click, Enter and the pad's A; the focus item's click would run nothing.
+  const { onClick: _click, ...focus } = props;
+  const label = open
+    ? t("activity.hideReview")
+    : mode === "pointer"
+      ? t("activity.spoilersClick")
+      : t("activity.spoilers", { button: mode === "pad" ? "A" : t("keys.enter") });
+  return (
+    <CollapsibleTrigger ref={ref} {...focus} className={buttonVariants({ variant: "cue", size: "cue" })}>
+      {label}
+    </CollapsibleTrigger>
+  );
+}
+
+/**
+ * The review's words, kept to their paragraphs. Without a fold over them they are the review's
+ * focus stop themselves: lit, they brighten from the soft paper of running text to the label's.
+ */
+function ReviewText({ text, focus }: { text: string; focus: boolean }) {
+  const className = "font-reading text-lead leading-reading whitespace-pre-line text-pretty";
+  if (!focus) return <p className={cn(className, "text-label-soft")}>{text}</p>;
+  return <FocusedText text={text} className={className} />;
+}
+
+function FocusedText({ text, className }: { text: string; className: string }) {
+  const t = useT();
+  const { ref, props, focused } = useFocusItem<HTMLElement>({ key: "review:text" });
+  return (
+    <article
+      ref={ref}
+      {...props}
+      aria-label={t("activity.yourReview")}
+      className={cn(className, "outline-none", focused ? "text-label" : "text-label-soft")}
+    >
+      {text}
+    </article>
+  );
+}
+
+function Cast({
+  cast,
+  inert,
+  onFocus,
+  ref,
+}: {
+  cast: CastMember[];
+  inert: boolean;
+  onFocus: (key: string) => void;
+  ref?: Ref<HTMLElement>;
+}) {
   const t = useT();
   return (
-    <Part title={t("details.cast")} inert={inert}>
+    <Part ref={ref} title={t("details.cast")} inert={inert}>
       <FocusGroup
         id="details-cast"
         orientation="horizontal"
@@ -281,6 +513,68 @@ export function historyLine(detail: ItemDetail): string {
   return t("details.neverPlayed");
 }
 
+/** Watches listed one by one before the rest are counted. */
+const WATCHES = 5;
+
+/** A service's name as its adapter gives it, or its id while the services are not known. */
+const serviceName = (id: string, services: ServiceView[] | undefined) => services?.find((s) => s.id === id)?.name ?? id;
+
+/** One watch: "Played in Exhibit 12 March", "Logged on Letterboxd 3 March 2019, rewatch". */
+function watchLine(watch: Sourced<WatchFact>, services: ServiceView[] | undefined): string {
+  let line: string;
+  if (watch.service === EXHIBIT) {
+    const date = watch.on === null ? null : shortDay(watch.on);
+    line = date ? t("activity.playedInExhibitOn", { date }) : t("activity.playedInExhibit");
+  } else {
+    const service = serviceName(watch.service, services);
+    // A service's day is midnight UTC: read as that day wherever the window is.
+    const date = watch.on === null ? null : shortDay(watch.on, { utc: true });
+    line = date ? t("activity.loggedOn", { service, date }) : t("activity.loggedOnUndated", { service });
+  }
+  return watch.rewatch ? t("activity.withRewatch", { line }) : line;
+}
+
+/**
+ * Where the eye's state comes from, when the owner's own choice here goes against a service: "You
+ * marked it unwatched here; Letterboxd has it logged."
+ */
+function overrideNote(detail: ItemDetail, services: ServiceView[] | undefined): string | null {
+  const logged = detail.activity.watches.find((w) => w.service !== EXHIBIT);
+  if (detail.activity.watched_choice !== false || logged === undefined) return null;
+  return t("activity.overridden", { service: serviceName(logged.service, services) });
+}
+
+/**
+ * Every watch, newest first, each with the mark of where it was logged (Exhibit's own has none);
+ * then a play stopped part-way. With neither, how far the owner got as before ("Never played").
+ */
+function Watches({ detail }: { detail: ItemDetail }) {
+  const t = useT();
+  const services = useServices().data;
+  const watches = detail.activity.watches;
+  const play = detail.play;
+  const stopped = play !== null && !play.watched && play.position_s > 0;
+  const note = overrideNote(detail, services);
+  return (
+    <div className="contents">
+      <dt className="pt-0.5 font-display text-body text-label-faint">{t("details.watched")}</dt>
+      <dd className="flex min-w-0 flex-col gap-1 font-display">
+        {watches.slice(0, WATCHES).map((w, i) => (
+          <span key={i} data-watch className="flex items-center gap-2.5 text-lead text-label">
+            <span className="min-w-0 truncate">{watchLine(w, services)}</span>
+            {w.service !== EXHIBIT && <ServiceMark service={w.service} size="line" />}
+          </span>
+        ))}
+        {watches.length > WATCHES && (
+          <span className="text-body text-label-dim">{t("activity.moreWatches", { count: watches.length - WATCHES })}</span>
+        )}
+        {(watches.length === 0 || stopped) && <span className="text-lead text-label">{historyLine(detail)}</span>}
+        {note && <span className="text-body text-label-dim">{note}</span>}
+      </dd>
+    </div>
+  );
+}
+
 /** How the work was named: "Matched by hand", or a doubt to settle. */
 function matchLine(detail: ItemDetail): { value: string; note?: string } | null {
   const { match_state, match_source, tmdb_id } = detail.item;
@@ -351,9 +645,9 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
           </Terms>
         </Part>
       )}
-      <Part title={t("details.inExhibit")}>
+      <Part title={t("activity.history")}>
         <Terms>
-          <Line term={t("details.watched")} value={historyLine(detail)} />
+          <Watches detail={detail} />
           <Line term={t("details.added")} value={added} />
           {match && <Line term={t("details.match")} value={match.value} note={match.note} />}
         </Terms>

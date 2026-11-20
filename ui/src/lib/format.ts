@@ -185,11 +185,22 @@ export function day(unixSeconds: number): string | null {
   return writeDate(new Date(unixSeconds * 1000));
 }
 
-/** "3 March" this year, "3 March 2019" before it. */
-export function shortDay(unixSeconds: number): string | null {
+/**
+ * "3 March" this year, "3 March 2019" before it. With `utc`, the time is a day as a service gives
+ * it (midnight UTC), read as that day wherever the window is.
+ */
+export function shortDay(unixSeconds: number, { utc = false }: { utc?: boolean } = {}): string | null {
   if (!finite(unixSeconds) || unixSeconds <= 0) return null;
   const date = new Date(unixSeconds * 1000);
-  return writeDate(date, { year: date.getFullYear() !== new Date().getFullYear() });
+  const year = utc ? date.getUTCFullYear() : date.getFullYear();
+  return writeDate(date, { year: year !== new Date().getFullYear(), utc });
+}
+
+/** A rating on its own scale as stars, to the nearest half: 4.5 of 5 is "★★★★½"; "" for none. */
+export function stars(value: number, scale: number): string {
+  if (!finite(value) || !finite(scale) || value <= 0 || scale <= 0) return "";
+  const halves = Math.round(Math.min(value, scale) * 2);
+  return "★".repeat(Math.floor(halves / 2)) + (halves % 2 === 1 ? "½" : "");
 }
 
 /** "4.2 GB" ("4,2 GB" in Spanish), "700 MB"; null for nothing. */

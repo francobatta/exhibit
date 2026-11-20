@@ -1,9 +1,82 @@
-import { cleanup, render } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
-import { CJK, LONG, audioTrack, clean, detail, fullItem, subTrack, summary } from "../../test/fixtures";
+import type { ReactNode } from "react";
+import { CJK, LONG, activity, audioTrack, clean, detail, fullItem, service, subTrack, summary } from "../../test/fixtures";
+import { tauri } from "../../test/setup";
+import { stars } from "@/lib/format";
 import { Placard, placardLines, splitTitle, trackLines } from "./Placard";
 
 afterEach(cleanup);
+
+/** The placard as the app holds it: the services are asked for through the query client. */
+function withServices(node: ReactNode) {
+  tauri.handle("services", () => [service()]);
+  return render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>,
+  );
+}
+
+const rated = (value: number, scale = 5) =>
+  detail({ activity: activity({ ratings: [{ service: "letterboxd", on: 1_551_571_200, value, scale }] }) });
+const lineNames = (root: ParentNode) => [...root.querySelectorAll("[data-line]")].map((l) => l.getAttribute("data-line"));
+
+describe("verdicts", () => {
+  test("the_verdicts_line_shows_my_rating_with_its_mark", async () => {
+    const d = rated(4.5);
+    expect(placardLines(d.item, d).verdicts).toEqual({ mine: { service: "letterboxd", on: 1_551_571_200, value: 4.5, scale: 5 } });
+    for (const size of ["hero", "panel"] as const) {
+      const view = withServices(<Placard item={d.item} detail={d} size={size} />);
+      const line = view.container.querySelector("[data-line=verdicts]")!;
+      expect(line).not.toBeNull();
+      // After the facts.
+      const names = lineNames(view.container);
+      expect(names.indexOf("verdicts")).toBeGreaterThan(names.indexOf("facts"));
+      expect(line.querySelector("[aria-label='Rated 4.5 out of 5']")?.textContent).toBe("★★★★½");
+      const mark = await waitFor(() => view.getByRole("img", { name: "Letterboxd" }));
+      expect(line.contains(mark)).toBe(true);
+      view.unmount();
+    }
+  });
+
+  test("no_verdicts_line_without_activity", () => {
+    const d = detail();
+    expect(placardLines(d.item, d).verdicts).toEqual({ mine: null });
+    // No rating: no line, beside a wall or on Details.
+    for (const props of [{ size: "panel" as const }, { size: "hero" as const, full: true }]) {
+      const view = render(<Placard item={d.item} detail={d} {...props} />);
+      expect(lineNames(view.container)).not.toContain("verdicts");
+      view.unmount();
+    }
+    // Home's held placard keeps the line only while a service with the owner's activity is on.
+    const off = render(<Placard item={summary()} size="hero" />);
+    expect(lineNames(off.container)).not.toContain("verdicts");
+    off.unmount();
+    const on = render(<Placard item={summary()} size="hero" holdVerdicts />);
+    expect(lineNames(on.container)).toContain("verdicts");
+    expect(on.container.querySelector("[data-line=verdicts]")?.textContent).toBe("");
+  });
+
+  test("stars_for_4_5_of_5_are_four_and_a_half", () => {
+    expect(stars(4.5, 5)).toBe("★★★★½");
+    expect(stars(5, 5)).toBe("★★★★★");
+    expect(stars(3, 5)).toBe("★★★");
+    expect(stars(0.5, 5)).toBe("½");
+    // On its own scale, to the nearest half.
+    expect(stars(7, 10)).toBe("★★★★★★★");
+    expect(stars(3.3, 5)).toBe("★★★½");
+    expect(stars(0, 5)).toBe("");
+  });
+
+  test("a film with no file says it is not in the library, not its runtime", () => {
+    const wanted = detail({ files: [], available: false });
+    expect(placardLines(wanted.item, wanted).facts).toBe("Not in your library");
+    expect(placardLines(summary({ in_library: false, available: false, height: null, width: null })).facts).toBe("Not in your library");
+    // A show has no files of its own and is in the library all the same.
+    const show = detail({ files: [] }, { kind: "show", runtime_min: null });
+    expect(placardLines(show.item, show).facts).not.toContain("Not in your library");
+  });
+});
 
 describe("placardLines", () => {
   test("year and director; runtime, resolution and watched state; the overview", () => {
@@ -50,6 +123,7 @@ describe("placardLines", () => {
       subtitles: "None",
       progress: null,
       overview: "A mentally unstable veteran works as a night-time taxi driver.",
+      verdicts: { mine: null },
     });
   });
 

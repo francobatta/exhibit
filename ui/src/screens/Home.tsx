@@ -15,10 +15,10 @@ import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
 import { t, useT } from "@/i18n";
-import { mainHint, runMain, useActionContext } from "@/lib/actions";
+import { hasActivity, mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
-import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
+import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
 
@@ -46,9 +46,12 @@ export function Home() {
   ];
   const job = useJobStatus();
   const status = useStatus().data;
+  // Whether the hero keeps a line for the owner's verdict is known before it first shows, so the
+  // placard never grows a line under the owner's eyes. A failure to say counts as no service.
+  const services = useServices();
 
   // A focus scope settles as it mounts, so the shelves render once all their data is here.
-  if (queries.some((q) => q.isPending)) return <Loading />;
+  if (queries.some((q) => q.isPending) || services.isPending) return <Loading />;
   const failed = queries.find((q) => q.isError);
   if (failed) {
     return (
@@ -82,7 +85,7 @@ export function Home() {
       />
     );
   }
-  return <Spotlight rows={rows} />;
+  return <Spotlight rows={rows} verdicts={hasActivity(services.data)} />;
 }
 
 /**
@@ -96,7 +99,7 @@ function emptyBody(sources: number, other: boolean, looking: boolean): string {
   return t("home.foundNothing");
 }
 
-function Spotlight({ rows }: { rows: Row[] }) {
+function Spotlight({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
   const [focused, setFocused] = useState<ItemSummary>(rows[0]!.items[0]!);
   // The shelf in view, by its name: a refresh may add or drop a shelf above it.
   const [active, setActive] = useState<ShelfName>(rows[0]!.shelf);
@@ -135,7 +138,7 @@ function Spotlight({ rows }: { rows: Row[] }) {
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="flex max-w-measure flex-col gap-5">
-            <Placard item={current} detail={detail} size="hero" />
+            <Placard item={current} detail={detail} size="hero" holdVerdicts={verdicts} />
             <Cues
               id="home-cues"
               prefix="hero"

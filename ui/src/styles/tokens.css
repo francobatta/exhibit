@@ -69,6 +69,10 @@
   /* A service mark set in a line of text stands as tall as the text's capitals. */
   --mark-line: 0.72rem;
   --mark-gap: 1.25rem;
+  /* The owner's rating as stars on a placard's verdicts line, as tall as a format's mark beside
+     it: on the hero (Home, Details) and on the wall's panel. */
+  --verdict-star: 1.5rem;
+  --verdict-star-panel: 1.2rem;
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -140,6 +144,10 @@
   --details-portrait: 12rem;
   --details-cast-gap: 2rem;
   --details-term: 8.5rem;
+  /* The owner's review, in the reading face: a comfortable line for running text. */
+  --details-review-measure: 44rem;
+  /* A review longer than the window reads in pages: each Down glides this share of the window. */
+  --details-review-page: 0.6;
   /* Show: the share of the window the placard keeps beside the seasons, and an episode's frame in the list. */
   --show-placard: 42%;
   --show-episode: 15rem;

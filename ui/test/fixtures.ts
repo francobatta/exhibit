@@ -1,7 +1,7 @@
 // Library records for tests: a plain matched film unless told otherwise.
 
 import { expect } from "bun:test";
-import type { Activity, AudioTrack, Item, ItemDetail, ItemSummary, ServiceView, SubTrack } from "@/lib/api";
+import type { Activity, AudioTrack, Item, ItemDetail, ItemSummary, MediaFile, ServiceView, SubTrack } from "@/lib/api";
 
 export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -67,6 +67,11 @@ export function detail(over: Partial<ItemDetail> = {}, item: Partial<Item> = {})
     activity: activity(),
     ...over,
   };
+}
+
+/** A file of the work, not yet probed. A film with none is one the owner does not have. */
+export function mediaFile(over: Partial<MediaFile> = {}): MediaFile {
+  return { id: 1, source_id: 1, rel_path: "Films/Taxi Driver.mkv", size: 4_200_000_000, mtime: 0, item_id: 1, tech: null, ...over };
 }
 
 /** `n` films with ids from 1. */

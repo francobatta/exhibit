@@ -205,6 +205,8 @@
     background: color-mix(in oklch, var(--wall-tinted) 88%, transparent);
     animation: details-shade linear both;
     animation-timeline: --details;
+    /* Full by the time the first movement has gone, however far a long review scrolls on. */
+    animation-range: 0 calc(100dvh - var(--details-peek));
   }
   @keyframes details-shade {
     from {
