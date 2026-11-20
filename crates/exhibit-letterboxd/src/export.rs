@@ -83,17 +83,25 @@ pub fn read(path: &Path) -> Result<ActivityBatch> {
     }
     let mut facts: Vec<Dated> = Vec::new();
 
+    let diary = Rows::load(&mut zip, "diary.csv")?;
+    let diaried: std::collections::HashSet<String> = diary
+        .each()
+        .filter_map(|r| r.film())
+        .map(|f| f.key)
+        .collect();
     for row in Rows::load(&mut zip, "watched.csv")?.each() {
-        if let Some(film) = row.film() {
+        // The diary's dated watches already say it.
+        if let Some(film) = row.film().filter(|f| !diaried.contains(&f.key)) {
             facts.push(dated(&film, Fact::Watch { rewatch: false }, None));
         }
     }
     for row in Rows::load(&mut zip, "ratings.csv")?.each() {
         if let (Some(film), Some(rating)) = (row.film(), row.rating()) {
-            facts.push(dated(&film, rating, None));
+            let on = row.get("Date").and_then(parse_date);
+            facts.push(dated(&film, rating, on));
         }
     }
-    for row in Rows::load(&mut zip, "diary.csv")?.each() {
+    for row in diary.each() {
         let Some(film) = row.film() else { continue };
         let on = row.get("Watched Date").and_then(parse_date);
         let rewatch = row.get("Rewatch") == Some("Yes");

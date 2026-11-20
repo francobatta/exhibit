@@ -355,11 +355,10 @@ line"
         let watch = Fact::Watch { rewatch: false };
         let want = vec![
             dated(&ct, watch.clone(), None),
-            dated(&am, watch.clone(), None),
-            dated(&s72, watch.clone(), None),
-            dated(&s02, watch, None),
-            dated(&ct, rating(4.5), None),
-            dated(&s72, rating(5.0), None),
+            dated(&s72, watch, None),
+            dated(&ct, rating(4.5), day("2024-01-05")),
+            dated(&s72, rating(5.0), day("2024-01-07")),
+            dated(&s02, rating(4.5), day("2024-03-01")),
             dated(&s02, Fact::Watch { rewatch: true }, day("2024-01-08")),
             dated(&s02, rating(3.0), day("2024-01-08")),
             dated(&am, Fact::Watch { rewatch: false }, day("2024-01-06")),
