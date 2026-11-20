@@ -2,12 +2,15 @@
 // keys and the pad run the same action on the work that has focus, so the pill names no key and
 // never takes focus. A started work shows how far it has got, as a rule and the time left, beside
 // a pill that says Resume. An action that cannot run says why instead ("the drive for D:\Movies is
-// not connected").
+// not connected"). Beside a wall the heart and the eye follow the pill, pressable the same way.
 
-import type { MouseEvent } from "react";
+import type { MouseEvent, ReactNode } from "react";
 import { useT } from "@/i18n";
 import { reasonOf, type Action } from "@/lib/actions";
 import { cn } from "@/lib/utils";
+import { ToggleIcon } from "@ui-sdk/react/toggle";
+import { LovedIcon, WatchedIcon } from "./ui/state-icon";
+import { Toggle } from "./ui/toggle";
 
 /** How far a started work has got: a share of it, and the time left in words. */
 export interface Progress {
@@ -38,9 +41,39 @@ export interface ActionLineProps {
   progress?: Progress | null;
   /** Runs the action from the pointer. Without it the pill is a picture of the action. */
   onPress?: () => void;
+  /** Loved and Watched, as the heart and the eye of Home's and Details' cues, after the pill. */
+  states?: States;
 }
 
-export function ActionLine({ action, drive, active = true, progress = null, onPress }: ActionLineProps) {
+/** A work's states beside its action; the pointer changes them, as it presses the pill. */
+export interface States {
+  loved: boolean;
+  watched: boolean;
+  onLoved: (loved: boolean) => void;
+  onWatched: (watched: boolean) => void;
+}
+
+/** The pointer presses a cue without taking focus from the work it acts on. */
+const keepFocus = (e: MouseEvent) => e.preventDefault();
+
+function StateToggle({ label, icon, pressed, onChange }: { label: string; icon: ReactNode; pressed: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <Toggle
+      tabIndex={-1}
+      onMouseDown={keepFocus}
+      aria-label={label}
+      pressed={pressed}
+      onPressedChange={onChange}
+      variant="cue"
+      size="cue-icon"
+      className="data-pressed:text-label"
+    >
+      <ToggleIcon>{icon}</ToggleIcon>
+    </Toggle>
+  );
+}
+
+export function ActionLine({ action, drive, active = true, progress = null, onPress, states }: ActionLineProps) {
   const t = useT();
   const disabled = Boolean(action.disabled);
   const plays = action.id === "play" || action.id === "resume" || action.id === "restart";
@@ -58,25 +91,40 @@ export function ActionLine({ action, drive, active = true, progress = null, onPr
       {label}
     </>
   );
-  // The pointer presses the pill without taking focus from the work it acts on.
-  const keepFocus = (e: MouseEvent) => e.preventDefault();
-
   return (
     <div data-line="action" className="flex min-h-(--cue-height) items-center gap-5">
-      {onPress ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          disabled={disabled}
-          onMouseDown={keepFocus}
-          onClick={onPress}
-          className={pill}
-        >
-          {content}
-        </button>
-      ) : (
-        <span className={pill}>{content}</span>
-      )}
+      <div className="flex shrink-0 items-center gap-3">
+        {onPress ? (
+          <button
+            type="button"
+            tabIndex={-1}
+            disabled={disabled}
+            onMouseDown={keepFocus}
+            onClick={onPress}
+            className={pill}
+          >
+            {content}
+          </button>
+        ) : (
+          <span className={pill}>{content}</span>
+        )}
+        {states && (
+          <>
+            <StateToggle
+              label={t("cues.loved")}
+              icon={<LovedIcon className="size-(--cue-icon)" />}
+              pressed={states.loved}
+              onChange={states.onLoved}
+            />
+            <StateToggle
+              label={t("cues.watched")}
+              icon={<WatchedIcon className="size-(--cue-icon)" />}
+              pressed={states.watched}
+              onChange={states.onWatched}
+            />
+          </>
+        )}
+      </div>
       {disabled ? (
         <p className="min-w-0 font-display text-body text-label-dim">{whyNot(action, drive)}</p>
       ) : (

@@ -4,7 +4,7 @@
 // opens), X opens the item menu, which can also start choosing several works at once.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { ActionLine } from "@/components/ActionLine";
+import { ActionLine, type States } from "@/components/ActionLine";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
 import { openItemMenu } from "@/components/ItemMenu";
 import { Placard, placardLines } from "@/components/Placard";
@@ -15,11 +15,12 @@ import { WallControls, clearFilters, sorts } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { useLanguage, useT } from "@/i18n";
-import { mainAction, mainHint, runMain, useActionContext } from "@/lib/actions";
+import { facetsOf, mainAction, mainHint, runAction, runMain, useActionContext, type Action } from "@/lib/actions";
 import { filterCount, wallQuery } from "@/lib/filters";
-import { plain, type Id, type ItemSummary } from "@/lib/api";
+import { imageUrl, plain, type CastMember, type Id, type ItemSummary } from "@/lib/api";
+import { facts, initials } from "@/lib/format";
 import { seconds } from "@/lib/motion";
-import { useItem, useItemSources, useItems, useJobStatus } from "@/lib/queries";
+import { useCast, useItem, useItemSources, useItems, useJobStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
 import type { WallKind, WallView } from "@/nav/stack";
 
@@ -239,16 +240,29 @@ function Hung({ kind, view, onView, items, complete }: WallProps & { items: Item
   );
 }
 
-/** The focused work's placard, what A does, and what its file holds. `chosen` is set while works are being chosen: whether this one is. */
+/**
+ * The focused work's placard, what A does with its heart and eye as on Home and Details, what its
+ * file holds, and at the foot who is in it. `chosen` is set while works are being chosen: whether
+ * this one is.
+ */
 function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
   // A record seen before shows at once; a new one is asked for once focus has rested on the work.
-  const settled = useSettled(item.id, seconds("--delay-panel"));
-  const loaded = useItem(item.id, settled === item.id).data;
+  const settled = useSettled(item.id, seconds("--delay-panel")) === item.id;
+  const loaded = useItem(item.id, settled).data;
   const detail = loaded?.item.id === item.id ? loaded : undefined;
   const drive = useItemSources(detail).find((s) => !s.online)?.path;
   const ctx = useActionContext();
   const t = useT();
-  const action = mainAction(detail ?? item);
+  const work = detail ?? item;
+  const action = mainAction(work);
+  const f = facetsOf(work);
+  const run = (id: Action["id"]) => void runAction({ id, label: "" }, work, ctx);
+  const states: States = {
+    loved: f.loved,
+    watched: f.kind === "show" || f.kind === "season" ? f.seen === "all" : f.watched,
+    onLoved: (on) => run(on ? "love" : "unlove"),
+    onWatched: (on) => run(on ? "watched" : "unwatched"),
+  };
 
   // The wall takes the work's tint; its picture stays off the wall, which is for the works.
   useEffect(() => {
@@ -257,18 +271,92 @@ function Panel({ item, chosen }: { item: ItemSummary; chosen?: boolean }) {
 
   return (
     <aside aria-label={t("wall.focused")} className="flex w-(--wall-panel) shrink-0 flex-col gap-6 pt-light pr-edge">
-      <Placard item={item} detail={detail} size="panel" />
+      <Placard item={item} detail={detail} size="panel" more={[facts(item.genres)]} />
       {chosen === undefined ? (
         <ActionLine
           action={action}
           drive={drive}
           progress={action.id === "resume" ? placardLines(item, detail).progress : null}
-          onPress={() => runMain(detail ?? item, ctx)}
+          onPress={() => runMain(work, ctx)}
+          states={states}
         />
       ) : (
-        <ActionLine action={{ label: chosen ? t("wall.unselect") : t("wall.select") }} drive={drive} />
+        <ActionLine action={{ label: chosen ? t("wall.unselect") : t("wall.select") }} drive={drive} states={states} />
       )}
       {detail !== undefined && <TechLines detail={detail} className="mt-2" />}
+      <PanelCast id={item.id} fetch={settled} />
     </aside>
+  );
+}
+
+/**
+ * Who is in the focused work, as on Details: as many portraits as one row holds, at the panel's
+ * foot. It is always the same height, so it never moves between works; a placard tall enough to
+ * reach it (a long title and subtitle) hides it rather than overlap.
+ */
+function PanelCast({ id, fetch }: { id: Id; fetch: boolean }) {
+  const t = useT();
+  const cast = useCast(id, fetch).data ?? [];
+  const foot = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLElement>(null);
+  const shown = cast.length > 0;
+  // Set before paint, so a crowded cast never shows for a frame.
+  useLayoutEffect(() => {
+    const room = foot.current;
+    const block = inner.current;
+    if (room === null || block === null) return;
+    const check = () => room.toggleAttribute("data-crowded", block.offsetHeight > room.clientHeight);
+    check();
+    const watch = new ResizeObserver(check);
+    watch.observe(room);
+    watch.observe(block);
+    return () => watch.disconnect();
+  }, [shown]);
+
+  return (
+    <div ref={foot} className="flex min-h-0 flex-1 flex-col justify-end data-crowded:invisible">
+      {shown && (
+        <section ref={inner} aria-label={t("details.cast")} className="flex flex-col gap-4 pb-(--wall-panel-foot)">
+          <h2 className="font-display text-caption font-ui tracking-[0.14em] text-label-faint uppercase">{t("details.cast")}</h2>
+          {/* Portraits past the first row sit in rows of no height, clipped. */}
+          <ul className="grid auto-rows-[0] grid-cols-[repeat(auto-fill,var(--wall-portrait))] grid-rows-[auto] justify-between gap-x-4 overflow-hidden">
+            {cast.map((m) => (
+              <PanelPortrait key={m.name} member={m} />
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function PanelPortrait({ member }: { member: CastMember }) {
+  const src = imageUrl(member.portrait);
+  const [failed, setFailed] = useState(false);
+  return (
+    <li className="flex flex-col gap-2 font-display">
+      <span className="relative block aspect-[2/3] overflow-hidden rounded-work bg-wall-raised [filter:var(--work-dim)]">
+        {src !== null && !failed ? (
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            onError={() => setFailed(true)}
+            className="absolute inset-0 size-full object-cover"
+          />
+        ) : (
+          <span aria-hidden className="absolute inset-0 grid place-items-center text-heading font-title tracking-display text-label-faint">
+            {initials(member.name)}
+          </span>
+        )}
+      </span>
+      {/* Two lines of name and one of character, whatever they hold, so every row is one height. */}
+      <span className="flex min-h-[3lh] flex-col text-body">
+        <span className="line-clamp-2 font-ui text-label-soft">{member.name}</span>
+        {member.character && <span className="truncate text-caption text-label-dim">{member.character}</span>}
+      </span>
+    </li>
   );
 }

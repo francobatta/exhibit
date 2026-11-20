@@ -122,8 +122,11 @@
   --home-placard-foot: 1.5rem;
   --home-shelf-gap: 2.5rem;
   --home-peek: 3.5rem;
-  /* The wall: the details panel's share of the window beside the grid. */
+  /* The wall: the details panel's share of the window beside the grid, a portrait's width in its
+     cast, and the room under the cast for the hint line. */
   --wall-panel: 26%;
+  --wall-portrait: 7rem;
+  --wall-panel-foot: 5.5rem;
   /* The height of the row of controls above a wall. */
   --wall-controls: 3.5rem;
   /* Details, in two movements: the work, then its cast and record. How much of the second shows

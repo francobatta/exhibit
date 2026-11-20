@@ -13,7 +13,7 @@ import { ErrorState, Loading } from "@/components/states";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { t, useT } from "@/i18n";
 import { imageUrl, plain, type CastMember, type Id, type ItemDetail, type MediaFile, type Source } from "@/lib/api";
-import { bytes, clock, facts, languageName, listed, resolution, shortDay } from "@/lib/format";
+import { bytes, clock, facts, initials, languageName, listed, resolution, shortDay } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
 import { useCast, useItem, useItemSources } from "@/lib/queries";
@@ -176,14 +176,6 @@ function Cast({ cast, inert, onFocus }: { cast: CastMember[]; inert: boolean; on
     </Part>
   );
 }
-
-const initials = (name: string) =>
-  name
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((w) => w[0])
-    .slice(0, 2)
-    .join("");
 
 /** One of the cast: A looks for them across the library, in Ask. */
 function Portrait({ member }: { member: CastMember }) {

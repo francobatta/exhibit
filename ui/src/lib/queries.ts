@@ -127,8 +127,8 @@ export function useItem(id: Id | null, fetch = true) {
 }
 
 /** A work's cast with portraits. Portraits are fetched once and kept, so it is asked for only once per visit. */
-export function useCast(id: Id) {
-  return useQuery({ queryKey: keys.cast(id), queryFn: () => api.cast(id), staleTime: Number.POSITIVE_INFINITY });
+export function useCast(id: Id, fetch = true) {
+  return useQuery({ queryKey: keys.cast(id), queryFn: () => api.cast(id), enabled: fetch, staleTime: Number.POSITIVE_INFINITY });
 }
 
 /** The folders a full record's files are on, as the library knows them now; none until both are known. */

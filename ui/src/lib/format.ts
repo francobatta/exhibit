@@ -62,6 +62,16 @@ export function facts(parts: Array<string | null | undefined>): string {
     .join(", ");
 }
 
+/** A person's initials, for a portrait with no picture: "Dennis Hopper" is "DH". */
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("");
+}
+
 /** "S2 E4", "E4", "S2", or "" (in Spanish "T2 E4"). */
 export function episodeLabel(s: number | null, e: number | null): string {
   if (finite(s) && finite(e)) return t("format.seasonEpisode", { season: s, episode: e });
