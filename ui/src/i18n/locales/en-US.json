@@ -435,7 +435,7 @@
       "unknown": "Exhibit does not know that service.",
       "unsupported": "That service does not provide this.",
       "no_username": "Enter a username first.",
-      "user_not_found": "Letterboxd has no member by that name. Check the spelling of your username.",
+      "user_not_found": "The service has no member by that name. Check the spelling of your username.",
       "private": "That profile is private. Make it public for a moment, or import your export file instead.",
       "unreachable": "Exhibit could not reach the service. Check the connection and try again.",
       "bad_export": "That file is not an export from the service. Download a fresh one and try again.",
