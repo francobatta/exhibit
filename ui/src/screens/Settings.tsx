@@ -4,14 +4,16 @@
 // Opening it detects the tools again. Opened from the mpv error or Fix match, it lands on the part
 // that fixes it.
 
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useScreenBackdrop } from "@/components/Backdrop";
 import { confirm } from "@/components/Dialog";
 import { FocusButton } from "@/components/FocusButton";
 import { useBrowse } from "@/components/FolderBrowser";
 import { Lamp } from "@/components/Lamp";
+import { ServiceMark } from "@/components/ServiceMark";
 import { SecretForm } from "@/components/SecretForm";
+import { TextField } from "@/components/TextField";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
 import { DownloadButton, DownloadNote } from "@/components/ToolsDownload";
 import { ErrorState, Loading } from "@/components/states";
@@ -27,14 +29,26 @@ import {
   currentDateFormat,
   language,
   setLocale,
+  translated,
   useT,
   type DateFormat,
   type Language,
 } from "@/i18n";
 import * as api from "@/lib/api";
-import { keyRejected, plain, type ApiError, type LibraryStatus, type Source, type ToolStatus } from "@/lib/api";
+import { keyRejected, plain, type ApiError, type LibraryStatus, type ServiceView, type Source, type ToolStatus } from "@/lib/api";
 import { writeDate } from "@/lib/format";
-import { keys, useFullscreen, useStatus, useTools } from "@/lib/queries";
+import {
+  keys,
+  useConnectService,
+  useForgetService,
+  useFullscreen,
+  useImportServiceExport,
+  useJobStatus,
+  useServices,
+  useSetServiceEnabled,
+  useStatus,
+  useTools,
+} from "@/lib/queries";
 import { clearLabel } from "@/lib/tools";
 import type { SettingsPart } from "@/nav/stack";
 
@@ -88,6 +102,7 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
           <Folders sources={status.sources} />
           <Tools tools={tools} />
           <TmdbKey status={status} />
+          <ServicesPart />
           <Part title={t("settings.agentKey")} note={t("settings.agentNote")}>
             <SetLine set={status.agent_key} />
             <SecretForm name="agent" label={t("settings.agentKey")} isSet={status.agent_key} />
@@ -276,6 +291,239 @@ function TmdbKey({ status }: { status: LibraryStatus }) {
   );
 }
 
+/** A service's failure in words, from its code ("service.unreachable"): what happened and what to do. */
+function serviceError(code: string, t: ReturnType<typeof useT>): string {
+  return translated(`errors.${code}`, {}) ?? t("errors.unknown");
+}
+
+const NEWER_AFTER_S = 30 * 24 * 3600;
+
+/**
+ * The services: one line each, drawn only from what the adapter declares. Absent until the
+ * registry has said which there are, so nothing else on the screen moves.
+ */
+function ServicesPart() {
+  const t = useT();
+  const services = useServices();
+  if (!services.data || services.data.length === 0) return null;
+  return (
+    <Part title={t("services.title")} note={t("services.note")}>
+      {services.data.map((view) => (
+        <ServiceLine key={view.id} view={view} />
+      ))}
+    </Part>
+  );
+}
+
+function ServiceLine({ view }: { view: ServiceView }) {
+  const t = useT();
+  const { id, name, state } = view;
+  const key = (part: string) => `service:${id}:${part}`;
+  const { browser, browse } = useBrowse();
+  const setEnabled = useSetServiceEnabled();
+  const connect = useConnectService();
+  const forget = useForgetService();
+  const importExport = useImportServiceExport();
+  const job = useJobStatus();
+
+  const [username, setUsername] = useState(state.username ?? "");
+  const [found, setFound] = useState<{ name: string; count: number } | null>(null);
+  const [connectError, setConnectError] = useState<ApiError | null>(null);
+  const [step, setStep] = useState(false);
+  const [unmatchedShown, setUnmatchedShown] = useState(false);
+
+  const wantsUsername = view.needs.includes("username");
+  const canExport = view.needs.includes("export_file") && view.exportPage !== null && state.username !== null;
+  const stale = state.export_at !== null && Date.now() / 1000 - state.export_at > NEWER_AFTER_S;
+
+  // Polled while the step is open; once when the last export is old, to tell whether a newer one waits.
+  const file = useQuery({
+    queryKey: ["service-export", id],
+    queryFn: () => api.findServiceExport(id),
+    enabled: canExport && (step || stale),
+    refetchInterval: step ? 2000 : false,
+    staleTime: 0,
+    retry: false,
+  });
+  const waiting = file.data ?? null;
+  const newer = file.data != null && state.export_at !== null && file.data.modified > state.export_at;
+
+  const unmatched = useQuery({
+    queryKey: ["service-unmatched", id, state.unmatched],
+    queryFn: () => api.serviceUnmatched(id),
+    enabled: unmatchedShown && state.unmatched > 0,
+  });
+
+  const closeStep = () => {
+    setStep(false);
+    focusItem(key("history"));
+  };
+  const bring = (path: string) => {
+    importExport.mutate({ id, path }, { onError: (e) => toast(plain(e)) });
+    closeStep();
+  };
+  const save = () => {
+    const typed = username.trim();
+    if (typed === "" || connect.isPending) return;
+    setConnectError(null);
+    setFound(null);
+    connect.mutate(
+      { id, username: typed },
+      { onSuccess: (count) => setFound({ name: typed, count }), onError: (e) => setConnectError(e) },
+    );
+  };
+  const forgetIt = async () => {
+    const go = await confirm({
+      title: t("services.forgetTitle", { service: name }),
+      body: t("services.forgetBody", { service: name }),
+      confirm: t("services.forgetConfirm"),
+    });
+    if (!go) return;
+    forget.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          setUsername("");
+          setFound(null);
+          setConnectError(null);
+          setStep(false);
+        },
+        onError: (e) => toast(plain(e)),
+      },
+    );
+  };
+
+  // What matters most, in order: the error, what a connect found, what the last import brought, the watchlist's age.
+  const report = canExport ? job?.last_import : null;
+  const failed = connectError !== null || state.error !== null;
+  const status: string[] = [];
+  if (connectError !== null) status.push(plain(connectError));
+  else if (state.error !== null) status.push(serviceError(state.error, t));
+  else if (found !== null) status.push(t("services.found", { name: found.name, count: found.count }));
+  else if (report) {
+    status.push(
+      t("services.imported", {
+        logged: report.logged,
+        rated: report.rated,
+        reviewed: report.reviewed,
+        watchlist: report.watchlisted,
+        wanted: report.not_in_library,
+      }),
+    );
+  } else if (state.export_at !== null) {
+    status.push(t("services.watchlistFrom", { date: writeDate(new Date(state.export_at * 1000)) }));
+  }
+  if (status.length > 0 && !failed && stale && newer) status.push(t("services.newerExport", { service: name }));
+
+  return (
+    <div className="flex flex-col gap-5">
+      <FocusGroup id={`service-${id}-switch`} orientation="vertical" className="flex flex-col items-start">
+        <SettingSwitch
+          focusKey={key("enabled")}
+          label={
+            <span className="flex items-center gap-3">
+              <ServiceMark service={id} size="line" />
+              {name}
+            </span>
+          }
+          on={state.enabled}
+          state={state.enabled ? t("services.on") : t("services.off")}
+          onChange={(on) => setEnabled.mutate({ id, on }, { onError: (e) => toast(plain(e)) })}
+        />
+      </FocusGroup>
+
+      {status.map((text, i) => (
+        <p key={i} role={failed ? "alert" : undefined} className={failed ? "font-display text-body text-label" : line}>
+          {text}
+        </p>
+      ))}
+      {state.unmatched > 0 && (
+        <div className="flex flex-col gap-2">
+          <p className={line}>{t("services.unmatched", { count: state.unmatched, service: name })}</p>
+          <FocusGroup id={`service-${id}-unmatched`} orientation="horizontal" className="flex">
+            <FocusButton focusKey={key("unmatched")} variant="plain" onSelect={() => setUnmatchedShown((on) => !on)}>
+              {unmatchedShown ? t("services.hideUnmatched") : t("services.showUnmatched")}
+            </FocusButton>
+          </FocusGroup>
+          {unmatchedShown && (
+            <ul className="font-reading text-body leading-reading text-label-dim">
+              {(unmatched.data ?? []).map(([title, year]) => (
+                <li key={`${title}:${year}`}>{year === null ? title : `${title} (${year})`}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {wantsUsername && (
+        <FocusGroup id={`service-${id}-username`} orientation="horizontal" className="flex items-center gap-3">
+          <TextField
+            focusKey={key("username")}
+            value={username}
+            onChange={setUsername}
+            onSubmit={save}
+            placeholder={t("services.username")}
+            className="w-(--key-field)"
+          />
+          <FocusButton focusKey={key("connect")} onSelect={save} disabled={username.trim() === "" || connect.isPending}>
+            {connect.isPending ? t("services.checking") : t("services.connect")}
+          </FocusButton>
+          {state.username !== null && (
+            <FocusButton focusKey={key("forget")} variant="plain" onSelect={() => void forgetIt()}>
+              {t("services.forget", { service: name })}
+            </FocusButton>
+          )}
+        </FocusGroup>
+      )}
+
+      {canExport && (
+        <>
+          <FocusGroup id={`service-${id}-history`} orientation="horizontal" className="flex">
+            <FocusButton focusKey={key("history")} onSelect={() => setStep((on) => !on)}>
+              {t("services.bringHistory")}
+            </FocusButton>
+          </FocusGroup>
+          {step && (
+            <div className="flex flex-col gap-4">
+              <p className="font-reading text-body leading-reading text-label-dim">{t("services.bringHistoryBody", { service: name })}</p>
+              {file.data ? (
+                <p className="font-display text-body text-label">{t("services.foundExport", { service: name })}</p>
+              ) : (
+                <p className={line}>{t("services.waiting")}</p>
+              )}
+              <FocusGroup id={`service-${id}-step`} orientation="horizontal" className="flex flex-wrap gap-3">
+                <FocusButton
+                  focusKey={key("open")}
+                  onBack={closeStep}
+                  onSelect={() => void api.openExportPage(id).catch((e: unknown) => toast(plain(e)))}
+                >
+                  {t("services.openExport", { service: name })}
+                </FocusButton>
+                {waiting && (
+                  <FocusButton focusKey={key("bring")} variant="solid" onBack={closeStep} onSelect={() => bring(waiting.path)}>
+                    {t("services.bringIt")}
+                  </FocusButton>
+                )}
+                <FocusButton
+                  focusKey={key("choose")}
+                  variant="plain"
+                  onBack={closeStep}
+                  onSelect={() =>
+                    browse({ mode: "zip", title: t("services.chooseFileTitle"), placeholder: t("services.typeFile"), onPick: bring })
+                  }
+                >
+                  {t("services.chooseFile")}
+                </FocusButton>
+              </FocusGroup>
+            </div>
+          )}
+        </>
+      )}
+      {browser}
+    </div>
+  );
+}
+
 /**
  * The language: Exhibit's own words and the library's text from TMDB. A choice speaks at once;
  * the library's text in a language it has not held before follows as the worker fetches it.
@@ -432,11 +680,14 @@ function SettingSwitch({
   focusKey,
   label,
   on,
+  state,
   onChange,
 }: {
   focusKey: string;
-  label: string;
+  label: ReactNode;
   on: boolean;
+  /** The state in words, after the switch. */
+  state?: string;
   onChange: (on: boolean) => void;
 }) {
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({ key: focusKey });
@@ -456,6 +707,7 @@ function SettingSwitch({
         {focused && <Lamp />}
       </span>
       <Switch ref={ref} {...props} onKeyDown={onKeyDown} checked={on} onCheckedChange={onChange} />
+      {state !== undefined && <span className="font-reading text-body text-label-dim">{state}</span>}
     </label>
   );
 }

@@ -174,3 +174,94 @@ test("Settings stands on the bare wall, and Back gives the screen beneath its ba
   await settle(120);
   expect(useBackdrop.getState()).toMatchObject({ image: "film-backdrop", poster: "film-poster" });
 });
+
+// Services
+
+const STATE = { service: "letterboxd", enabled: true, username: null as string | null, export_name: null, export_at: null as number | null, synced_at: null, error: null as string | null, unmatched: 0 };
+const service = (state: Partial<typeof STATE> = {}) => ({
+  id: "letterboxd",
+  name: "Letterboxd",
+  markSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>',
+  provides: ["activity"],
+  needs: ["username", "export_file"],
+  exportPage: "https://example.test/export",
+  state: { ...STATE, ...state },
+});
+const typeInto = (key: string, text: string) =>
+  act(async () => {
+    const field = document.querySelector<HTMLInputElement>(`[data-focus-key="${key}"]`)!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field, text);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+const servicesPart = () => document.querySelector('section[aria-label="Services"]');
+
+test("services_part_shows_each_service_from_the_registry", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = servicesPart()!;
+  expect(part.textContent).toContain("Letterboxd");
+  expect(part.querySelector('[data-focus-key="service:letterboxd:enabled"]')?.getAttribute("aria-checked")).toBe("true");
+  expect(button(part, "Bring in your whole history")).toBeDefined();
+});
+
+test("with_no_services_registered_the_part_is_absent", async () => {
+  tauri.handle("services", () => []);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(servicesPart()).toBeNull();
+  expect(document.querySelector('section[aria-label="TMDB key"]')).not.toBeNull();
+});
+
+test("saving_a_username_says_what_was_found", async () => {
+  tauri.handle("services", () => [service()]);
+  tauri.handle("connect_service", () => 12);
+  screens({ screen: "settings" });
+  await settle(120);
+  await focusAndSelect("service:letterboxd:username");
+  await typeInto("service:letterboxd:username", "ana");
+  await focusAndSelect("service:letterboxd:connect");
+  expect(calls("connect_service")).toEqual([{ id: "letterboxd", username: "ana" }]);
+  expect(servicesPart()!.textContent).toContain("Found @ana: 12 recent diary entries.");
+});
+
+test("a_found_export_is_offered_and_imported", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("find_service_export", () => ({ path: "C:\Downloads\export.zip", name: "export.zip", modified: 1 }));
+  tauri.handle("import_service_export", () => null);
+  tauri.handle("open_export_page", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(calls("find_service_export")).toEqual([]);
+  await focusAndSelect("service:letterboxd:history");
+  await settle(120);
+  await focusAndSelect("service:letterboxd:open");
+  expect(calls("open_export_page")).toEqual([{ id: "letterboxd" }]);
+  expect(servicesPart()!.textContent).toContain("Your Letterboxd export from today is in Downloads.");
+  await focusAndSelect("service:letterboxd:bring");
+  expect(calls("import_service_export")).toEqual([{ id: "letterboxd", path: "C:\Downloads\export.zip" }]);
+  expect(document.querySelector('[data-focus-key="service:letterboxd:bring"]')).toBeNull();
+});
+
+test("a_service_error_is_worded_from_its_code", async () => {
+  tauri.handle("services", () => [service({ username: "ana", error: "service.unreachable" })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(servicesPart()!.textContent).toContain("Exhibit could not reach the service.");
+});
+
+test("forgetting_asks_first", async () => {
+  tauri.handle("services", () => [service({ username: "ana" })]);
+  tauri.handle("forget_service", () => null);
+  screens({ screen: "settings" });
+  await settle(120);
+  await focusAndSelect("service:letterboxd:forget");
+  const dialog = document.querySelector('[data-focus-scope="confirm"]')!;
+  expect(dialog.textContent).toContain("in Exhibit only");
+  expect(calls("forget_service")).toEqual([]);
+  await act(async () => {
+    button(dialog, "Forget")!.click();
+  });
+  await settle();
+  expect(calls("forget_service")).toEqual([{ id: "letterboxd" }]);
+});

@@ -17,8 +17,8 @@ import { TextField } from "./TextField";
 
 export interface FolderBrowserProps {
   open: boolean;
-  /** `folder` picks a folder; `exe` picks a program file (a tool's `.exe`). */
-  mode: "folder" | "exe";
+  /** `folder` picks a folder; `exe` picks a program file (a tool's `.exe`); `zip` picks an export file. */
+  mode: "folder" | "exe" | "zip";
   title: string;
   /** What the path field asks for, such as "Or type the path to mpv.exe". */
   placeholder: string;
@@ -47,7 +47,7 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
   const [typed, setTyped] = useState("");
   // Which entry takes focus once the folder shown has loaded: the first, or the one just left.
   const land = useRef<string | null>(null);
-  const ext = mode === "exe" ? "exe" : null;
+  const ext = mode === "folder" ? null : mode;
   const listing = useQuery({
     queryKey: ["folders", path, ext],
     queryFn: () => listFolders(path, ext),
@@ -101,11 +101,11 @@ export function FolderBrowser({ open, mode, title, placeholder, onPick, onClose,
         ) : loading ? (
           <Note>{path === null ? t("browser.openingDrives") : t("browser.opening", { path })}</Note>
         ) : entries.length === 0 ? (
-          <Note>{mode === "exe" ? t("browser.noFoldersOrPrograms") : t("browser.noFolders")}</Note>
+          <Note>{mode === "exe" ? t("browser.noFoldersOrPrograms") : mode === "zip" ? t("browser.noFoldersOrFiles") : t("browser.noFolders")}</Note>
         ) : (
           <FocusGroup id="browser-list" orientation="vertical" aria-label={path ?? t("browser.drives")} className="flex flex-col">
             {entries.map((e, i) => (
-              <Entry key={e.path} index={i} entry={e} onChoose={() => choose(e)} />
+              <Entry key={e.path} index={i} entry={e} fileLabel={t(mode === "zip" ? "browser.file" : "browser.program")} onChoose={() => choose(e)} />
             ))}
           </FocusGroup>
         )}
@@ -121,7 +121,7 @@ function Note({ children }: { children: string | string[] }) {
   return <p className="py-2 font-reading text-lead leading-reading text-label-dim">{children}</p>;
 }
 
-function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onChoose: () => void }) {
+function Entry({ index, entry, fileLabel, onChoose }: { index: number; entry: Folder; fileLabel: string; onChoose: () => void }) {
   const t = useT();
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: entryKey(index),
@@ -142,7 +142,7 @@ function Entry({ index, entry, onChoose }: { index: number; entry: Folder; onCho
         {entry.name}
         {focused && <Lamp />}
       </span>
-      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">{t("browser.program")}</span>}
+      {entry.file && <span className="shrink-0 font-display text-body text-label-faint">{fileLabel}</span>}
     </button>
   );
 }

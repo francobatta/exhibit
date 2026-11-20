@@ -219,6 +219,8 @@
     "openingDrives": "Abriendo las unidades",
     "noFolders": "No hay carpetas aquí.",
     "noFoldersOrPrograms": "No hay carpetas ni programas aquí.",
+    "noFoldersOrFiles": "No hay carpetas ni archivos aquí.",
+    "file": "Archivo",
     "program": "Programa"
   },
   "keyboard": {
@@ -351,6 +353,13 @@
     "found_many": "Se encontró a @{{name}}: {{count, number}} entradas recientes en el diario. Tus puntuaciones y reseñas aparecerán en tus películas.",
     "found_other": "Se encontró a @{{name}}: {{count, number}} entradas recientes en el diario. Tus puntuaciones y reseñas aparecerán en tus películas.",
     "forget": "Olvidar {{service}}",
+    "forgetTitle": "¿Olvidar {{service}}?",
+    "forgetBody": "Tus puntuaciones, reseñas y lista de pendientes de {{service}} se quitan, solo en Exhibit. En {{service}} no cambia nada.",
+    "forgetConfirm": "Olvidar",
+    "showUnmatched": "Ver cuáles",
+    "hideUnmatched": "Ocultar la lista",
+    "typeFile": "O escribe la ruta del archivo de exportación",
+    "chooseFileTitle": "Elige el archivo de exportación",
     "bringHistory": "Trae todo tu historial",
     "bringHistoryBody": "{{service}} te deja descargar todo en un solo archivo. Exhibit lo notará en Descargas.",
     "openExport": "Abrir la página de exportación de {{service}}",

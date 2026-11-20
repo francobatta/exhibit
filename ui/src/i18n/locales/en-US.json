@@ -216,6 +216,8 @@
     "openingDrives": "Opening the drives",
     "noFolders": "No folders here.",
     "noFoldersOrPrograms": "No folders or programs here.",
+    "noFoldersOrFiles": "No folders or files here.",
+    "file": "File",
     "program": "Program"
   },
   "keyboard": {
@@ -358,6 +360,13 @@
     "found_one": "Found @{{name}}: {{count, number}} recent diary entry. Your ratings and reviews will appear on your films.",
     "found_other": "Found @{{name}}: {{count, number}} recent diary entries. Your ratings and reviews will appear on your films.",
     "forget": "Forget {{service}}",
+    "forgetTitle": "Forget {{service}}?",
+    "forgetBody": "Your ratings, reviews and watchlist from {{service}} are removed, in Exhibit only. Nothing changes on {{service}} itself.",
+    "forgetConfirm": "Forget",
+    "showUnmatched": "Show which",
+    "hideUnmatched": "Hide the list",
+    "typeFile": "Or type the path to the export file",
+    "chooseFileTitle": "Choose the export file",
     "bringHistory": "Bring in your whole history",
     "bringHistoryBody": "{{service}} lets you download everything as one file. Exhibit will notice it in Downloads.",
     "openExport": "Open the {{service}} export page",
