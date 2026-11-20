@@ -326,7 +326,7 @@ line"
             ),
             (
                 "ratings.csv",
-                "Date,Name,Year,Letterboxd URI,Rating\n2024-01-05,\"Crouching Tiger, Hidden Dragon\",2000,https://boxd.it/a,4.5\n2024-01-07,Solaris,1972,https://boxd.it/c,5\n",
+                "Date,Name,Year,Letterboxd URI,Rating\n2024-01-05,\"Crouching Tiger, Hidden Dragon\",2000,https://boxd.it/a,4.5\n2024-01-07,Solaris,1972,https://boxd.it/c,5\n2024-03-01,Solaris,2002,https://boxd.it/d,4.5\n",
             ),
             (
                 "diary.csv",
