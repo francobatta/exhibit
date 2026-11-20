@@ -13,6 +13,22 @@ fn bad(why: impl Into<String>) -> Error {
 
 type Archive = ZipArchive<std::fs::File>;
 
+/// The entry called `name`, ignoring case and `\` against `/` (ZIPs re-made on Windows), also
+/// inside one top-level folder (a re-zipped export folder). An exact match wins.
+fn find_entry(zip: &Archive, name: &str) -> Option<usize> {
+    let mut nested = None;
+    for i in 0..zip.len() {
+        let norm = zip.name_for_index(i)?.replace('\\', "/").to_lowercase();
+        if norm == name {
+            return Some(i);
+        }
+        if nested.is_none() && norm.split_once('/').is_some_and(|(_, rest)| rest == name) {
+            nested = Some(i);
+        }
+    }
+    nested
+}
+
 /// One CSV's rows as header-name lookups; a file the export lacks is an empty set.
 struct Rows {
     headers: csv::StringRecord,
@@ -22,9 +38,9 @@ struct Rows {
 impl Rows {
     fn load(zip: &mut Archive, name: &str) -> Result<Rows> {
         let mut text = Vec::new();
-        match zip.by_name(name) {
-            Ok(mut f) => f.read_to_end(&mut text).map_err(Error::Io).map(|_| ())?,
-            Err(_) => {
+        match find_entry(zip, name).map(|i| zip.by_index(i)) {
+            Some(Ok(mut f)) => f.read_to_end(&mut text).map_err(Error::Io).map(|_| ())?,
+            _ => {
                 return Ok(Rows {
                     headers: csv::StringRecord::new(),
                     records: Vec::new(),
@@ -78,7 +94,7 @@ impl Row<'_> {
 pub fn read(path: &Path) -> Result<ActivityBatch> {
     let file = std::fs::File::open(path).map_err(Error::Io)?;
     let mut zip = ZipArchive::new(file).map_err(|_| bad("the file is not a ZIP"))?;
-    if zip.by_name("watched.csv").is_err() {
+    if find_entry(&zip, "watched.csv").is_none() {
         return Err(bad("the export has no watched.csv"));
     }
     let mut facts: Vec<Dated> = Vec::new();

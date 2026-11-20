@@ -377,6 +377,25 @@ line"
     }
 
     #[test]
+    fn export_entries_are_found_by_normalised_name() {
+        let watched = "Date,Name,Year,Letterboxd URI\n2024-01-05,Heat,1995,https://boxd.it/a\n";
+        let likes = "Date,Name,Year,Letterboxd URI\n2024-01-12,Heat,1995,https://boxd.it/a\n";
+        let heat = film_ref("Heat", Some(1995), None);
+        let want = vec![
+            dated(&heat, Fact::Watch { rewatch: false }, None),
+            dated(&heat, Fact::Like, None),
+        ];
+        let backslash = snapshot(&[("watched.csv", watched), ("likes\\films.csv", likes)]).unwrap();
+        assert_eq!(backslash.facts, want);
+        let folder = snapshot(&[
+            ("Letterboxd-name-2026-11-20/watched.csv", watched),
+            ("Letterboxd-name-2026-11-20/likes/films.csv", likes),
+        ])
+        .unwrap();
+        assert_eq!(folder.facts, want);
+    }
+
+    #[test]
     fn export_without_watched_csv_or_not_a_zip_is_bad_export() {
         let e = snapshot(&[("ratings.csv", "Date,Name,Year,Letterboxd URI,Rating\n")]).unwrap_err();
         assert_eq!(code(e), Some("service.bad_export"));
