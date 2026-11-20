@@ -9,6 +9,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/002_drop_ffprobe.sql"),
     include_str!("migrations/003_reprobe_tracks.sql"),
     include_str!("migrations/004_languages.sql"),
+    include_str!("migrations/005_services.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
@@ -170,6 +171,33 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn loved_becomes_the_owners_choice() {
+        let d = tempfile::tempdir().unwrap();
+        {
+            let c = Connection::open(d.path().join("exhibit.db")).unwrap();
+            for sql in &MIGRATIONS[..4] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 4).unwrap();
+            c.execute_batch(
+                "INSERT INTO items(id, kind, title, loved) VALUES (1, 'movie', 'A', 1), (2, 'movie', 'B', 0)",
+            )
+            .unwrap();
+        }
+        let c = open(d.path()).unwrap();
+        let mut s = c
+            .prepare("SELECT loved_choice, wanted FROM items ORDER BY id")
+            .unwrap();
+        let rows: Vec<(Option<i64>, i64)> = s
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(rows, [(Some(1), 0), (None, 0)]);
+        assert!(c.prepare("SELECT loved FROM items").is_err());
     }
 
     #[test]

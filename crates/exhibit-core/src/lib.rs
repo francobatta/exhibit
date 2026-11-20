@@ -1,3 +1,4 @@
+pub(crate) mod activity;
 pub mod cast;
 pub mod db;
 pub mod download;

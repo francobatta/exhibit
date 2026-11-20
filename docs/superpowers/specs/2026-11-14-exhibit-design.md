@@ -33,7 +33,7 @@ In priority order:
 - Accounts, subscriptions, telemetry.
 - Transcoding, live TV, downloading, podcast feed subscriptions.
 - Music, photos, books, games.
-- Importing viewing history from Kodi, Jellyfin, Plex or any other app (owner). Marking a whole show, or several selected films, as watched in one action covers the need.
+- Importing viewing history from Kodi, Jellyfin, Plex or any other app (owner), except through a service the owner connects (Letterboxd), whose watches count as watched under the owner's own choice in Exhibit. Marking a whole show, or several selected films, as watched in one action covers the need.
 - Disc rips as folder structures or ISO images.
 - A plugin system or theming system.
 - Bundling or managing an AI model.
@@ -199,7 +199,7 @@ Anything destructive to the owner's files is out of scope: Exhibit never renames
 - **Item details.** Full placard, file details, versions, and actions: play or resume, mark watched, loved, fix match.
 - **Needs review.** As in section 10.
 - **Ask.** The text box, summoned by one gamepad button or a keyboard shortcut from anywhere, with an on-screen keyboard when a gamepad is in use.
-- **Settings.** One screen: sources, tools (mpv, ffprobe, ffmpeg: detected automatically, each overridable), TMDB key, agent key. **(call)** Nothing else in the first version.
+- **Settings.** One screen: sources, tools (mpv, ffprobe, ffmpeg: detected automatically, each overridable), TMDB key, agent key, and Services (one part). **(call)** Nothing else in the first version.
 - **First run.** Add a folder, confirm the detected tools (asking only for what was not found), enter the TMDB key. The library fills in live behind it.
 
 **Input.** One focus system drives everything. Gamepad directions, keyboard arrows and mouse hover all move the same focus, so no screen can work under one input and not another. Every action is reachable with a direction pad and four buttons. **(call)** The window opens fullscreen by default and remembers if the owner changes that.

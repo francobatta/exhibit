@@ -129,7 +129,8 @@ pub fn play(
 }
 
 /// Saves one play session: the resume state (watched at `WATCHED_FRACTION`, which resets the
-/// position; an item already watched stays watched) and a `play_log` row ending now.
+/// position; an item already watched stays watched, and the owner's "not watched" is cleared)
+/// and a `play_log` row ending now.
 pub fn record(
     c: &Connection,
     item_id: Id,
@@ -173,6 +174,13 @@ pub fn record(
         "INSERT INTO play_log(item_id, started_at, ended_at, position_s) VALUES (?1, ?2, ?3, ?4)",
     )?
     .execute(params![item_id, started_at, now, position_s])?;
+    if finished {
+        // Watching it to the end is a newer answer than having unmarked it.
+        tx.prepare_cached(
+            "UPDATE items SET watched_choice = NULL WHERE id = ?1 AND watched_choice = 0",
+        )?
+        .execute([item_id])?;
+    }
     tx.commit()?;
     Ok(PlayOutcome {
         item_id,
@@ -571,6 +579,16 @@ mod tests {
                 .ok()
         }
 
+        fn watched_choice(&self, id: Id) -> Option<bool> {
+            self.c
+                .query_row(
+                    "SELECT watched_choice FROM items WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+        }
+
         fn log(&self) -> Vec<(Id, i64, i64, f64)> {
             let mut s = self
                 .c
@@ -629,6 +647,24 @@ mod tests {
         assert!(out.watched);
         assert!(e.state(id).unwrap().2);
         assert_eq!(e.log().len(), 1);
+    }
+
+    #[test]
+    fn record_to_the_end_clears_a_no_choice() {
+        let e = env();
+        let id = e.add(ItemKind::Movie, "Heat", None);
+        e.file(e.src, id, "heat.mkv", None, 1);
+        crate::query::set_watched(&e.c, id, false).unwrap();
+        record(&e.c, id, 1, 300.0, 6000.0).unwrap();
+        assert_eq!(
+            e.watched_choice(id),
+            Some(false),
+            "a part-way play keeps the no"
+        );
+        record(&e.c, id, 1, 5700.0, 6000.0).unwrap();
+        assert_eq!(e.watched_choice(id), None);
+        let shown = crate::query::search(&e.c, &e.v, &Default::default()).unwrap();
+        assert!(shown.iter().find(|s| s.id == id).unwrap().watched);
     }
 
     #[test]

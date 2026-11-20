@@ -2,14 +2,15 @@
 //! the few small writes the UI makes (watched, loved). Every listing hides items that have
 //! no file anywhere beneath them; `item` still returns them.
 
+use crate::activity::{loved_sql, watched_sql};
 use crate::db;
 use crate::error::{Detail, Error, Result};
 use crate::filter::{self, Filters};
 use crate::lang;
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
-    FILE_COLUMNS, LOCAL_GENRES, LOCAL_ITEM_COLUMNS, LOCAL_POSTER, LOCAL_TITLE, PLAY_STATE_COLUMNS,
-    SUMMARY_COLUMNS, enum_str, item_from_row, media_file_from_row, play_state_from_row,
+    FILE_COLUMNS, LOCAL_GENRES, LOCAL_POSTER, LOCAL_TITLE, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS,
+    enum_str, item_from_row, local_item_columns, media_file_from_row, play_state_from_row,
     summary_from_row,
 };
 use crate::scan;
@@ -172,8 +173,9 @@ fn list(
     );
     let seen = format!(
         "(SELECT count(*) FROM tree t JOIN items e ON e.id = t.id \
-         JOIN play_state q ON q.item_id = e.id \
-         WHERE t.root_id = i.id AND e.kind = 'episode' AND q.watched = 1 AND {has_file})"
+         LEFT JOIN play_state q ON q.item_id = e.id \
+         WHERE t.root_id = i.id AND e.kind = 'episode' AND {} AND {has_file})",
+        watched_sql("e", "q")
     );
     // Technical field of the item's first file that has any (any episode's, for a show).
     let tech = |field: &str| {
@@ -197,11 +199,11 @@ fn list(
                 WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = 'show') AS show_title, \
              {LOCAL_POSTER} AS poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
              CASE WHEN {container} THEN {total} > 0 AND {seen} = {total} \
-                  ELSE coalesce(p.watched, 0) END AS watched, \
+                  ELSE {watched} END AS watched, \
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
-             i.loved, lib.avail AS available, i.match_state, {LOCAL_GENRES} AS genres, i.added_at, \
+             {loved} AS loved, lib.avail AS available, i.match_state, {LOCAL_GENRES} AS genres, i.added_at, \
              nullif((SELECT max(q.last_played_at) FROM tree t JOIN play_state q ON q.item_id = t.id \
                 WHERE t.root_id = i.id), 0) AS played_at, \
              (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path \
@@ -212,6 +214,8 @@ fn list(
         width = tech("width"),
         height = tech("height"),
         hdr = tech("hdr"),
+        watched = watched_sql("i", "p"),
+        loved = loved_sql("i"),
     );
     let mut s = c.prepare_cached(&sql)?;
     let rows = s
@@ -298,8 +302,9 @@ pub fn item(c: &Connection, v: &dyn Volumes, id: Id) -> Result<ItemDetail> {
 fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<ItemDetail> {
     let item = c
         .prepare_cached(&format!(
-            "SELECT {LOCAL_ITEM_COLUMNS} FROM items i \
-             LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 WHERE i.id = ?1"
+            "SELECT {} FROM items i \
+             LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 WHERE i.id = ?1",
+            local_item_columns()
         ))?
         .query_row(params![id, lang::language(c)?], item_from_row)
         .optional()?
@@ -372,8 +377,9 @@ pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Ve
         Shelf::Unwatched => (
             vec![
                 "b.kind = 'movie'",
+                "NOT b.watched",
                 "NOT EXISTS (SELECT 1 FROM play_state q WHERE q.item_id = b.id \
-                 AND (q.watched = 1 OR q.position_s > 0))",
+                 AND q.position_s > 0)",
             ],
             "b.added_at DESC, b.id DESC",
         ),
@@ -502,22 +508,23 @@ pub fn next_episode(c: &Connection, show_id: Id) -> Result<Option<Id>> {
 /// (season 0) after the numbered seasons and episodes with no season last; with
 /// `unwatched_only`, the first one not yet watched.
 pub(crate) fn first_episode(c: &Connection, root: Id, unwatched_only: bool) -> Result<Option<Id>> {
-    Ok(c.prepare_cached(
+    Ok(c.prepare_cached(&format!(
         "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
              SELECT i.id FROM items i JOIN d ON i.parent_id = d.id) \
          SELECT e.id FROM d JOIN items e ON e.id = d.id AND e.kind = 'episode' \
          LEFT JOIN play_state p ON p.item_id = e.id \
-         WHERE (?2 = 0 OR coalesce(p.watched, 0) = 0) \
+         WHERE (?2 = 0 OR NOT {}) \
            AND EXISTS (SELECT 1 FROM files f WHERE f.item_id = e.id) \
          ORDER BY e.season IS NULL, e.season = 0, e.season, e.episode, e.id LIMIT 1",
-    )?
+        watched_sql("e", "p")
+    ))?
     .query_row(params![root, unwatched_only], |r| r.get(0))
     .optional()?)
 }
 
 /// Marks an item watched or not; on a show or season it applies to every episode below.
-/// Either way the stored position goes back to 0; marking watched creates a play state when
-/// there is none.
+/// It is the owner's choice, which wins over what any service says. Either way the stored
+/// position goes back to 0; marking watched creates a play state when there is none.
 pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     let kind: String = c
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
@@ -539,6 +546,8 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     };
     let tx = db::write_tx(c)?;
     for t in targets {
+        tx.prepare_cached("UPDATE items SET watched_choice = ?2 WHERE id = ?1")?
+            .execute(params![t, watched])?;
         if watched {
             tx.prepare_cached(
                 "INSERT INTO play_state(item_id, position_s, duration_s, watched, last_played_at) \
@@ -557,9 +566,10 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
     Ok(())
 }
 
+/// The owner's choice, which wins over what any service says.
 pub fn set_loved(c: &Connection, id: Id, loved: bool) -> Result<()> {
     let n = c
-        .prepare_cached("UPDATE items SET loved = ?2 WHERE id = ?1")?
+        .prepare_cached("UPDATE items SET loved_choice = ?2 WHERE id = ?1")?
         .execute(params![id, loved])?;
     if n == 0 {
         return Err(Error::NotFound(
@@ -680,6 +690,15 @@ mod tests {
                     params![source, format!("f{}.mkv", self.n("files")), item, tech],
                 )
                 .unwrap();
+        }
+
+        /// A movie with a file, identified as TMDB film `tmdb_id`.
+        fn movie_with_tmdb(&self, title: &str, tmdb_id: i64) -> Id {
+            let id = self.with_file(ItemKind::Movie, title, None);
+            self.exec(&format!(
+                "UPDATE items SET tmdb_id = {tmdb_id} WHERE id = {id}"
+            ));
+            id
         }
 
         fn n(&self, table: &str) -> i64 {
@@ -857,7 +876,7 @@ mod tests {
         let c = e.with_file(ItemKind::Movie, "C", None);
         e.exec(&format!(
             "UPDATE items SET year=1990, runtime_min=80, genres='[\"Drama\"]' WHERE id={a};\
-             UPDATE items SET year=2000, runtime_min=120, genres='[\"Comedy\",\"Drama\"]', loved=1 WHERE id={b};\
+             UPDATE items SET year=2000, runtime_min=120, genres='[\"Comedy\",\"Drama\"]', loved_choice=1 WHERE id={b};\
              UPDATE items SET year=2010, runtime_min=200 WHERE id={c};"
         ));
         // Probed files sort after the unprobed one only by id; the first with tech counts.
@@ -1405,7 +1424,7 @@ mod tests {
         e.exec(&format!(
             "UPDATE items SET added_at=100 WHERE id={old};\
              UPDATE items SET added_at=300 WHERE id={new};\
-             UPDATE items SET added_at=200, loved=1 WHERE id={seen};\
+             UPDATE items SET added_at=200, loved_choice=1 WHERE id={seen};\
              UPDATE items SET added_at=150 WHERE id={show};\
              UPDATE items SET added_at=250 WHERE id={};",
             eps[1]
@@ -1414,7 +1433,7 @@ mod tests {
         // Other stays on its own wall, however new or loved.
         let clip = e.with_file(ItemKind::Other, "Holiday clip", None);
         e.exec(&format!(
-            "UPDATE items SET added_at=400, loved=1 WHERE id={clip}"
+            "UPDATE items SET added_at=400, loved_choice=1 WHERE id={clip}"
         ));
         // The show rises to the time of its newest episode and appears once.
         assert_eq!(
@@ -1533,6 +1552,92 @@ mod tests {
         assert_eq!(taste_profile(&e.c).unwrap(), "");
         set_taste_profile(&e.c, "likes slow cinema").unwrap();
         assert_eq!(taste_profile(&e.c).unwrap(), "likes slow cinema");
+    }
+
+    #[test]
+    fn a_service_watch_counts_and_the_owners_choice_wins() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        e.exec("INSERT INTO service_state(service) VALUES ('svc')");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact, on_day) \
+             VALUES ('svc', 'movie', 103, 'watch', 20000)",
+        );
+        assert!(e.summary(m).watched);
+        set_watched(&e.c, m, false).unwrap();
+        assert!(!e.summary(m).watched, "the choice wins");
+        e.exec("UPDATE service_state SET enabled = 0");
+        assert!(!e.summary(m).watched);
+        e.exec("UPDATE service_state SET enabled = 1");
+        assert!(!e.summary(m).watched, "still the choice");
+        set_watched(&e.c, m, true).unwrap();
+        assert!(e.summary(m).watched);
+    }
+
+    #[test]
+    fn a_service_like_lights_loved_until_the_owner_says_no() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        e.exec("INSERT INTO service_state(service) VALUES ('svc')");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact) \
+             VALUES ('svc', 'movie', 103, 'like')",
+        );
+        assert!(e.summary(m).loved);
+        assert!(item(&e.c, &e.v, m).unwrap().item.loved);
+        assert_eq!(e.shelf(Shelf::Loved), ["Taxi Driver"]);
+        set_loved(&e.c, m, false).unwrap();
+        assert!(!e.summary(m).loved, "the choice wins");
+        assert!(!item(&e.c, &e.v, m).unwrap().item.loved);
+        assert!(e.shelf(Shelf::Loved).is_empty());
+    }
+
+    #[test]
+    fn a_switched_off_service_counts_for_nothing() {
+        let e = env();
+        let m = e.movie_with_tmdb("Taxi Driver", 103);
+        // A show sharing the film's TMDB id is another work.
+        let (show, _, _) = e.show("Show", 1);
+        e.exec(&format!("UPDATE items SET tmdb_id = 103 WHERE id = {show}"));
+        e.exec("INSERT INTO service_state(service, enabled) VALUES ('svc', 0)");
+        e.exec(
+            "INSERT INTO service_facts(service, kind, tmdb_id, fact) \
+             VALUES ('svc', 'movie', 103, 'watch'), ('svc', 'movie', 103, 'like')",
+        );
+        assert!(!e.summary(m).watched);
+        assert!(!e.summary(m).loved);
+        assert_eq!(e.shelf(Shelf::Unwatched), ["Taxi Driver"]);
+        e.exec("UPDATE service_state SET enabled = 1");
+        assert!(e.summary(m).watched);
+        assert!(e.shelf(Shelf::Unwatched).is_empty());
+        assert!(!e.summary(show).watched && !e.summary(show).loved);
+    }
+
+    #[test]
+    fn a_choice_on_an_episode_counts_in_its_show() {
+        let e = env();
+        let (show, season, eps) = e.show("S", 2);
+        set_watched(&e.c, eps[0], true).unwrap();
+        e.exec(&format!(
+            "DELETE FROM play_state; UPDATE items SET watched_choice = 1 WHERE id = {}",
+            eps[1]
+        ));
+        assert!(e.summary(show).watched);
+        assert!(e.summary(season).watched);
+        set_watched(&e.c, show, false).unwrap();
+        let choices: Vec<Option<i64>> = eps
+            .iter()
+            .map(|id| {
+                e.c.query_row(
+                    "SELECT watched_choice FROM items WHERE id = ?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap()
+            })
+            .collect();
+        assert_eq!(choices, [Some(0), Some(0)]);
+        assert_eq!(e.summary(show).progress, Some(0.0));
     }
 
     /// Run with `cargo test --release -p exhibit-core scale_5000_items -- --ignored --nocapture`.

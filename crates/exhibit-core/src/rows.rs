@@ -2,6 +2,7 @@
 //! under their serde names (`"movie"`, `"needsreview"`), so the database and the JSON the
 //! CLI prints spell them the same way.
 
+use crate::activity::loved_sql;
 use crate::model::{Item, MediaFile, PlayState};
 use crate::query::ItemSummary;
 use rusqlite::Row;
@@ -10,9 +11,15 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-pub(crate) const ITEM_COLUMNS: &str = "id, kind, parent_id, title, year, season, episode, \
-     overview, runtime_min, genres, people, poster, backdrop, tmdb_id, match_state, \
-     match_source, confidence, candidates, loved, added_at";
+/// The columns `item_from_row` reads, from `items` without an alias.
+pub(crate) fn item_columns() -> String {
+    format!(
+        "id, kind, parent_id, title, year, season, episode, \
+         overview, runtime_min, genres, people, poster, backdrop, tmdb_id, match_state, \
+         match_source, confidence, candidates, {}, added_at",
+        loved_sql("items")
+    )
+}
 
 /// An item's title in the language bound as `?2` (its `item_texts` row, alias `tx`),
 /// falling back to the English base where TMDB has no translation.
@@ -21,13 +28,18 @@ pub(crate) const LOCAL_POSTER: &str = "coalesce(tx.poster, i.poster)";
 pub(crate) const LOCAL_GENRES: &str =
     "CASE WHEN tx.genres IS NOT NULL AND tx.genres <> '[]' THEN tx.genres ELSE i.genres END";
 
-/// `ITEM_COLUMNS` of `items i` in the language of `item_texts tx`, in the same order.
-pub(crate) const LOCAL_ITEM_COLUMNS: &str = "i.id, i.kind, i.parent_id, \
-     coalesce(nullif(tx.title, ''), i.title), i.year, i.season, i.episode, \
-     coalesce(nullif(tx.overview, ''), i.overview), i.runtime_min, \
-     CASE WHEN tx.genres IS NOT NULL AND tx.genres <> '[]' THEN tx.genres ELSE i.genres END, \
-     i.people, coalesce(tx.poster, i.poster), i.backdrop, i.tmdb_id, i.match_state, \
-     i.match_source, i.confidence, i.candidates, i.loved, i.added_at";
+/// `item_columns` of `items i` in the language of `item_texts tx`, in the same order.
+pub(crate) fn local_item_columns() -> String {
+    format!(
+        "i.id, i.kind, i.parent_id, \
+         coalesce(nullif(tx.title, ''), i.title), i.year, i.season, i.episode, \
+         coalesce(nullif(tx.overview, ''), i.overview), i.runtime_min, \
+         CASE WHEN tx.genres IS NOT NULL AND tx.genres <> '[]' THEN tx.genres ELSE i.genres END, \
+         i.people, coalesce(tx.poster, i.poster), i.backdrop, i.tmdb_id, i.match_state, \
+         i.match_source, i.confidence, i.candidates, {}, i.added_at",
+        loved_sql("i")
+    )
+}
 
 pub(crate) fn item_from_row(r: &Row) -> rusqlite::Result<Item> {
     Ok(Item {

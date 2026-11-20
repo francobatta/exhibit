@@ -14,7 +14,7 @@ use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, TechInfo};
 use crate::nfo::{self, ExternalId, NfoInfo};
 use crate::parse::{self, KindHint};
-use crate::rows::{ITEM_COLUMNS, enum_str, item_from_row};
+use crate::rows::{enum_str, item_columns, item_from_row};
 use crate::scan::{join_rel, resolve, source_rows};
 use crate::tmdb::{MetadataProvider, MovieMeta, SearchHit};
 use crate::volume::Volumes;
@@ -590,7 +590,8 @@ pub(crate) fn find_item(c: &Connection, kind: ItemKind, tmdb_id: i64) -> Result<
 }
 
 /// Moves every file of `from` to `into` and deletes `from`, keeping what the owner did with
-/// it: play history moves over, the newer resume state wins and `loved` carries over.
+/// it: play history moves over, the newer resume state wins and the owner's watched and loved
+/// choices fill in where `into` has none. `into` now has a file, so it is no longer wanted.
 pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
     if from != into {
         for sql in [
@@ -603,7 +604,11 @@ pub(crate) fn absorb(c: &Connection, from: Id, into: Id) -> Result<()> {
              duration_s=excluded.duration_s, watched=excluded.watched, \
              last_played_at=excluded.last_played_at \
              WHERE excluded.last_played_at > play_state.last_played_at",
-            "UPDATE items SET loved = 1 WHERE id=?2 AND (SELECT loved FROM items WHERE id=?1)",
+            "UPDATE items SET wanted = 0, \
+             watched_choice = coalesce(watched_choice, \
+                 (SELECT watched_choice FROM items WHERE id=?1)), \
+             loved_choice = coalesce(loved_choice, (SELECT loved_choice FROM items WHERE id=?1)) \
+             WHERE id=?2",
         ] {
             c.prepare_cached(sql)?.execute([from, into])?;
         }
@@ -972,7 +977,7 @@ pub fn apply_match(
     source: MatchSource,
 ) -> Result<()> {
     let item = c
-        .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id=?1"))?
+        .prepare_cached(&format!("SELECT {} FROM items WHERE id=?1", item_columns()))?
         .query_row([item_id], item_from_row)
         .optional()?
         .ok_or_else(|| {
@@ -1041,7 +1046,7 @@ mod tests {
     use crate::model::{Item, MatchState, Person};
     use crate::nfo::ExternalId;
     use crate::parse::normalize_title;
-    use crate::rows::{ITEM_COLUMNS, item_from_row};
+    use crate::rows::{item_columns, item_from_row};
     use crate::scan::{add_source, scan_source};
     use crate::tmdb::{
         EpisodeMeta, MovieMeta, SearchHit, SeasonMeta, SeasonTexts, ShowMeta, Texts,
@@ -1376,7 +1381,7 @@ mod tests {
 
     fn item(c: &Connection, id: Id) -> Item {
         c.query_row(
-            &format!("SELECT {ITEM_COLUMNS} FROM items WHERE id=?1"),
+            &format!("SELECT {} FROM items WHERE id=?1", item_columns()),
             [id],
             item_from_row,
         )
@@ -1395,7 +1400,8 @@ mod tests {
     fn items_of(c: &Connection, kind: &str) -> Vec<Item> {
         let mut s = c
             .prepare(&format!(
-                "SELECT {ITEM_COLUMNS} FROM items WHERE kind=?1 ORDER BY season, episode, id"
+                "SELECT {} FROM items WHERE kind=?1 ORDER BY season, episode, id",
+                item_columns()
             ))
             .unwrap();
         s.query_map([kind], item_from_row)
@@ -2456,7 +2462,7 @@ mod tests {
              VALUES ({ia}, 5, 8160, 0, 10), ({ib}, 100, 8160, 0, 50); \
              INSERT INTO play_log(item_id, started_at, ended_at, position_s) \
              VALUES ({ib}, 40, 50, 100); \
-             UPDATE items SET loved=1 WHERE id={ib};"
+             UPDATE items SET loved_choice=1 WHERE id={ib};"
         ))
         .unwrap();
         assert_eq!(
@@ -2482,6 +2488,30 @@ mod tests {
             )
             .unwrap();
         assert_eq!(logs, 1);
+    }
+
+    #[test]
+    fn absorb_carries_choices() {
+        let rel = "The Matrix (1999)/The.Matrix.1999.mkv";
+        let e = env(&[rel]);
+        let from = file_item(&e, rel).id;
+        e.c.execute_batch(&format!(
+            "UPDATE items SET watched_choice = 0, loved_choice = 1 WHERE id = {from};
+             INSERT INTO items(kind, title, tmdb_id, match_state, watched_choice, wanted) \
+             VALUES ('movie', 'The Matrix', 603, 'matched', 1, 1);"
+        ))
+        .unwrap();
+        let into = e.c.last_insert_rowid();
+        absorb(&e.c, from, into).unwrap();
+        let got: (Option<i64>, Option<i64>, i64) =
+            e.c.query_row(
+                "SELECT watched_choice, loved_choice, wanted FROM items WHERE id = ?1",
+                [into],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(got, (Some(1), Some(1), 0));
+        assert_eq!(file_item(&e, rel).id, into);
     }
 
     #[test]
