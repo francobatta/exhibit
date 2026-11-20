@@ -19,6 +19,8 @@ use crate::tmdb::{Http, MetadataProvider};
 /// Services name films only, so far.
 const KIND: &str = "movie";
 const DAY: i64 = 86_400;
+/// Scores this close are a tie.
+const TIE: f32 = 0.001;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ServiceState {
@@ -292,15 +294,22 @@ fn resolve(
             .values_mut()
             .filter(|f| f.tmdb_id.is_none() && !f.tried)
         {
-            f.tmdb_id = search(p, &f.title, f.year)?;
+            f.tmdb_id = search(c, p, &f.title, f.year)?;
             f.tried = true;
         }
     }
     Ok(films)
 }
 
-/// The TMDB movie the identification matcher accepts for a title and year, if any.
-fn search(p: &dyn MetadataProvider, title: &str, year: Option<i32>) -> Result<Option<i64>> {
+/// The TMDB movie the identification matcher accepts for a title and year, if any. When it
+/// refuses because namesakes tie at the top, the one the owner has a file of is taken, if
+/// exactly one of them.
+fn search(
+    c: &Connection,
+    p: &dyn MetadataProvider,
+    title: &str,
+    year: Option<i32>,
+) -> Result<Option<i64>> {
     let ev = Evidence {
         title,
         year,
@@ -312,7 +321,23 @@ fn search(p: &dyn MetadataProvider, title: &str, year: Option<i32>) -> Result<Op
         .take(identify::MAX_HITS)
         .map(|h| identify::candidate(h, matcher::score(&ev, h, None)))
         .collect();
-    Ok(matcher::decide(&scored).map(|c| c.tmdb_id))
+    if let Some(sure) = matcher::decide(&scored) {
+        return Ok(Some(sure.tmdb_id));
+    }
+    let top = scored.iter().map(|c| c.score).fold(0.0, f32::max);
+    let mut owned = c.prepare_cached(
+        "SELECT EXISTS (SELECT 1 FROM items i JOIN files f ON f.item_id = i.id          WHERE i.kind = ?1 AND i.tmdb_id = ?2)",
+    )?;
+    let mut had = Vec::new();
+    for tied in scored.iter().filter(|c| top - c.score < TIE) {
+        if owned.query_row(params![KIND, tied.tmdb_id], |r| r.get(0))? {
+            had.push(tied.tmdb_id);
+        }
+    }
+    Ok(match had[..] {
+        [one] => Some(one),
+        _ => None,
+    })
 }
 
 /// Stores one fact at the start of its day, or day 0 when undated. A rating, like or
@@ -941,6 +966,98 @@ mod tests {
         let p = solaris();
         let r = e.sync(&s, Some(&p), export());
         assert_eq!(r.liked, 1, "{r:?}");
+    }
+
+    /// TMDB knows two films called Taxi Driver from 1976, and nothing tells them apart.
+    fn namesakes() -> Fake {
+        Fake {
+            hits: vec![(
+                "Taxi Driver",
+                vec![
+                    hit(103, "Taxi Driver", 1976),
+                    hit(612_176, "Taxi Driver", 1976),
+                ],
+            )],
+            ..solaris()
+        }
+    }
+
+    /// Gives the library a movie item for `tmdb_id`, with a file when `file` is set.
+    fn own(e: &Env, drive: &TempDir, tmdb_id: i64, file: bool) {
+        let v = FakeVolumes(vec![("VOL1".into(), drive.path().to_path_buf())]);
+        let src = match add_source(&e.c, &v, drive.path()) {
+            Ok(s) => s.id,
+            Err(_) => {
+                e.c.query_row("SELECT id FROM sources", [], |r| r.get(0))
+                    .unwrap()
+            }
+        };
+        e.c.execute(
+            "INSERT INTO items(kind, title, tmdb_id, match_state) \
+             VALUES ('movie', 'Owned', ?1, 'matched')",
+            [tmdb_id],
+        )
+        .unwrap();
+        if file {
+            let item = e.c.last_insert_rowid();
+            e.c.execute(
+                "INSERT INTO files(source_id, rel_path, item_id) VALUES (?1, ?2, ?3)",
+                params![src, format!("{tmdb_id}.mkv"), item],
+            )
+            .unwrap();
+        }
+    }
+
+    fn taxi_driver(e: &Env, p: &Fake) -> SyncReport {
+        let s = FakeService::default();
+        s.export(vec![dated(
+            by_title("Taxi Driver", Some(1976)),
+            Fact::Like,
+            None,
+        )]);
+        e.sync(&s, Some(p), export())
+    }
+
+    #[test]
+    fn a_tie_between_namesakes_goes_to_the_one_the_owner_has() {
+        let e = env();
+        let drive = tempfile::tempdir().unwrap();
+        // A file-less row for the other one does not count.
+        own(&e, &drive, 103, false);
+        own(&e, &drive, 612_176, true);
+        let r = taxi_driver(&e, &namesakes());
+        assert_eq!((r.liked, r.unmatched), (1, 0), "{r:?}");
+        assert_eq!(e.facts(), [(612_176, "like".into(), 0, "{}".into())]);
+    }
+
+    #[test]
+    fn a_tie_between_namesakes_the_owner_lacks_is_left_out() {
+        let e = env();
+        let r = taxi_driver(&e, &namesakes());
+        assert_eq!((r.liked, r.unmatched), (0, 1), "{r:?}");
+
+        // Owning both is no better.
+        let e = env();
+        let drive = tempfile::tempdir().unwrap();
+        own(&e, &drive, 103, true);
+        own(&e, &drive, 612_176, true);
+        let r = taxi_driver(&e, &namesakes());
+        assert_eq!((r.liked, r.unmatched), (0, 1), "{r:?}");
+    }
+
+    #[test]
+    fn a_sure_match_beats_a_weaker_one_the_owner_has() {
+        let e = env();
+        let drive = tempfile::tempdir().unwrap();
+        own(&e, &drive, 2103, true);
+        let s = FakeService::default();
+        s.export(vec![dated(
+            by_title("Solaris", Some(1972)),
+            Fact::Like,
+            None,
+        )]);
+        e.sync(&s, Some(&solaris()), export());
+        assert_eq!(e.facts(), [(593, "like".into(), 0, "{}".into())]);
     }
 
     #[test]
