@@ -14,6 +14,21 @@ pub(crate) const ITEM_COLUMNS: &str = "id, kind, parent_id, title, year, season,
      overview, runtime_min, genres, people, poster, backdrop, tmdb_id, match_state, \
      match_source, confidence, candidates, loved, added_at";
 
+/// An item's title in the language bound as `?2` (its `item_texts` row, alias `tx`),
+/// falling back to the English base where TMDB has no translation.
+pub(crate) const LOCAL_TITLE: &str = "coalesce(nullif(tx.title, ''), i.title)";
+pub(crate) const LOCAL_POSTER: &str = "coalesce(tx.poster, i.poster)";
+pub(crate) const LOCAL_GENRES: &str =
+    "CASE WHEN tx.genres IS NOT NULL AND tx.genres <> '[]' THEN tx.genres ELSE i.genres END";
+
+/// `ITEM_COLUMNS` of `items i` in the language of `item_texts tx`, in the same order.
+pub(crate) const LOCAL_ITEM_COLUMNS: &str = "i.id, i.kind, i.parent_id, \
+     coalesce(nullif(tx.title, ''), i.title), i.year, i.season, i.episode, \
+     coalesce(nullif(tx.overview, ''), i.overview), i.runtime_min, \
+     CASE WHEN tx.genres IS NOT NULL AND tx.genres <> '[]' THEN tx.genres ELSE i.genres END, \
+     i.people, coalesce(tx.poster, i.poster), i.backdrop, i.tmdb_id, i.match_state, \
+     i.match_source, i.confidence, i.candidates, i.loved, i.added_at";
+
 pub(crate) fn item_from_row(r: &Row) -> rusqlite::Result<Item> {
     Ok(Item {
         id: r.get(0)?,

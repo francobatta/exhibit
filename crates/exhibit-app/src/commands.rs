@@ -157,6 +157,22 @@ pub fn set_intro(state: State<'_, AppState>, on: bool) -> ApiResult<()> {
     Ok(())
 }
 
+/// Chooses the language, then fetches the library's text in it if it is not all there yet.
+#[tauri::command(async)]
+pub fn set_language(state: State<'_, AppState>, language: String) -> ApiResult<()> {
+    state.lib().set_language(&language)?;
+    state.changed.notify();
+    state.worker.enqueue(Job::Translate);
+    Ok(())
+}
+
+#[tauri::command(async)]
+pub fn set_date_format(state: State<'_, AppState>, format: String) -> ApiResult<()> {
+    state.lib().set_date_format(&format)?;
+    state.changed.notify();
+    Ok(())
+}
+
 /// Starts downloading mpv and ffmpeg; returns at once, false when a download is already
 /// running. Progress arrives as `tools-download`.
 #[tauri::command(async)]

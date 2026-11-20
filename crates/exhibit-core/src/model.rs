@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 pub type Id = i64;
@@ -137,6 +138,10 @@ pub struct Candidate {
     /// candidates had posters have none.
     #[serde(default)]
     pub poster: Option<String>,
+    /// Its title in each language Exhibit speaks, when it was found by a search in several
+    /// (`"es-MX": "El club de la pelea"`); the window shows the one in the owner's language.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub titles: BTreeMap<String, String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

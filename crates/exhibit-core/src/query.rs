@@ -4,10 +4,12 @@
 
 use crate::db;
 use crate::error::{Detail, Error, Result};
+use crate::lang;
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
-    FILE_COLUMNS, ITEM_COLUMNS, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS, enum_str, item_from_row,
-    media_file_from_row, play_state_from_row, summary_from_row,
+    FILE_COLUMNS, LOCAL_GENRES, LOCAL_ITEM_COLUMNS, LOCAL_POSTER, LOCAL_TITLE, PLAY_STATE_COLUMNS,
+    SUMMARY_COLUMNS, enum_str, item_from_row, media_file_from_row, play_state_from_row,
+    summary_from_row,
 };
 use crate::scan;
 use crate::volume::Volumes;
@@ -112,12 +114,15 @@ const LIB_CTE: &str = "lib(item_id, avail) AS (SELECT t.root_id, \
      FROM tree t JOIN files f ON f.item_id = t.id GROUP BY t.root_id)";
 
 /// Bound parameters of one statement; `bind` returns the `?N` placeholder for a value.
-/// `?1` is always the JSON array of online source ids.
+/// `?1` is always the JSON array of online source ids, `?2` the language in effect.
 struct Params(Vec<Value>);
 
 impl Params {
-    fn new(online_sources: &[Id]) -> Params {
-        Params(vec![Value::Text(json_ids(online_sources))])
+    fn new(c: &Connection, online_sources: &[Id]) -> Result<Params> {
+        Ok(Params(vec![
+            Value::Text(json_ids(online_sources)),
+            Value::Text(lang::language(c)?.to_string()),
+        ]))
     }
 
     fn bind(&mut self, v: impl Into<Value>) -> String {
@@ -177,18 +182,21 @@ fn list(
     };
     let sql = format!(
         "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT {SUMMARY_COLUMNS} FROM (\
-           SELECT i.id, i.kind, i.parent_id, i.title, i.year, i.season, i.episode, \
-             (SELECT s.title FROM tree t JOIN items s ON s.id = t.root_id \
+           SELECT i.id, i.kind, i.parent_id, {LOCAL_TITLE} AS title, i.year, i.season, i.episode, \
+             (SELECT coalesce(nullif(st.title, ''), s.title) FROM tree t \
+                JOIN items s ON s.id = t.root_id \
+                LEFT JOIN item_texts st ON st.item_id = s.id AND st.lang = ?2 \
                 WHERE t.id = i.id AND t.root_id <> i.id AND s.kind = 'show') AS show_title, \
-             i.poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
+             {LOCAL_POSTER} AS poster, i.backdrop, i.runtime_min, {width} AS width, {height} AS height, {hdr} AS hdr, \
              CASE WHEN {container} THEN {total} > 0 AND {seen} = {total} \
                   ELSE coalesce(p.watched, 0) END AS watched, \
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
-             i.loved, lib.avail AS available, i.match_state, i.genres, i.added_at, \
+             i.loved, lib.avail AS available, i.match_state, {LOCAL_GENRES} AS genres, i.added_at, \
              (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path \
            FROM items i JOIN lib ON lib.item_id = i.id \
+           LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 \
            LEFT JOIN play_state p ON p.item_id = i.id) b \
          WHERE {where_sql} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
         width = tech("width"),
@@ -204,7 +212,7 @@ fn list(
 
 /// Summaries of the visible items among `ids`, in the order of `ids`.
 fn summaries_by_ids(c: &Connection, online: &[Id], ids: &[Id]) -> Result<Vec<ItemSummary>> {
-    let mut p = Params::new(online);
+    let mut p = Params::new(c, online)?;
     let cond = format!(
         "b.id IN (SELECT value FROM json_each({}))",
         p.bind(json_ids(ids))
@@ -238,7 +246,7 @@ const DEFAULT_KINDS: &str = "b.kind IN ('movie', 'show', 'other')";
 const SHELF_KINDS: &str = "b.kind IN ('movie', 'show')";
 
 pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<ItemSummary>> {
-    let mut p = Params::new(&online_sources(c, v)?);
+    let mut p = Params::new(c, &online_sources(c, v)?)?;
     let mut w = vec![match q.kind {
         Some(k) => format!("b.kind = {}", p.bind(enum_str(k))),
         None => DEFAULT_KINDS.to_string(),
@@ -300,8 +308,11 @@ pub fn item(c: &Connection, v: &dyn Volumes, id: Id) -> Result<ItemDetail> {
 /// `item` with the online sources already known; `children` false leaves the list empty.
 fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<ItemDetail> {
     let item = c
-        .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id = ?1"))?
-        .query_row([id], item_from_row)
+        .prepare_cached(&format!(
+            "SELECT {LOCAL_ITEM_COLUMNS} FROM items i \
+             LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 WHERE i.id = ?1"
+        ))?
+        .query_row(params![id, lang::language(c)?], item_from_row)
         .optional()?
         .ok_or_else(|| {
             Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
@@ -328,7 +339,7 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         )?
         .query_row(params![json_ids(online), id], |r| r.get(0))?;
     let children = if children {
-        let mut p = Params::new(online);
+        let mut p = Params::new(c, online)?;
         let cond = format!("b.parent_id = {}", p.bind(id));
         list(
             c,
@@ -383,7 +394,7 @@ pub fn shelf(c: &Connection, v: &dyn Volumes, s: Shelf, limit: u32) -> Result<Ve
         ),
     };
     let wheres: Vec<String> = wheres.into_iter().map(String::from).collect();
-    list(c, Params::new(&online), &wheres, order, limit, 0)
+    list(c, Params::new(c, &online)?, &wheres, order, limit, 0)
 }
 
 /// Films and episodes part-way through, plus the next unwatched episode of each show whose
@@ -446,7 +457,7 @@ pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> 
     let cond = "b.match_state = 'needsreview'".to_string();
     list(
         c,
-        Params::new(&online),
+        Params::new(c, &online)?,
         &[cond],
         "b.added_at DESC, b.id DESC",
         u32::MAX,

@@ -8,6 +8,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/001_init.sql"),
     include_str!("migrations/002_drop_ffprobe.sql"),
     include_str!("migrations/003_reprobe_tracks.sql"),
+    include_str!("migrations/004_languages.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.

@@ -138,10 +138,10 @@ mod tests {
     }
 
     impl MetadataProvider for Fake {
-        fn search_movie(&self, _: &str, _: Option<i32>) -> Result<Vec<SearchHit>> {
+        fn search_movie(&self, _: &str, _: Option<i32>, _: &str) -> Result<Vec<SearchHit>> {
             unreachable!()
         }
-        fn search_show(&self, _: &str, _: Option<i32>) -> Result<Vec<SearchHit>> {
+        fn search_show(&self, _: &str, _: Option<i32>, _: &str) -> Result<Vec<SearchHit>> {
             unreachable!()
         }
         fn find_external(&self, _: &ExternalId) -> Result<Option<SearchHit>> {
@@ -173,6 +173,12 @@ mod tests {
                 return Err(Error::Provider("offline".into()));
             }
             Ok(format!("{size}{path}").into_bytes())
+        }
+        fn texts(&self, _: crate::model::ItemKind, _: i64, _: &str) -> Result<crate::tmdb::Texts> {
+            unreachable!()
+        }
+        fn season_texts(&self, _: i64, _: i32, _: &str) -> Result<crate::tmdb::SeasonTexts> {
+            unreachable!()
         }
     }
 

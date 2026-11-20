@@ -131,6 +131,9 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
             RefreshEvent::Item(id) if phase == RefreshPhase::Thumbnails => {
                 progress(format!("thumbnail for item {id}"))
             }
+            RefreshEvent::Item(id) if phase == RefreshPhase::Translating => {
+                progress(format!("translated item {id}"))
+            }
             RefreshEvent::Item(id) => progress(format!("identified item {id}")),
             // A failure's reason is printed whether or not stderr is a terminal.
             RefreshEvent::File {
@@ -149,6 +152,7 @@ fn scan(lib: &Library, source: Option<Id>, no_probe: bool, no_identify: bool) ->
         "identify_error": r.identify_error,
         "probed": r.probed.map(|(ok, failed)| json!({"ok": ok, "failed": failed})),
         "rescored": r.rescored,
+        "translated": r.translated,
         "thumbnails": r.thumbnails.map(|(made, failed)| json!({"made": made, "failed": failed})),
     }))
 }

@@ -4,6 +4,7 @@ pub mod download;
 pub mod error;
 pub mod identify;
 mod identify_show;
+pub mod lang;
 pub mod library;
 pub mod matcher;
 pub mod model;
@@ -18,6 +19,7 @@ pub mod scan;
 pub mod secrets;
 pub mod tmdb;
 pub mod tools;
+pub mod translate;
 pub mod volume;
 
 pub use error::{Error, Result};

@@ -62,6 +62,8 @@ fn main() {
             commands::detect_tools,
             commands::set_tool_path,
             commands::set_intro,
+            commands::set_language,
+            commands::set_date_format,
             commands::download_tools,
             commands::tools_download_status,
             commands::set_secret,
@@ -80,6 +82,11 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let lib = Library::open_default()?;
     // Read before the page loads, so its first frame knows whether to play the intro.
     let intro = lib.intro()?;
+    // And in which language and date format to speak, so it never shows a word in another.
+    let locale = serde_json::json!({
+        "language": lib.language()?,
+        "dateFormat": lib.date_format()?,
+    });
     let image_dir = lib.image_dir();
     std::fs::create_dir_all(&image_dir)?;
     // Artwork is the only thing the page may load from disk.
@@ -103,7 +110,9 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("Exhibit")
         .background_color(WALL)
-        .initialization_script(format!("window.__exhibitIntro = {intro};"))
+        .initialization_script(format!(
+            "window.__exhibitIntro = {intro}; window.__exhibitLocale = {locale};"
+        ))
         .min_inner_size(960.0, 540.0);
     let window = if windowed {
         window.inner_size(1600.0, 900.0).center()

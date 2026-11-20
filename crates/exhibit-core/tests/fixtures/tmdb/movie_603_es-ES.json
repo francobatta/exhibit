@@ -1,0 +1,14 @@
+{
+  "id": 603,
+  "title": "Matrix",
+  "original_title": "The Matrix",
+  "overview": "Thomas Anderson lleva una doble vida: por el día es programador y por la noche, un pirata informático conocido como Neo.",
+  "genres": [{ "id": 28, "name": "Acción" }, { "id": 878, "name": "Ciencia ficción" }],
+  "poster_path": "/esMatrix.jpg",
+  "backdrop_path": "/fNG7i7RqMErkcqhohV2a6cV1Ehy.jpg",
+  "images": {
+    "backdrops": [],
+    "logos": [],
+    "posters": [{ "iso_639_1": "es", "file_path": "/esMatrix.jpg", "vote_average": 5.3 }]
+  }
+}

@@ -9,6 +9,7 @@
 use crate::db;
 use crate::error::{Detail, Error, Result};
 use crate::identify_show::{self, Member};
+use crate::lang;
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, TechInfo};
 use crate::nfo::{self, ExternalId, NfoInfo};
@@ -26,9 +27,9 @@ use std::path::{Path, PathBuf};
 pub(crate) const MAX_HITS: usize = 5;
 /// Of those, how many get a `movie()` call for their runtime.
 const RUNTIME_LOOKUPS: usize = 3;
-const POSTER_SIZE: &str = "w780";
+pub(crate) const POSTER_SIZE: &str = "w780";
 /// The small poster, for walls of many works; stored beside the large one with `-s`.
-const POSTER_SMALL_SIZE: &str = "w342";
+pub(crate) const POSTER_SMALL_SIZE: &str = "w342";
 const BACKDROP_SIZE: &str = "original";
 /// Candidate posters downloaded at once by `lookup`, which the owner waits on.
 const LOOKUP_POSTER_THREADS: usize = 5;
@@ -399,6 +400,7 @@ fn identify_single(
             Ok(s) => {
                 let only = Candidate {
                     poster: posters.poster(ItemKind::Show, s.tmdb_id, s.poster.as_deref())?,
+                    titles: Default::default(),
                     tmdb_id: s.tmdb_id,
                     kind: ItemKind::Show,
                     title: s.title,
@@ -429,7 +431,7 @@ fn match_movie(
         year,
         duration_min: item.duration_min,
     };
-    let hits = p.search_movie(title, year)?;
+    let hits = search_all(p, ItemKind::Movie, title, year)?;
     let mut metas: Vec<MovieMeta> = Vec::new();
     let mut scored = Vec::new();
     for (i, hit) in hits.iter().take(MAX_HITS).enumerate() {
@@ -473,7 +475,46 @@ pub(crate) fn candidate(hit: &SearchHit, score: f32) -> Candidate {
         year: hit.year,
         score,
         poster: None,
+        titles: hit
+            .titles
+            .iter()
+            .map(|(lang, title)| (lang.to_string(), title.clone()))
+            .collect(),
     }
+}
+
+/// Searches TMDB in every language Exhibit speaks, so a file named in any of them finds its
+/// work and matching never depends on the language setting. The first `MAX_HITS` of each
+/// search are merged by TMDB id, in the order English found them, then the rest; each hit
+/// carries its title in every language that found it, for scoring and for the window.
+pub(crate) fn search_all(
+    p: &dyn MetadataProvider,
+    kind: ItemKind,
+    title: &str,
+    year: Option<i32>,
+) -> Result<Vec<SearchHit>> {
+    let mut merged: Vec<SearchHit> = Vec::new();
+    for lang in lang::LANGUAGES {
+        let hits = match kind {
+            ItemKind::Show => p.search_show(title, year, lang)?,
+            _ => p.search_movie(title, year, lang)?,
+        };
+        for hit in hits.into_iter().take(MAX_HITS) {
+            let titled = (lang, hit.title.clone());
+            match merged
+                .iter_mut()
+                .find(|m| m.tmdb_id == hit.tmdb_id && m.kind == hit.kind)
+            {
+                Some(m) => m.titles.push(titled),
+                None => {
+                    let mut hit = hit;
+                    hit.titles.push(titled);
+                    merged.push(hit);
+                }
+            }
+        }
+    }
+    Ok(merged)
 }
 
 /// Best first.
@@ -663,6 +704,9 @@ fn fill_item(c: &Connection, id: Id, f: &Fill, how: How) -> Result<()> {
         enum_str(how.source),
         how.confidence.map(f64::from),
     ])?;
+    // Its translations were of what it was before; `translate` fetches them again.
+    c.prepare_cached("DELETE FROM item_texts WHERE item_id=?1")?
+        .execute([id])?;
     Ok(())
 }
 
@@ -687,7 +731,7 @@ pub(crate) fn artwork(
         download(p, cache_dir, path?, size, &name).ok()?;
         Some(name)
     };
-    let large = get(poster, POSTER_SIZE, poster_name(kind, id));
+    let large = get(poster, POSTER_SIZE, poster_name(kind, id, lang::BASE));
     if let Some(name) = &large {
         get(poster, POSTER_SMALL_SIZE, small_poster(name));
     }
@@ -697,9 +741,14 @@ pub(crate) fn artwork(
     )
 }
 
-/// The cached poster of TMDB movie or show `id`: `movie-603-poster.jpg`, `tv-95396-poster.jpg`.
-fn poster_name(tag: &str, id: i64) -> String {
-    format!("{tag}-{id}-poster.jpg")
+/// The cached poster of TMDB movie or show `id` in `lang`: `movie-603-poster.jpg` in
+/// English, the base, and `movie-603-poster.es-MX.jpg` in another language.
+pub(crate) fn poster_name(tag: &str, id: i64, lang: &str) -> String {
+    if lang == lang::BASE {
+        format!("{tag}-{id}-poster.jpg")
+    } else {
+        format!("{tag}-{id}-poster.{lang}.jpg")
+    }
 }
 
 /// Small posters for match candidates, so the owner can judge them by sight. Each is saved
@@ -709,6 +758,8 @@ fn poster_name(tag: &str, id: i64) -> String {
 pub(crate) struct CandidatePosters<'a> {
     p: &'a dyn MetadataProvider,
     cache_dir: &'a Path,
+    /// The language of the search, which names the files: English ones are the item's own.
+    lang: &'a str,
     unreachable: bool,
     /// Every failed download, for the report.
     pub(crate) errors: Vec<String>,
@@ -719,9 +770,16 @@ impl<'a> CandidatePosters<'a> {
         CandidatePosters {
             p,
             cache_dir,
+            lang: lang::BASE,
             unreachable: false,
             errors: Vec::new(),
         }
+    }
+
+    /// For a search in `lang`, whose posters must not stand in for the English ones.
+    pub(crate) fn in_language(mut self, lang: &'a str) -> Self {
+        self.lang = lang;
+        self
     }
 
     /// Gives each candidate the poster of its search hit. Only a rejected key is an error.
@@ -752,7 +810,7 @@ impl<'a> CandidatePosters<'a> {
         } else {
             "movie"
         };
-        let name = poster_name(tag, id);
+        let name = poster_name(tag, id, self.lang);
         let small = small_poster(&name);
         if self.unreachable && !self.cache_dir.join(&small).is_file() {
             return Ok(None);
@@ -770,7 +828,7 @@ impl<'a> CandidatePosters<'a> {
 }
 
 /// The small poster's file name for a large poster's: `-s` before the extension.
-fn small_poster(large: &str) -> String {
+pub(crate) fn small_poster(large: &str) -> String {
     match large.rsplit_once('.') {
         Some((stem, ext)) => format!("{stem}-s.{ext}"),
         None => format!("{large}-s"),
@@ -853,17 +911,19 @@ fn small_posters(
 
 /// TMDB search for a match picked by hand: every hit scored as the matcher scores it
 /// (title, and year when given), best first, each with its small poster when it could be
-/// cached into `cache_dir`. `kind` must be `Movie` or `Show`.
+/// cached into `cache_dir`. The search is in the owner's language `lang`, so titles and
+/// posters are the ones they know. `kind` must be `Movie` or `Show`.
 pub fn lookup(
     p: &(dyn MetadataProvider + Sync),
     cache_dir: &Path,
     text: &str,
     kind: ItemKind,
     year: Option<i32>,
+    lang: &str,
 ) -> Result<Vec<Candidate>> {
     let hits = match kind {
-        ItemKind::Movie => p.search_movie(text, year)?,
-        ItemKind::Show => p.search_show(text, year)?,
+        ItemKind::Movie => p.search_movie(text, year, lang)?,
+        ItemKind::Show => p.search_show(text, year, lang)?,
         other => {
             return Err(Error::Invalid(
                 format!("cannot search for a {}; use movie or show", enum_str(other)).into(),
@@ -886,7 +946,13 @@ pub fn lookup(
     std::thread::scope(|s| {
         let jobs: Vec<_> = scored
             .chunks_mut(share)
-            .map(|chunk| s.spawn(move || CandidatePosters::new(p, cache_dir).add(chunk, hits)))
+            .map(|chunk| {
+                s.spawn(move || {
+                    CandidatePosters::new(p, cache_dir)
+                        .in_language(lang)
+                        .add(chunk, hits)
+                })
+            })
             .collect();
         jobs.into_iter()
             .try_for_each(|job| job.join().expect("a poster download panicked"))
@@ -962,6 +1028,8 @@ pub fn move_to_other(c: &Connection, item_id: Id) -> Result<()> {
          match_source='manual', confidence=NULL, candidates='[]' WHERE id=?1",
     )?
     .execute(params![item_id, title])?;
+    c.prepare_cached("DELETE FROM item_texts WHERE item_id=?1")?
+        .execute([item_id])?;
     Ok(())
 }
 
@@ -975,7 +1043,9 @@ mod tests {
     use crate::parse::normalize_title;
     use crate::rows::{ITEM_COLUMNS, item_from_row};
     use crate::scan::{add_source, scan_source};
-    use crate::tmdb::{EpisodeMeta, MovieMeta, SearchHit, SeasonMeta, ShowMeta};
+    use crate::tmdb::{
+        EpisodeMeta, MovieMeta, SearchHit, SeasonMeta, SeasonTexts, ShowMeta, Texts,
+    };
     use crate::volume::FakeVolumes;
     use ItemKind::{Episode, Movie, Other, Show};
     use std::cell::RefCell;
@@ -994,6 +1064,10 @@ mod tests {
         movie_hits: Vec<(&'static str, Vec<SearchHit>)>,
         show_hits: Vec<(&'static str, Vec<SearchHit>)>,
         images_fail: bool,
+        /// (TMDB id, language, title): what a search in that language calls a hit.
+        titles: Vec<(i64, &'static str, &'static str)>,
+        texts: Vec<(i64, &'static str, Texts)>,
+        season_texts: Vec<(i64, i32, &'static str, SeasonTexts)>,
         fail: Mutex<Vec<String>>,
         calls: Mutex<Vec<String>>,
     }
@@ -1031,20 +1105,57 @@ mod tests {
             .unwrap_or_default()
     }
 
+    /// Hits as a search in `lang` names them.
+    fn localize(
+        hits: Vec<SearchHit>,
+        titles: &[(i64, &'static str, &'static str)],
+        lang: &str,
+    ) -> Vec<SearchHit> {
+        hits.into_iter()
+            .map(|mut h| {
+                if let Some((_, _, t)) = titles
+                    .iter()
+                    .find(|(i, l, _)| *i == h.tmdb_id && *l == lang)
+                {
+                    h.title = t.to_string();
+                }
+                h
+            })
+            .collect()
+    }
+
     /// What the TMDB client returns for HTTP 404.
     fn not_found(what: String) -> Error {
         Error::NotFound(format!("TMDB has nothing at {what}").into())
     }
 
     impl MetadataProvider for Fake {
-        fn search_movie(&self, title: &str, _year: Option<i32>) -> Result<Vec<SearchHit>> {
-            self.log(format!("search_movie {title}"))?;
-            Ok(hits_for(&self.movie_hits, title))
+        fn search_movie(
+            &self,
+            title: &str,
+            _year: Option<i32>,
+            lang: &str,
+        ) -> Result<Vec<SearchHit>> {
+            self.log(format!("search_movie {title} {lang}"))?;
+            Ok(localize(
+                hits_for(&self.movie_hits, title),
+                &self.titles,
+                lang,
+            ))
         }
 
-        fn search_show(&self, title: &str, year: Option<i32>) -> Result<Vec<SearchHit>> {
-            self.log(format!("search_show {title} {year:?}"))?;
-            Ok(hits_for(&self.show_hits, title))
+        fn search_show(
+            &self,
+            title: &str,
+            year: Option<i32>,
+            lang: &str,
+        ) -> Result<Vec<SearchHit>> {
+            self.log(format!("search_show {title} {year:?} {lang}"))?;
+            Ok(localize(
+                hits_for(&self.show_hits, title),
+                &self.titles,
+                lang,
+            ))
         }
 
         fn find_external(&self, id: &ExternalId) -> Result<Option<SearchHit>> {
@@ -1088,6 +1199,23 @@ mod tests {
             }
             Ok(format!("{size}{path}").into_bytes())
         }
+
+        fn texts(&self, kind: ItemKind, id: i64, lang: &str) -> Result<Texts> {
+            self.log(format!("texts {} {id} {lang}", enum_str(kind)))?;
+            let t = self.texts.iter().find(|(i, l, _)| *i == id && *l == lang);
+            t.map(|(_, _, t)| t.clone())
+                .ok_or_else(|| not_found(format!("texts {id} {lang}")))
+        }
+
+        fn season_texts(&self, show_id: i64, season: i32, lang: &str) -> Result<SeasonTexts> {
+            self.log(format!("season_texts {show_id} {season} {lang}"))?;
+            let s = self
+                .season_texts
+                .iter()
+                .find(|(i, n, l, _)| *i == show_id && *n == season && *l == lang);
+            s.map(|(_, _, _, t)| t.clone())
+                .ok_or_else(|| not_found(format!("season_texts {show_id}/{season} {lang}")))
+        }
     }
 
     fn hit(id: i64, kind: ItemKind, title: &str, year: Option<i32>) -> SearchHit {
@@ -1099,6 +1227,7 @@ mod tests {
             year,
             popularity: 1.0,
             poster: None,
+            titles: Vec::new(),
         }
     }
 
@@ -1106,6 +1235,7 @@ mod tests {
     fn solaris_with_posters() -> Fake {
         let with_poster = |id, year| SearchHit {
             poster: Some(format!("/p{id}.jpg")),
+            titles: Vec::new(),
             ..hit(id, Movie, "Solaris", Some(year))
         };
         Fake {
@@ -1358,7 +1488,9 @@ mod tests {
         assert_eq!(
             *p.calls.lock().unwrap(),
             [
-                "search_movie The Matrix",
+                "search_movie The Matrix en-US",
+                "search_movie The Matrix es-ES",
+                "search_movie The Matrix es-MX",
                 "movie 603",
                 "image w780/p603.jpg",
                 "image w342/p603.jpg",
@@ -1426,7 +1558,8 @@ mod tests {
             (seasons[0].parent_id, seasons[0].season),
             (Some(s.id), Some(2))
         );
-        assert_eq!(seasons[0].title, "Season 2");
+        // Untitled: the window words it from its number.
+        assert_eq!(seasons[0].title, "");
 
         let eps = items_of(&e.c, "episode");
         assert_eq!(eps.len(), 3);
@@ -1439,7 +1572,7 @@ mod tests {
             assert_eq!(file_item(&e, files[i]).id, ep.id);
         }
         assert!(items_of(&e.c, "other").is_empty());
-        assert_eq!(p.count("search_show"), 1);
+        assert_eq!(p.count("search_show"), 3);
         assert_eq!(p.count("season"), 1);
         assert_eq!(p.count("search_movie"), 0);
     }
@@ -2018,7 +2151,7 @@ mod tests {
                 hit(603, Movie, "The Matrix", Some(1999)),
             ],
         )];
-        let found = lookup(&p, Path::new("."), "Matrix", Movie, Some(1999)).unwrap();
+        let found = lookup(&p, Path::new("."), "Matrix", Movie, Some(1999), lang::BASE).unwrap();
         assert_eq!(
             found.iter().map(|c| c.tmdb_id).collect::<Vec<_>>(),
             [603, 1]
@@ -2033,7 +2166,7 @@ mod tests {
         assert_eq!(found[0].kind, Movie);
         // Shows are searched as shows.
         let s = severance();
-        let found = lookup(&s, Path::new("."), "Severance", Show, None).unwrap();
+        let found = lookup(&s, Path::new("."), "Severance", Show, None, lang::BASE).unwrap();
         assert_eq!((found.len(), found[0].kind), (1, Show));
         assert_eq!(s.count("search_show"), 1);
     }
@@ -2043,7 +2176,7 @@ mod tests {
         let p = matrix();
         for kind in [Other, Episode, ItemKind::Season] {
             assert!(matches!(
-                lookup(&p, Path::new("."), "The Matrix", kind, None),
+                lookup(&p, Path::new("."), "The Matrix", kind, None, lang::BASE),
                 Err(Error::Invalid(_))
             ));
         }
@@ -2244,8 +2377,9 @@ mod tests {
             ],
         )];
         assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 1, 0));
-        assert_eq!(p.count("search"), 1);
-        assert_eq!(p.count("search_show The Office None"), 1);
+        // Once in each language.
+        assert_eq!(p.count("search"), 3);
+        assert_eq!(p.count("search_show The Office None"), 3);
         let it = file_item(&e, loose);
         assert_eq!((it.kind, it.match_state), (Other, MatchState::NeedsReview));
         assert_eq!(it.candidates.len(), 2);
@@ -2272,9 +2406,9 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(2, 0, 0));
-        assert_eq!(p.count("search_show Doctor Who Some(1963)"), 1);
-        assert_eq!(p.count("search_show Doctor Who Some(2005)"), 1);
-        assert_eq!(p.count("search"), 2);
+        assert_eq!(p.count("search_show Doctor Who Some(1963) en-US"), 1);
+        assert_eq!(p.count("search_show Doctor Who Some(2005) en-US"), 1);
+        assert_eq!(p.count("search"), 6);
         assert_eq!(show_of(&e, old).tmdb_id, Some(121));
         assert_eq!(show_of(&e, new).tmdb_id, Some(57243));
     }
@@ -2367,5 +2501,216 @@ mod tests {
             (it.match_state, it.match_source),
             (MatchState::Manual, Some(MatchSource::Manual))
         );
+    }
+
+    #[test]
+    fn a_file_named_in_spanish_matches_through_the_spanish_search() {
+        let rel = "El club de la pelea (1999).mkv";
+        let e = env(&[rel]);
+        let p = Fake {
+            movies: vec![movie(550, "Fight Club", 1999, 139)],
+            // TMDB finds a work by its translated title whatever the search's language.
+            movie_hits: vec![(
+                "El club de la pelea",
+                vec![hit(550, Movie, "Fight Club", Some(1999))],
+            )],
+            titles: vec![
+                (550, "es-ES", "El club de la lucha"),
+                (550, "es-MX", "El club de la pelea"),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched), report(1, 0, 0));
+        let it = file_item(&e, rel);
+        // The base text stays English.
+        assert_eq!((it.tmdb_id, it.title.as_str()), (Some(550), "Fight Club"));
+    }
+
+    #[test]
+    fn candidates_carry_their_title_in_each_language() {
+        let e = env(&["Solaris.mkv"]);
+        let mut p = solaris_with_posters();
+        p.titles = vec![(593, "es-ES", "Solaris (1972)")];
+        run(&e, &p, IdentifyScope::Unmatched);
+        let it = file_item(&e, "Solaris.mkv");
+        let c = it.candidates.iter().find(|c| c.tmdb_id == 593).unwrap();
+        assert_eq!(
+            c.titles.get("es-ES").map(String::as_str),
+            Some("Solaris (1972)")
+        );
+        assert_eq!(c.titles.get("en-US").map(String::as_str), Some("Solaris"));
+    }
+
+    /// The Matrix and one Severance episode, identified, with Spanish text for both.
+    fn translated() -> (Env, Fake) {
+        let e = env(&[
+            "The Matrix 1999.mkv",
+            "Severance/Season 02/Severance.S02E01.mkv",
+        ]);
+        let s = severance();
+        let mut p = matrix();
+        p.shows = s.shows;
+        p.seasons = s.seasons;
+        p.show_hits = s.show_hits;
+        p.texts = vec![
+            (
+                603,
+                "es-ES",
+                Texts {
+                    title: "Matrix".into(),
+                    overview: "Un pirata informático descubre la verdad.".into(),
+                    genres: vec!["Acción".into()],
+                    poster: Some("/es603.jpg".into()),
+                },
+            ),
+            (
+                95396,
+                "es-ES",
+                Texts {
+                    title: "Separación".into(),
+                    ..Texts::default()
+                },
+            ),
+        ];
+        p.season_texts = vec![(
+            95396,
+            2,
+            "es-ES",
+            SeasonTexts {
+                poster: None,
+                episodes: vec![(1, "Hola, señora Cobel".into(), String::new())],
+            },
+        )];
+        assert_eq!(run(&e, &p, IdentifyScope::Unmatched).matched, 2);
+        (e, p)
+    }
+
+    fn texts_of(c: &Connection, id: Id, lang: &str) -> (String, String, Option<String>) {
+        c.query_row(
+            "SELECT title, overview, poster FROM item_texts WHERE item_id=?1 AND lang=?2",
+            params![id, lang],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .unwrap()
+    }
+
+    fn translate_to(e: &Env, p: &Fake, lang: &str) -> crate::translate::TranslateReport {
+        crate::translate::translate(&e.c, p, &e.cache(), lang, &mut |_| {}).unwrap()
+    }
+
+    #[test]
+    fn translation_fills_works_and_episodes_once() {
+        let (e, p) = translated();
+        let r = translate_to(&e, &p, "es-ES");
+        assert_eq!((r.translated, r.errors.len()), (3, 0), "{r:?}");
+
+        let movie = file_item(&e, "The Matrix 1999.mkv");
+        assert_eq!(
+            texts_of(&e.c, movie.id, "es-ES"),
+            (
+                "Matrix".into(),
+                "Un pirata informático descubre la verdad.".into(),
+                Some("movie-603-poster.es-ES.jpg".into())
+            )
+        );
+        assert!(e.cache().join("movie-603-poster.es-ES-s.jpg").is_file());
+        // The English poster is untouched.
+        assert!(e.cache().join("movie-603-poster.jpg").is_file());
+        let episode = file_item(&e, "Severance/Season 02/Severance.S02E01.mkv");
+        assert_eq!(texts_of(&e.c, episode.id, "es-ES").0, "Hola, señora Cobel");
+        // No Spanish poster: the English one shows.
+        let show = show_of(&e, "Severance/Season 02/Severance.S02E01.mkv");
+        assert_eq!(texts_of(&e.c, show.id, "es-ES").2, None);
+        assert!(crate::translate::complete(&e.c, "es-ES").unwrap());
+        assert!(!crate::translate::complete(&e.c, "es-MX").unwrap());
+
+        let asked = p.count("texts") + p.count("season_texts");
+        assert_eq!(translate_to(&e, &p, "es-ES").translated, 0);
+        assert_eq!(p.count("texts") + p.count("season_texts"), asked);
+    }
+
+    #[test]
+    fn reads_take_the_language_and_fall_back_to_english() {
+        let (e, p) = translated();
+        translate_to(&e, &p, "es-ES");
+        let movie = file_item(&e, "The Matrix 1999.mkv");
+        let show = show_of(&e, "Severance/Season 02/Severance.S02E01.mkv");
+
+        crate::lang::set_language(&e.c, "es-ES").unwrap();
+        let m = crate::query::item(&e.c, &e.v, movie.id).unwrap().item;
+        assert_eq!(m.title, "Matrix");
+        assert_eq!(m.genres, ["Acción"]);
+        assert_eq!(m.poster.as_deref(), Some("movie-603-poster.es-ES.jpg"));
+        // TMDB has no Spanish overview for the show: the English one fills the gap.
+        let s = crate::query::item(&e.c, &e.v, show.id).unwrap();
+        assert_eq!(
+            (s.item.title.as_str(), s.item.overview.as_deref()),
+            ("Separación", Some("About Severance"))
+        );
+        assert_eq!(s.item.poster.as_deref(), Some("tv-95396-poster.jpg"));
+        let season = crate::query::item(&e.c, &e.v, s.children[0].id).unwrap();
+        assert_eq!(season.children[0].title, "Hola, señora Cobel");
+        assert_eq!(season.children[0].show_title.as_deref(), Some("Separación"));
+        // Search finds a work by its Spanish name, without accents, and lists it in Spanish.
+        let q = crate::query::SearchQuery {
+            text: Some("separacion".into()),
+            ..Default::default()
+        };
+        let found = crate::query::search(&e.c, &e.v, &q).unwrap();
+        let titles: Vec<&str> = found.iter().map(|s| s.title.as_str()).collect();
+        assert_eq!(titles, ["Separación"]);
+
+        // In English, English; and the English name still finds it.
+        crate::lang::set_language(&e.c, "en-US").unwrap();
+        let m = crate::query::item(&e.c, &e.v, movie.id).unwrap().item;
+        assert_eq!(m.title, "The Matrix");
+        let q = crate::query::SearchQuery {
+            text: Some("severance".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            crate::query::search(&e.c, &e.v, &q).unwrap()[0].title,
+            "Severance"
+        );
+    }
+
+    #[test]
+    fn a_work_tmdb_has_not_translated_is_not_asked_again() {
+        let e = env(&["The Matrix 1999.mkv"]);
+        let p = matrix();
+        run(&e, &p, IdentifyScope::Unmatched);
+        assert_eq!(translate_to(&e, &p, "es-MX").translated, 1);
+        let movie = file_item(&e, "The Matrix 1999.mkv");
+        assert_eq!(
+            texts_of(&e.c, movie.id, "es-MX"),
+            (String::new(), String::new(), None)
+        );
+        assert!(crate::translate::complete(&e.c, "es-MX").unwrap());
+    }
+
+    #[test]
+    fn translation_stops_when_tmdb_is_out_of_reach() {
+        let (e, p) = translated();
+        p.fail.lock().unwrap().push("texts".into());
+        let r = translate_to(&e, &p, "es-ES");
+        assert_eq!((r.translated, r.errors.len()), (0, 1), "{r:?}");
+        assert_eq!(p.count("texts"), 1);
+        assert!(!crate::translate::complete(&e.c, "es-ES").unwrap());
+    }
+
+    #[test]
+    fn a_new_match_drops_the_old_translations() {
+        let (e, p) = translated();
+        translate_to(&e, &p, "es-ES");
+        let movie = file_item(&e, "The Matrix 1999.mkv");
+        move_to_other(&e.c, movie.id).unwrap();
+        let left: i64 =
+            e.c.query_row(
+                "SELECT count(*) FROM item_texts WHERE item_id=?1",
+                [movie.id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(left, 0);
     }
 }

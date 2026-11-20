@@ -23,6 +23,8 @@ pub enum Job {
     /// One source, or every source with `None`.
     Refresh(Option<Id>),
     Identify(IdentifyScope),
+    /// The library's text in the language in effect, where it is missing.
+    Translate,
 }
 
 /// What the worker is doing. Idle is `phase: None` with `done: 0` and no message;
@@ -66,6 +68,19 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
             };
             match lib.refresh(source, &mut on, RefreshOptions::default()) {
                 Ok(report) => report.identify_error.map(ApiError::from),
+                Err(e) => Some(e.into()),
+            }
+        }
+        Job::Translate => {
+            let phase = RefreshPhase::Translating;
+            status.phase = Some(phase);
+            emit(Emit::Status(status.clone()));
+            let done = lib.translate(&mut |_| {
+                status.done += 1;
+                emit(Emit::Status(status.clone()));
+            });
+            match done {
+                Ok(report) => report.errors.last().map(|e| partly_failed(e)),
                 Err(e) => Some(e.into()),
             }
         }
