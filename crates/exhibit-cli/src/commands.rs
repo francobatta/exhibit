@@ -189,6 +189,7 @@ fn search_query(a: SearchArgs) -> SearchQuery {
             sound: a.sound,
             audio: a.audio,
             subtitles: a.subtitles,
+            ..Default::default()
         },
         sort,
         descending: a.reverse.then(|| {
@@ -198,6 +199,7 @@ fn search_query(a: SearchArgs) -> SearchQuery {
         }),
         limit: a.limit,
         offset: a.offset,
+        ..Default::default()
     }
 }
 

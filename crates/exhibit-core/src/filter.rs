@@ -4,6 +4,7 @@
 //! are alternatives (4K or 1080p); across facets they all apply. Genres also take exclusions, and
 //! their choices can all be required instead.
 
+use crate::activity::{logged_sql, on_watchlist_sql, rated_sql, reviewed_sql, watched_sql};
 use crate::error::Result;
 use crate::model::ItemKind;
 use crate::query::{DEFAULT_KINDS, LIB_CTE, Params, TREE_CTE, online_sources};
@@ -79,6 +80,13 @@ pub struct Filters {
     /// Languages a work can be heard in, as `facets` names them ("en", "es-419").
     pub audio: Vec<String>,
     pub subtitles: Vec<String>,
+    /// A switched-on service has the owner's rating, review or logged watch of the work.
+    pub rated: Option<bool>,
+    pub reviewed: Option<bool>,
+    pub logged: Option<bool>,
+    /// On the owner's watchlist and not watched. `Some(true)` also lists the films the owner
+    /// does not have yet.
+    pub watchlist: Option<bool>,
 }
 
 /// One value of a facet and how many works have it.
@@ -100,6 +108,18 @@ pub struct Facets {
     pub sound: Vec<Count<String>>,
     pub audio: Vec<Count<String>>,
     pub subtitles: Vec<Count<String>>,
+    pub activity: ActivityCounts,
+}
+
+/// How many works each "your activity" filter would list. `watchlist` includes the films not in
+/// the library, and `not_in_library` counts those alone.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct ActivityCounts {
+    pub rated: u32,
+    pub reviewed: u32,
+    pub logged: u32,
+    pub watchlist: u32,
+    pub not_in_library: u32,
 }
 
 /// A file's picture size (`files f`); NULL for a file with no picture.
@@ -191,7 +211,18 @@ pub(crate) fn conditions(f: &Filters, p: &mut Params) -> Vec<String> {
         w.push(format!("b.loved = {}", p.bind(x)));
     }
     if let Some(x) = f.available {
-        w.push(format!("b.available = {}", p.bind(x)));
+        // Offline means a file the owner has is out of reach, not that there is no file.
+        w.push(format!("b.available = {} AND b.in_library", p.bind(x)));
+    }
+    for (x, has) in [
+        (f.rated, rated_sql("b")),
+        (f.reviewed, reviewed_sql("b")),
+        (f.logged, logged_sql("b")),
+        (f.watchlist, on_watchlist_sql("b", "b.watched")),
+    ] {
+        if let Some(x) = x {
+            w.push(format!("({has}) = {}", p.bind(x)));
+        }
     }
     if !f.resolution.is_empty() {
         w.push(any_file(&among(p, RESOLUTION, &f.resolution)));
@@ -238,7 +269,11 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
         "WITH RECURSIVE {TREE_CTE}, {LIB_CTE}, \
          roots(id) AS (SELECT b.id FROM items b JOIN lib ON lib.item_id = b.id WHERE {kinds}), \
          ff(root, tech) AS (SELECT r.id, f.tech FROM roots r JOIN tree t ON t.root_id = r.id \
-           JOIN files f ON f.item_id = t.id WHERE f.tech IS NOT NULL) \
+           JOIN files f ON f.item_id = t.id WHERE f.tech IS NOT NULL), \
+         act(in_lib, rated, reviewed, logged, watchlist) AS (SELECT lib.item_id IS NOT NULL, \
+           {rated}, {reviewed}, {logged}, {watchlist} FROM items b \
+           LEFT JOIN lib ON lib.item_id = b.id LEFT JOIN play_state p ON p.item_id = b.id \
+           WHERE {kinds} AND (lib.item_id IS NOT NULL OR b.wanted = 1)) \
          SELECT 'genres', g.value, count(DISTINCT i.id) FROM roots r JOIN items i ON i.id = r.id \
            LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2, json_each({LOCAL_GENRES}) g \
            GROUP BY 2 \
@@ -251,7 +286,17 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
          UNION ALL SELECT 'picture', {PICTURE}, count(DISTINCT f.root) FROM ff f GROUP BY 2 \
          UNION ALL SELECT 'sound', s.value, count(DISTINCT f.root) FROM ff f, \
            json_each(f.tech, '$.audio') a, json_each({SOUNDS}) s WHERE {sound} GROUP BY 2 \
-         UNION ALL {audio} UNION ALL {subtitles}",
+         UNION ALL {audio} UNION ALL {subtitles} \
+         UNION ALL SELECT 'activity', 'rated', count(*) FROM act WHERE in_lib AND rated \
+         UNION ALL SELECT 'activity', 'reviewed', count(*) FROM act WHERE in_lib AND reviewed \
+         UNION ALL SELECT 'activity', 'logged', count(*) FROM act WHERE in_lib AND logged \
+         UNION ALL SELECT 'activity', 'watchlist', count(*) FROM act WHERE watchlist \
+         UNION ALL SELECT 'activity', 'not_in_library', count(*) FROM act \
+           WHERE watchlist AND NOT in_lib",
+        rated = rated_sql("b"),
+        reviewed = reviewed_sql("b"),
+        logged = logged_sql("b"),
+        watchlist = on_watchlist_sql("b", &watched_sql("b", "p")),
         sound = sound_is("s.value", "a.value"),
         audio = langs("audio"),
         subtitles = langs("subtitles"),
@@ -272,6 +317,16 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
             "picture" => out.picture.push(text()?),
             "sound" => out.sound.push(text()?),
             "audio" => out.audio.push(text()?),
+            "activity" => {
+                let n = &mut out.activity;
+                match r.get::<_, String>(1)?.as_str() {
+                    "rated" => n.rated = count,
+                    "reviewed" => n.reviewed = count,
+                    "logged" => n.logged = count,
+                    "watchlist" => n.watchlist = count,
+                    _ => n.not_in_library = count,
+                }
+            }
             _ => out.subtitles.push(text()?),
         }
     }

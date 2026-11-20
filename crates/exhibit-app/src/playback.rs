@@ -222,6 +222,7 @@ mod tests {
             match_state: MatchState::Matched,
             genres: vec![],
             path: None,
+            in_library: true,
         }
     }
 
@@ -254,6 +255,7 @@ mod tests {
             children: vec![],
             available: true,
             next_episode: next.map(summary),
+            activity: Default::default(),
         }
     }
 
