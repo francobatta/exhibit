@@ -18,7 +18,11 @@ type Archive = ZipArchive<std::fs::File>;
 fn find_entry(zip: &Archive, name: &str) -> Option<usize> {
     let mut nested = None;
     for i in 0..zip.len() {
-        let norm = zip.name_for_index(i)?.replace('\\', "/").to_lowercase();
+        let norm = zip
+            .name_for_index(i)?
+            .ok()?
+            .replace('\\', "/")
+            .to_lowercase();
         if norm == name {
             return Some(i);
         }
