@@ -12,9 +12,9 @@ export const PICTURES: Picture[] = ["dolby_vision", "hdr10", "hlg", "sdr"];
 export const SOUNDS: Sound[] = ["atmos", "dts_x", "lossless", "surround"];
 
 /** The direction a sort takes first: titles A to Z, runtimes shortest first, dates newest first. */
-export const descends = (sort: Sort) => sort === "year" || sort === "added" || sort === "played";
+export const descends = (sort: Sort) => sort === "year" || sort === "added" || sort === "played" || sort === "my_rating";
 
-const ORDER = { title: "alpha", year: "time", added: "time", played: "time", runtime: "length" } as const;
+const ORDER = { title: "alpha", year: "time", added: "time", played: "time", runtime: "length", my_rating: "rating" } as const;
 
 /** "Oldest first", "Z to A": the order `sort` takes `descending` or not. */
 export function direction(sort: Sort, descending: boolean): string {

@@ -30,6 +30,7 @@ function summary(id: number): ItemSummary {
     match_state: "matched",
     genres: [],
     path: null,
+    in_library: true,
   };
 }
 

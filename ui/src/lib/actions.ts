@@ -8,7 +8,7 @@ import { confirm, type ConfirmRequest } from "@/components/Dialog";
 import { openMatchPicker } from "@/components/MatchPicker";
 import { toast } from "@/components/ui/toast";
 import { leaveAsk, useNav } from "@/nav/stack";
-import { plain, type Id, type ItemDetail, type ItemSummary } from "./api";
+import { plain, type Id, type ItemDetail, type ItemSummary, type ServiceView } from "./api";
 import { clock, episodeLabel, titleOf } from "./format";
 import { usePlayback } from "./playback";
 import { useMoveToOther, useOfflineDrive, useSetLoved, useSetWatched } from "./queries";
@@ -57,8 +57,8 @@ export function facetsOf(item: ActionItem) {
       kind: item.item.kind,
       title: titleOf(item.item),
       available: item.available,
-      loved: item.item.loved,
-      watched: play?.watched ?? false,
+      loved: item.activity.loved,
+      watched: item.activity.watched,
       inProgress: play !== null && !play.watched && play.position_s > 0,
       resumeAt: play !== null && play.position_s > 0 ? play.position_s : null,
       matchState: item.item.match_state,
@@ -246,4 +246,9 @@ export function useActionContext(): ActionContext {
     }),
     [start, watched.mutateAsync, loved.mutateAsync, other.mutateAsync, push, driveOf],
   );
+}
+
+/** Whether the owner has a service that brings their activity in: switched on, providing it, with a name. */
+export function hasActivity(services: ServiceView[] | undefined): boolean {
+  return (services ?? []).some((s) => s.state.enabled && s.provides.includes("activity") && s.state.username !== null && s.state.username !== "");
 }

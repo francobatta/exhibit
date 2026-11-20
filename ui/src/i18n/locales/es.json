@@ -339,6 +339,52 @@
     "fullScreen": "Pantalla completa",
     "intro": "Introducción"
   },
+  "services": {
+    "title": "Servicios",
+    "note": "Trae lo que has puntuado, reseñado y visto en otros sitios. Exhibit solo lo lee; no envía nada de vuelta.",
+    "on": "Activado",
+    "off": "Desactivado",
+    "username": "Nombre de usuario",
+    "connect": "Conectar",
+    "checking": "Comprobando…",
+    "found_one": "Se encontró a @{{name}}: {{count, number}} entrada reciente en el diario. Tus puntuaciones y reseñas aparecerán en tus películas.",
+    "found_many": "Se encontró a @{{name}}: {{count, number}} entradas recientes en el diario. Tus puntuaciones y reseñas aparecerán en tus películas.",
+    "found_other": "Se encontró a @{{name}}: {{count, number}} entradas recientes en el diario. Tus puntuaciones y reseñas aparecerán en tus películas.",
+    "forget": "Olvidar {{service}}",
+    "bringHistory": "Trae todo tu historial",
+    "bringHistoryBody": "{{service}} te deja descargar todo en un solo archivo. Exhibit lo notará en Descargas.",
+    "openExport": "Abrir la página de exportación de {{service}}",
+    "waiting": "Esperando el archivo en Descargas…",
+    "foundExport": "Tu exportación de {{service}} de hoy está en Descargas. ¿La traemos?",
+    "bringIt": "Traerla",
+    "chooseFile": "Elegir el archivo tú mismo",
+    "imported": "{{logged}} películas registradas, {{rated}} puntuadas, {{reviewed}} reseñas, {{watchlist}} en tu lista por ver ({{wanted}} que aún no tienes).",
+    "watchlistFrom": "Lista por ver del {{date}}.",
+    "newerExport": "Hay una exportación de {{service}} más reciente en Descargas.",
+    "unmatched_one": "{{count, number}} película de tu exportación de {{service}} no se pudo identificar con seguridad y se dejó fuera.",
+    "unmatched_many": "{{count, number}} películas de tu exportación de {{service}} no se pudieron identificar con seguridad y se dejaron fuera.",
+    "unmatched_other": "{{count, number}} películas de tu exportación de {{service}} no se pudieron identificar con seguridad y se dejaron fuera."
+  },
+  "activity": {
+    "yourRating": "Tu puntuación",
+    "yourReview": "Tu reseña",
+    "history": "Historial",
+    "spoilers": "Contiene spoilers. Pulsa A para leerla.",
+    "readReview": "Leer la reseña",
+    "playedInExhibit": "Vista en Exhibit",
+    "loggedOn": "Registrada el {{date}}",
+    "rewatch": "Revista",
+    "overridden": "Esto lo elegiste en Exhibit.",
+    "rated": "Puntuadas",
+    "reviewed": "Reseñadas",
+    "logged": "Registradas",
+    "onWatchlist": "En tu lista por ver",
+    "notInLibrary": "No está en tu biblioteca",
+    "watchlistCount_one": "{{count, number}} película en tu lista por ver",
+    "watchlistCount_many": "{{count, number}} películas en tu lista por ver",
+    "watchlistCount_other": "{{count, number}} películas en tu lista por ver",
+    "shelf": "Tu lista por ver"
+  },
   "firstRun": {
     "step": "Paso {{at}} de {{of}}",
     "welcome": "Te damos la bienvenida a Exhibit",
@@ -455,6 +501,7 @@
     "year": "Año",
     "runtime": "Duración",
     "played": "Visto por última vez",
+    "my_rating": "Mi puntuación",
     "alpha": {
       "asc": "De la A a la Z",
       "desc": "De la Z a la A"
@@ -466,6 +513,10 @@
     "length": {
       "asc": "Lo más corto primero",
       "desc": "Lo más largo primero"
+    },
+    "rating": {
+      "asc": "Las más bajas primero",
+      "desc": "Las más altas primero"
     }
   },
   "filters": {

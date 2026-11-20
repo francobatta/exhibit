@@ -11,12 +11,12 @@ export type ItemKind = "movie" | "show" | "season" | "episode" | "other";
 export type MatchState = "unmatched" | "matched" | "needsreview" | "manual";
 export type MatchSource = "nfo" | "lookup" | "agent" | "manual";
 /** A listing's order; `descending` unset takes the sort's own direction (`SORT_DESCENDS`). */
-export type Sort = "title" | "year" | "added" | "runtime" | "played";
+export type Sort = "title" | "year" | "added" | "runtime" | "played" | "my_rating";
 export type Seen = "unwatched" | "started" | "watched";
 export type Resolution = "uhd" | "full_hd" | "hd" | "sd";
 export type Picture = "dolby_vision" | "hdr10" | "hlg" | "sdr";
 export type Sound = "atmos" | "dts_x" | "lossless" | "surround";
-export type Shelf = "continue_watching" | "recently_added" | "unwatched" | "loved";
+export type Shelf = "continue_watching" | "recently_added" | "unwatched" | "loved" | "watchlist";
 export type Tool = "mpv" | "ffmpeg";
 
 /** Where the copy in use came from: set by hand, Exhibit's own download, or found on the PC. */
@@ -149,6 +149,8 @@ export interface ItemSummary {
   genres: string[];
   /** The first file, relative to its source, forward slashes; null for a show or season. */
   path: string | null;
+  /** The work has a file; false for a film on the owner's watchlist they do not have yet. `available` says whether a file is online now. */
+  in_library: boolean;
 }
 
 export interface ItemDetail {
@@ -159,6 +161,35 @@ export interface ItemDetail {
   available: boolean;
   /** For a show, the episode to play next. */
   next_episode: ItemSummary | null;
+  activity: Activity;
+}
+
+/** A fact and the service that said it; `on` is the unix seconds of its day, UTC. `exhibit` is Exhibit itself. */
+export type Sourced<T> = { service: string; on: number | null } & T;
+export interface RatingFact {
+  value: number;
+  scale: number;
+}
+export interface ReviewFact {
+  text: string;
+  spoiler: boolean;
+}
+export interface WatchFact {
+  rewatch: boolean;
+}
+
+/** Everything known about what the owner did with one work, from Exhibit and every switched-on service. Lists run newest first, undated last. */
+export interface Activity {
+  watched: boolean;
+  loved: boolean;
+  /** The owner's own choice in Exhibit, when made; it overrides the services. */
+  watched_choice: boolean | null;
+  loved_choice: boolean | null;
+  ratings: Sourced<RatingFact>[];
+  reviews: Sourced<ReviewFact>[];
+  watches: Sourced<WatchFact>[];
+  liked_by: string[];
+  watchlisted_by: string[];
 }
 
 export interface HistoryEntry {
@@ -190,6 +221,12 @@ export interface Filters {
   sound?: Sound[];
   audio?: string[];
   subtitles?: string[];
+  /** A switched-on service has the owner's rating, review or logged watch of the work. */
+  rated?: boolean | null;
+  reviewed?: boolean | null;
+  logged?: boolean | null;
+  /** On the owner's watchlist and not watched; `true` also lists the films the owner does not have yet. */
+  watchlist?: boolean | null;
 }
 
 export interface SearchQuery extends Filters {
@@ -199,11 +236,21 @@ export interface SearchQuery extends Filters {
   descending?: boolean | null;
   limit?: number | null;
   offset?: number | null;
+  /** Also list the watchlist films the owner does not have yet, after the ones they have. */
+  with_wanted?: boolean;
 }
 
 export interface Count<T> {
   value: T;
   count: number;
+}
+
+export interface ActivityCounts {
+  rated: number;
+  reviewed: number;
+  logged: number;
+  watchlist: number;
+  not_in_library: number;
 }
 
 /** What a listing can be narrowed by, over all of it. Genres and languages most common first. */
@@ -216,6 +263,7 @@ export interface Facets {
   sound: Count<Sound>[];
   audio: Count<string>[];
   subtitles: Count<string>[];
+  activity: ActivityCounts;
 }
 
 export interface Source {
@@ -286,6 +334,55 @@ export interface Folder {
   file: boolean;
 }
 
+export type Provides = "activity" | "reception" | "awards";
+export type Need = "username" | "key" | "export_file";
+
+/** What a service holds after a sync, counted in films. */
+export interface SyncReport {
+  logged: number;
+  rated: number;
+  reviewed: number;
+  liked: number;
+  watchlisted: number;
+  /** Watchlisted films with no file. */
+  not_in_library: number;
+  unmatched: number;
+}
+
+export interface ServiceState {
+  service: string;
+  enabled: boolean;
+  username: string | null;
+  export_name: string | null;
+  /** Unix seconds. */
+  export_at: number | null;
+  synced_at: number | null;
+  /** The code of the last sync's failure (`service.unreachable`), for the window to word. */
+  error: string | null;
+  /** Films the matcher could not place surely; they are left out. */
+  unmatched: number;
+}
+
+/** What a service is and how the owner stands with it. The adapter supplies the name, the mark and the page. */
+export interface ServiceView {
+  id: string;
+  name: string;
+  /** The mark as an SVG document. */
+  markSvg: string;
+  provides: Provides[];
+  needs: Need[];
+  exportPage: string | null;
+  state: ServiceState;
+}
+
+/** An export file found in Downloads. */
+export interface FoundExport {
+  path: string;
+  name: string;
+  /** Unix seconds. */
+  modified: number;
+}
+
 export interface JobStatus {
   /** `null` when the worker is idle. */
   phase: RefreshPhase | null;
@@ -293,6 +390,8 @@ export interface JobStatus {
   done: number;
   /** The most recent job's failure, kept until the next job ends. */
   last_error: ApiError | null;
+  /** What the most recent export import brought in; kept until the next one. */
+  last_import: SyncReport | null;
 }
 
 export interface PlayOutcome {
@@ -405,6 +504,18 @@ export const refresh = (source: Id | null) => invoke<void>("refresh", { source }
 /** Queues an identification; returns at once. */
 export const identify = (scope: IdentifyScope) => invoke<void>("identify", { scope });
 export const jobStatus = () => invoke<JobStatus>("job_status");
+/** Every service the app knows, and how the owner stands with it. */
+export const services = () => invoke<ServiceView[]>("services");
+export const setServiceEnabled = (id: string, on: boolean) => invoke<void>("set_service_enabled", { id, on });
+/** Asks the site whether the name is good, saves it and queues the first sync; returns how many recent diary entries it shows. */
+export const connectService = (id: string, username: string) => invoke<number>("connect_service", { id, username });
+export const forgetService = (id: string) => invoke<void>("forget_service", { id });
+/** Queues the import of an export file; the result arrives in `job-status` as `last_import`. */
+export const importServiceExport = (id: string, path: string) => invoke<void>("import_service_export", { id, path });
+export const openExportPage = (id: string) => invoke<void>("open_export_page", { id });
+export const findServiceExport = (id: string) => invoke<FoundExport | null>("find_service_export", { id });
+/** Films the service named that could not be placed surely: title and year. */
+export const serviceUnmatched = (id: string) => invoke<Array<[string, number | null]>>("service_unmatched", { id });
 /** Resolves once the player has started; the end arrives as `play-ended`. */
 export const play = (id: Id, resume: boolean) => invoke<void>("play", { id, resume });
 /** Takes effect from the next launch. */

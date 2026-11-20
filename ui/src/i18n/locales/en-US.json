@@ -347,6 +347,49 @@
     "fullScreen": "Full screen",
     "intro": "Intro"
   },
+  "services": {
+    "title": "Services",
+    "note": "Bring in what you have rated, reviewed and watched elsewhere. Exhibit only reads it; nothing is sent back.",
+    "on": "On",
+    "off": "Off",
+    "username": "Username",
+    "connect": "Connect",
+    "checking": "Checking…",
+    "found_one": "Found @{{name}}: {{count, number}} recent diary entry. Your ratings and reviews will appear on your films.",
+    "found_other": "Found @{{name}}: {{count, number}} recent diary entries. Your ratings and reviews will appear on your films.",
+    "forget": "Forget {{service}}",
+    "bringHistory": "Bring in your whole history",
+    "bringHistoryBody": "{{service}} lets you download everything as one file. Exhibit will notice it in Downloads.",
+    "openExport": "Open the {{service}} export page",
+    "waiting": "Waiting for the file in Downloads…",
+    "foundExport": "Your {{service}} export from today is in Downloads. Bring it in?",
+    "bringIt": "Bring it in",
+    "chooseFile": "Choose the file yourself",
+    "imported": "{{logged}} films logged, {{rated}} rated, {{reviewed}} reviews, {{watchlist}} on your watchlist ({{wanted}} you don't have yet).",
+    "watchlistFrom": "Watchlist from {{date}}.",
+    "newerExport": "A newer {{service}} export is in Downloads.",
+    "unmatched_one": "{{count, number}} film from your {{service}} export could not be matched surely and is left out.",
+    "unmatched_other": "{{count, number}} films from your {{service}} export could not be matched surely and are left out."
+  },
+  "activity": {
+    "yourRating": "Your rating",
+    "yourReview": "Your review",
+    "history": "History",
+    "spoilers": "Contains spoilers. Press A to read.",
+    "readReview": "Read the review",
+    "playedInExhibit": "Played in Exhibit",
+    "loggedOn": "Logged on {{date}}",
+    "rewatch": "Rewatch",
+    "overridden": "You chose this in Exhibit.",
+    "rated": "Rated",
+    "reviewed": "Reviewed",
+    "logged": "Logged",
+    "onWatchlist": "On your watchlist",
+    "notInLibrary": "Not in your library",
+    "watchlistCount_one": "{{count, number}} film on your watchlist",
+    "watchlistCount_other": "{{count, number}} films on your watchlist",
+    "shelf": "Your watchlist"
+  },
   "firstRun": {
     "step": "Step {{at}} of {{of}}",
     "welcome": "Welcome to Exhibit",
@@ -465,6 +508,7 @@
     "added": "Added",
     "runtime": "Runtime",
     "played": "Last watched",
+    "my_rating": "My rating",
     "alpha": {
       "asc": "A to Z",
       "desc": "Z to A"
@@ -476,6 +520,10 @@
     "length": {
       "asc": "Shortest first",
       "desc": "Longest first"
+    },
+    "rating": {
+      "asc": "Lowest first",
+      "desc": "Highest first"
     }
   },
   "filters": {

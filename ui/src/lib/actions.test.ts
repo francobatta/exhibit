@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
-import { detail, summary } from "../../test/fixtures";
-import { itemActions, runAction, type ActionContext } from "./actions";
+import { activity, detail, service, summary } from "../../test/fixtures";
+import { facetsOf, hasActivity, itemActions, runAction, type ActionContext } from "./actions";
 
 const labels = (list: ReturnType<typeof itemActions>) => list.map((a) => a.label);
 
@@ -68,7 +68,7 @@ describe("itemActions", () => {
 
   test("loved reads as Remove from loved", () => {
     expect(labels(itemActions(summary({ loved: true })))).toContain("Remove from loved");
-    expect(labels(itemActions(detail({}, { loved: true })))).toContain("Remove from loved");
+    expect(labels(itemActions(detail({ activity: activity({ loved: true }) })))).toContain("Remove from loved");
   });
 });
 
@@ -151,5 +151,33 @@ describe("runAction", () => {
     });
     await runAction({ id: "play", label: "Play" }, summary(), ctx);
     expect(ctx.fail).toHaveBeenCalledWith("The drive for D:\\ is not connected.");
+  });
+});
+
+describe("the merged state", () => {
+  test("a detail's eye and heart come from its activity, not its own play or record", () => {
+    const seen = facetsOf(detail({ activity: activity({ watched: true, loved: true }) }));
+    expect(seen.watched).toBe(true);
+    expect(seen.loved).toBe(true);
+    const bare = facetsOf(
+      detail({ play: { item_id: 1, position_s: 0, duration_s: 100, watched: true, last_played_at: 0 } }, { loved: true }),
+    );
+    expect(bare.watched).toBe(false);
+    expect(bare.loved).toBe(false);
+  });
+
+  test("a summary is already merged", () => {
+    expect(facetsOf(summary({ watched: true, loved: true }))).toMatchObject({ watched: true, loved: true });
+  });
+});
+
+describe("hasActivity", () => {
+  test("needs a switched-on service that provides activity and has a username", () => {
+    expect(hasActivity([service()])).toBe(true);
+    expect(hasActivity([service({ enabled: false })])).toBe(false);
+    expect(hasActivity([service({ username: null })])).toBe(false);
+    expect(hasActivity([service({}, { provides: ["reception"] })])).toBe(false);
+    expect(hasActivity([])).toBe(false);
+    expect(hasActivity(undefined)).toBe(false);
   });
 });

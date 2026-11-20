@@ -39,6 +39,7 @@ export const keys = {
   item: (id: Id) => ["library", "item", id] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
+  services: ["library", "services"] as const,
   ask: (text: string) => ["library", "ask", text] as const,
   // Not under "library": detecting runs each tool, so a library change does not ask again.
   tools: ["tools"] as const,
@@ -258,6 +259,37 @@ export function useNeedsReview() {
   return useQuery({ queryKey: keys.needsReview, queryFn: api.needsReview });
 }
 
+/** The services and where the owner stands with each; a library change refreshes it. */
+export function useServices() {
+  return useQuery({ queryKey: keys.services, queryFn: api.services, staleTime: ITEM_STALE });
+}
+
+/** What a service changes reaches every list, shelf and record, so each of these refreshes the library. */
+function useServiceMutation<V, R = void>(run: (v: V) => Promise<R>) {
+  const client = useQueryClient();
+  return useMutation<R, ApiError, V>({
+    mutationFn: run,
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.library }),
+  });
+}
+
+/** Checks the name with the site, saves it and queues the first sync; resolves with how many recent diary entries it shows. */
+export function useConnectService() {
+  return useServiceMutation(({ id, username }: { id: string; username: string }) => api.connectService(id, username));
+}
+
+export function useSetServiceEnabled() {
+  return useServiceMutation(({ id, on }: { id: string; on: boolean }) => api.setServiceEnabled(id, on));
+}
+
+export function useForgetService() {
+  return useServiceMutation(({ id }: { id: string }) => api.forgetService(id));
+}
+
+export function useImportServiceExport() {
+  return useServiceMutation(({ id, path }: { id: string; path: string }) => api.importServiceExport(id, path));
+}
+
 /** The worker's status, kept current by the `job-status` event; null until first known. */
 export function useJobStatus(): JobStatus | null {
   const client = useQueryClient();
@@ -334,7 +366,11 @@ export function useSetWatched() {
     ({ id, watched }) => api.setWatched(id, watched),
     ({ watched }) => ({
       summary: (s) => ({ ...s, watched, progress: watched ? null : s.progress }),
-      detail: (d) => ({ ...d, play: d.play && { ...d.play, watched } }),
+      detail: (d) => ({
+        ...d,
+        play: d.play && { ...d.play, watched },
+        activity: { ...d.activity, watched, watched_choice: watched },
+      }),
     }),
   );
 }
@@ -344,7 +380,11 @@ export function useSetLoved() {
     ({ id, loved }) => api.setLoved(id, loved),
     ({ loved }) => ({
       summary: (s) => ({ ...s, loved }),
-      detail: (d) => ({ ...d, item: { ...d.item, loved } }),
+      detail: (d) => ({
+        ...d,
+        item: { ...d.item, loved },
+        activity: { ...d.activity, loved, loved_choice: loved },
+      }),
     }),
   );
 }

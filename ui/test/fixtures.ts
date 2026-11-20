@@ -1,7 +1,7 @@
 // Library records for tests: a plain matched film unless told otherwise.
 
 import { expect } from "bun:test";
-import type { AudioTrack, Item, ItemDetail, ItemSummary, SubTrack } from "@/lib/api";
+import type { Activity, AudioTrack, Item, ItemDetail, ItemSummary, ServiceView, SubTrack } from "@/lib/api";
 
 export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -25,6 +25,7 @@ export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
     match_state: "matched",
     genres: [],
     path: "Films/Taxi Driver.mkv",
+    in_library: true,
     ...over,
   };
 }
@@ -63,6 +64,7 @@ export function detail(over: Partial<ItemDetail> = {}, item: Partial<Item> = {})
     children: [],
     available: true,
     next_episode: null,
+    activity: activity(),
     ...over,
   };
 }
@@ -100,4 +102,44 @@ export function audioTrack(over: Partial<AudioTrack> = {}): AudioTrack {
 
 export function subTrack(over: Partial<SubTrack> = {}): SubTrack {
   return { codec: "subrip", lang: "eng", forced: false, hearing_impaired: false, ...over };
+}
+
+/** What the owner has done with a work: nothing, unless told otherwise. */
+export function activity(over: Partial<Activity> = {}): Activity {
+  return {
+    watched: false,
+    loved: false,
+    watched_choice: null,
+    loved_choice: null,
+    ratings: [],
+    reviews: [],
+    watches: [],
+    liked_by: [],
+    watchlisted_by: [],
+    ...over,
+  };
+}
+
+/** Letterboxd as the app lists it, switched on and connected unless told otherwise. */
+export function service(state: Partial<ServiceView["state"]> = {}, over: Partial<ServiceView> = {}): ServiceView {
+  return {
+    id: "letterboxd",
+    name: "Letterboxd",
+    markSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><circle cx="5" cy="5" r="4"/></svg>',
+    provides: ["activity"],
+    needs: ["username", "export_file"],
+    exportPage: "https://letterboxd.com/settings/data/",
+    state: {
+      service: "letterboxd",
+      enabled: true,
+      username: "ana",
+      export_name: null,
+      export_at: null,
+      synced_at: null,
+      error: null,
+      unmatched: 0,
+      ...state,
+    },
+    ...over,
+  };
 }

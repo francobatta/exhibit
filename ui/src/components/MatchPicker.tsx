@@ -47,6 +47,7 @@ export function candidateWork(c: Candidate, index: number): ItemSummary {
     match_state: "matched",
     genres: [],
     path: null,
+    in_library: true,
   };
 }
 
