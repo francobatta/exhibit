@@ -2,7 +2,7 @@
 //! provisional library item per new file. Only reads inside media folders.
 
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::model::{Id, Source};
 use crate::parse::parse_path;
 use crate::volume::Volumes;
@@ -120,9 +120,23 @@ pub(crate) fn source_rows(c: &Connection) -> Result<Vec<SourceRow>> {
 pub fn add_source(c: &Connection, v: &dyn Volumes, path: &Path) -> Result<Source> {
     let abs = std::path::absolute(path)?;
     if !abs.is_dir() {
-        return Err(Error::Invalid(format!("not a folder: {}", abs.display())));
+        return Err(Error::Invalid(
+            Detail::coded(
+                "source.not_a_folder",
+                format!("not a folder: {}", abs.display()),
+            )
+            .with("path", abs.display()),
+        ));
     }
-    let unknown = || Error::Invalid(format!("cannot identify the drive of {}", abs.display()));
+    let unknown = || {
+        Error::Invalid(
+            Detail::coded(
+                "source.unknown_drive",
+                format!("cannot identify the drive of {}", abs.display()),
+            )
+            .with("path", abs.display()),
+        )
+    };
     let volume_id = v.id_of(&abs).ok_or_else(unknown)?;
     let root = v.find(&volume_id).ok_or_else(unknown)?;
     let rel = abs
@@ -134,11 +148,18 @@ pub fn add_source(c: &Connection, v: &dyn Volumes, path: &Path) -> Result<Source
         if other.volume_id == volume_id
             && (contains(&other.path, &rel) || contains(&rel, &other.path))
         {
-            return Err(Error::Invalid(format!(
-                "{} overlaps the existing source {}",
-                abs.display(),
-                other.last_path
-            )));
+            return Err(Error::Invalid(
+                Detail::coded(
+                    "source.overlaps",
+                    format!(
+                        "{} overlaps the existing source {}",
+                        abs.display(),
+                        other.last_path
+                    ),
+                )
+                .with("path", abs.display())
+                .with("other", &other.last_path),
+            ));
         }
     }
     c.prepare_cached(
@@ -159,7 +180,10 @@ pub fn remove_source(c: &Connection, id: Id) -> Result<()> {
         .prepare_cached("DELETE FROM sources WHERE id=?1")?
         .execute([id])?;
     if n == 0 {
-        return Err(Error::NotFound(format!("source {id}")));
+        return Err(Error::NotFound(Detail::coded(
+            "source.not_found",
+            format!("source {id}"),
+        )));
     }
     Ok(())
 }
@@ -211,7 +235,9 @@ fn scan_with(
         .prepare_cached(&format!("SELECT {SOURCE_COLS} FROM sources WHERE id=?1"))?
         .query_row([id], source_row)
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("source {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("source.not_found", format!("source {id}")))
+        })?;
     on(ScanEvent::Started { source_id: id });
     let mut report = ScanReport {
         source_id: id,

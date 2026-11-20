@@ -5,7 +5,7 @@
 //! provisional items deleted.
 
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::identify::{
     CandidatePosters, Counts, Fill, How, IdentifyReport, MAX_HITS, Pending, STILL_SIZE, absorb,
     artwork, candidate, confirm, download, find_item, insert_item, set_review, sort_candidates,
@@ -226,9 +226,15 @@ pub(crate) fn apply(
         .map(|rel| {
             let n = parse_path(rel);
             let e = n.episode.ok_or_else(|| {
-                Error::Invalid(format!(
-                    "cannot determine the episode of {rel}: its name has no episode number"
-                ))
+                Error::Invalid(
+                    Detail::coded(
+                        "match.no_episode_number",
+                        format!(
+                            "cannot determine the episode of {rel}: its name has no episode number"
+                        ),
+                    )
+                    .with("file", rel),
+                )
             })?;
             Ok((n.season.unwrap_or(1), e))
         })
@@ -236,17 +242,28 @@ pub(crate) fn apply(
     spots.sort();
     spots.dedup();
     let [(season, episode)] = spots[..] else {
-        return Err(Error::Invalid(format!(
-            "item {item_id} needs exactly one episode in its file names, found {}",
-            spots.len()
+        return Err(Error::Invalid(Detail::coded(
+            "match.several_episodes",
+            format!(
+                "item {item_id} needs exactly one episode in its file names, found {}",
+                spots.len()
+            ),
         )));
     };
     let show = fetch(p, show_id, std::iter::once(season))?;
     let Some(ep) = show.episode(season, episode) else {
-        return Err(Error::Invalid(format!(
-            "{} has no season {season} episode {episode}",
-            show.meta.title
-        )));
+        return Err(Error::Invalid(
+            Detail::coded(
+                "match.no_such_episode",
+                format!(
+                    "{} has no season {season} episode {episode}",
+                    show.meta.title
+                ),
+            )
+            .with("show", &show.meta.title)
+            .with("season", season)
+            .with("episode", episode),
+        ));
     };
     let art = show_artwork(c, p, cache_dir, &show)?;
     let still = still(p, cache_dir, show.meta.tmdb_id, season, ep);

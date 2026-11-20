@@ -3,7 +3,7 @@
 //! no file anywhere beneath them; `item` still returns them.
 
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
 use crate::rows::{
     FILE_COLUMNS, ITEM_COLUMNS, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS, enum_str, item_from_row,
@@ -303,7 +303,9 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id = ?1"))?
         .query_row([id], item_from_row)
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     let files = c
         .prepare_cached(&format!(
             "SELECT {FILE_COLUMNS} FROM files WHERE item_id = ?1 ORDER BY id"
@@ -521,7 +523,9 @@ pub fn set_watched(c: &Connection, id: Id, watched: bool) -> Result<()> {
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
         .query_row([id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     let targets: Vec<Id> = if kind == "show" || kind == "season" {
         c.prepare_cached(
             "WITH RECURSIVE d(id) AS (SELECT ?1 UNION ALL \
@@ -558,7 +562,9 @@ pub fn set_loved(c: &Connection, id: Id, loved: bool) -> Result<()> {
         .prepare_cached("UPDATE items SET loved = ?2 WHERE id = ?1")?
         .execute(params![id, loved])?;
     if n == 0 {
-        return Err(Error::NotFound(format!("item {id}")));
+        return Err(Error::NotFound(
+            Detail::coded("item.not_found", format!("item {id}")).with("id", id),
+        ));
     }
     Ok(())
 }

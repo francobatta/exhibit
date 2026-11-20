@@ -183,8 +183,9 @@ impl SecretName {
     /// Read from the command's string, so an unknown name is an `invalid` error the window
     /// can show rather than a failure to call the command at all.
     pub fn parse(name: &str) -> ApiResult<SecretName> {
-        serde_json::from_value(serde_json::Value::from(name))
-            .map_err(|_| ApiError::invalid(&format!("no secret is called \"{name}\"")))
+        serde_json::from_value(serde_json::Value::from(name)).map_err(|_| {
+            ApiError::invalid("secret.unknown", &format!("no secret is called \"{name}\""))
+        })
     }
 
     fn key(self) -> &'static str {

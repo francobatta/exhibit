@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,9 +44,12 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
 fn use_wal(c: &Connection) -> Result<()> {
     let mode: String = c.query_row("PRAGMA journal_mode=WAL", [], |r| r.get(0))?;
     if !mode.eq_ignore_ascii_case("wal") {
-        return Err(Error::Invalid(format!(
-            "the database folder does not support SQLite WAL mode (got journal mode {mode}); \
+        return Err(Error::Invalid(Detail::coded(
+            "library.no_wal",
+            format!(
+                "the database folder does not support SQLite WAL mode (got journal mode {mode}); \
              set EXHIBIT_DATA_DIR to a folder on a local drive"
+            ),
         )));
     }
     Ok(())

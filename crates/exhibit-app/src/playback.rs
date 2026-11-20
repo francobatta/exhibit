@@ -85,7 +85,10 @@ impl Handoff {
 pub fn play(app: &AppHandle, id: Id, resume: bool) -> ApiResult<()> {
     let state = app.state::<AppState>();
     if state.playing.swap(true, Ordering::SeqCst) {
-        return Err(ApiError::invalid("Something is already playing"));
+        return Err(ApiError::invalid(
+            "play.busy",
+            "Something is already playing",
+        ));
     }
     let handoff = Arc::new(Handoff::new());
     let h = handoff.clone();
@@ -262,7 +265,7 @@ mod tests {
             3 => Ok(detail(3, ItemKind::Episode, Some(2), None)),
             4 => Ok(detail(4, ItemKind::Episode, Some(2), None)),
             9 => Ok(detail(9, ItemKind::Movie, None, None)),
-            _ => Err(Error::NotFound(format!("item {id}"))),
+            _ => Err(Error::NotFound(format!("item {id}").into())),
         }
     }
 
@@ -298,7 +301,7 @@ mod tests {
     }
 
     fn failed() -> ApiResult<u32> {
-        Err(ApiError::invalid("offline"))
+        Err(ApiError::invalid("test.offline", "offline"))
     }
 
     #[test]

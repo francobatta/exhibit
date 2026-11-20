@@ -118,10 +118,12 @@ impl Downloads {
                 })
             };
             let result = panic::catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|p| {
-                Err(exhibit_core::Error::Invalid(format!(
-                    "the download stopped unexpectedly: {}",
-                    panic_message(p)
-                )))
+                Err(exhibit_core::Error::Invalid(
+                    exhibit_core::error::Detail::coded(
+                        "download.crashed",
+                        format!("the download stopped unexpectedly: {}", panic_message(p)),
+                    ),
+                ))
             });
             me.set(DownloadStatus::ended(&result), &app);
             if result.is_ok_and(|r| !r.already_latest) {

@@ -14,8 +14,9 @@ use exhibit_core::{Library, RefreshEvent, RefreshOptions, RefreshPhase};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
-use crate::error::panic_message;
+use crate::error::{ApiError, panic_message};
 use crate::state::Changed;
+use exhibit_core::error::Fault;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Job {
@@ -31,8 +32,7 @@ pub struct JobStatus {
     pub phase: Option<RefreshPhase>,
     /// Files or items handled so far in the current phase.
     pub done: u32,
-    pub message: Option<String>,
-    pub last_error: Option<String>,
+    pub last_error: Option<ApiError>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -54,7 +54,6 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
                     }
                     status.phase = Some(p);
                     status.done = 0;
-                    status.message = Some(phase_message(p).to_string());
                     emit(Emit::Status(status.clone()));
                 }
                 RefreshEvent::Scan(ScanEvent::FileAdded { .. })
@@ -66,22 +65,21 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
                 RefreshEvent::Scan(_) => {}
             };
             match lib.refresh(source, &mut on, RefreshOptions::default()) {
-                Ok(report) => report.identify_error,
-                Err(e) => Some(e.to_string()),
+                Ok(report) => report.identify_error.map(ApiError::from),
+                Err(e) => Some(e.into()),
             }
         }
         Job::Identify(scope) => {
             let phase = RefreshPhase::Identifying;
             status.phase = Some(phase);
-            status.message = Some(phase_message(phase).to_string());
             emit(Emit::Status(status.clone()));
             let found = lib.identify(scope, &mut |_| {
                 status.done += 1;
                 emit(Emit::Status(status.clone()));
             });
             match found {
-                Ok(report) => report.errors.last().cloned(),
-                Err(e) => Some(e.to_string()),
+                Ok(report) => report.errors.last().map(|e| partly_failed(e)),
+                Err(e) => Some(e.into()),
             }
         }
     };
@@ -103,25 +101,27 @@ pub fn run_caught(job: &mut dyn FnMut(Sink), emit: Sink) -> bool {
         return true;
     };
     emit(Emit::Status(JobStatus {
-        last_error: Some(format!(
-            "The job stopped unexpectedly: {}",
-            panic_message(p)
-        )),
+        last_error: Some(crashed(&panic_message(p))),
         ..JobStatus::default()
     }));
     emit(Emit::Changed);
     false
 }
 
-/// What the owner reads while a phase runs.
-fn phase_message(p: RefreshPhase) -> &'static str {
-    match p {
-        RefreshPhase::Scanning => "Looking for new and changed files",
-        RefreshPhase::Identifying => "Identifying titles",
-        RefreshPhase::Probing => "Reading technical details",
-        RefreshPhase::Rescoring => "Identifying titles again with their running times",
-        RefreshPhase::Thumbnails => "Making thumbnails",
-    }
+/// Some items could not be identified (TMDB out of reach for one of them, a poster that
+/// did not download); the last such error, in English, goes along for the logs.
+fn partly_failed(why: &str) -> ApiError {
+    Fault::coded("provider", "identify.partly_failed", why).into()
+}
+
+/// A job that panicked.
+fn crashed(why: &str) -> ApiError {
+    Fault::coded(
+        "io",
+        "job.crashed",
+        format!("the job stopped unexpectedly: {why}"),
+    )
+    .into()
 }
 
 /// Jobs waiting for the worker. A job identical to one already waiting is dropped.
@@ -202,7 +202,7 @@ impl WorkerHandle {
                         Ok(l) => lib = Some(l),
                         Err(e) => {
                             sink(Emit::Status(JobStatus {
-                                last_error: Some(e.to_string()),
+                                last_error: Some(e.into()),
                                 ..JobStatus::default()
                             }));
                             continue;
@@ -271,7 +271,7 @@ mod tests {
                 .all(|p| matches!(p, None | Some(RefreshPhase::Scanning))),
             "{phases:?}"
         );
-        // Both files counted while scanning, and the scan message is plain words.
+        // Both files counted while scanning,.
         let scanning: Vec<&JobStatus> = emits
             .iter()
             .filter_map(|e| match e {
@@ -280,7 +280,6 @@ mod tests {
             })
             .collect();
         assert_eq!(scanning.last().unwrap().done, 2);
-        assert!(scanning.iter().all(|s| s.message.is_some()));
         // The job ends idle, without error, and says the library changed.
         assert_eq!(
             emits[emits.len() - 2],
@@ -303,8 +302,8 @@ mod tests {
             panic!("{emits:?}")
         };
         assert_eq!(last.phase, None);
-        let why = last.last_error.as_deref().unwrap();
-        assert!(why.contains("TMDB key"), "{why}");
+        let why = last.last_error.as_ref().unwrap();
+        assert_eq!(why.code, Some("tmdb.no_key"), "{why:?}");
     }
 
     #[test]
@@ -342,7 +341,9 @@ mod tests {
             panic!("{emits:?}")
         };
         assert_eq!(last.phase, None);
-        assert!(last.last_error.as_deref().unwrap().contains("disk on fire"));
+        let why = last.last_error.as_ref().unwrap();
+        assert_eq!(why.code, Some("job.crashed"));
+        assert!(why.message.contains("disk on fire"), "{why:?}");
         assert_eq!(emits.last(), Some(&Emit::Changed));
 
         // A job that finishes is left alone.

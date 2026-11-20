@@ -7,7 +7,7 @@
 //! item exactly as it was. The show path lives in `identify_show`.
 
 use crate::db;
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::identify_show::{self, Member};
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, TechInfo};
@@ -217,12 +217,19 @@ fn pending(c: &Connection, v: &dyn Volumes, scope: &IdentifyScope) -> Result<Vec
             .prepare_cached("SELECT match_state FROM items WHERE id=?1")?
             .query_row([id], |r| r.get(0))
             .optional()?
-            .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+            .ok_or_else(|| {
+                Error::NotFound(
+                    Detail::coded("item.not_found", format!("item {id}")).with("id", id),
+                )
+            })?;
         if state == "matched" || state == "manual" {
-            return Err(Error::Invalid(format!(
-                "item {id} is already identified; change it with \
+            return Err(Error::Invalid(Detail::coded(
+                "item.already_identified",
+                format!(
+                    "item {id} is already identified; change it with \
                  `exhibit review match {id} <tmdb-id> --kind movie|show` \
                  or `exhibit review other {id}`"
+                ),
             )));
         }
     }
@@ -858,10 +865,9 @@ pub fn lookup(
         ItemKind::Movie => p.search_movie(text, year)?,
         ItemKind::Show => p.search_show(text, year)?,
         other => {
-            return Err(Error::Invalid(format!(
-                "cannot search for a {}; use movie or show",
-                enum_str(other)
-            )));
+            return Err(Error::Invalid(
+                format!("cannot search for a {}; use movie or show", enum_str(other)).into(),
+            ));
         }
     };
     let ev = Evidence {
@@ -903,21 +909,27 @@ pub fn apply_match(
         .prepare_cached(&format!("SELECT {ITEM_COLUMNS} FROM items WHERE id=?1"))?
         .query_row([item_id], item_from_row)
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {item_id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(
+                Detail::coded("item.not_found", format!("item {item_id}")).with("id", item_id),
+            )
+        })?;
     if matches!(item.kind, ItemKind::Show | ItemKind::Season) {
-        return Err(Error::Invalid(format!(
-            "item {item_id} is a {}; a match applies to a movie, an episode or an unidentified item",
-            enum_str(item.kind)
+        return Err(Error::Invalid(Detail::coded(
+            "match.not_a_file",
+            format!(
+                "item {item_id} is a {}; a match applies to a movie, an episode or an unidentified item",
+                enum_str(item.kind)
+            ),
         )));
     }
     let how = How::certain(source);
     match kind {
         ItemKind::Movie => save_movie(c, p, cache_dir, item_id, &p.movie(tmdb_id)?, how),
         ItemKind::Show => identify_show::apply(c, p, cache_dir, item_id, tmdb_id, how),
-        other => Err(Error::Invalid(format!(
-            "cannot match to a {}; use movie or show",
-            enum_str(other)
-        ))),
+        other => Err(Error::Invalid(
+            format!("cannot match to a {}; use movie or show", enum_str(other)).into(),
+        )),
     }
 }
 
@@ -927,10 +939,15 @@ pub fn move_to_other(c: &Connection, item_id: Id) -> Result<()> {
         .prepare_cached("SELECT kind FROM items WHERE id=?1")?
         .query_row([item_id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {item_id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(
+                Detail::coded("item.not_found", format!("item {item_id}")).with("id", item_id),
+            )
+        })?;
     if kind == "show" || kind == "season" {
-        return Err(Error::Invalid(format!(
-            "item {item_id} is a {kind}; only items with files can move to Other"
+        return Err(Error::Invalid(Detail::coded(
+            "other.not_a_file",
+            format!("item {item_id} is a {kind}; only items with files can move to Other"),
         )));
     }
     let title: Option<String> = c
@@ -991,7 +1008,7 @@ mod tests {
                 .any(|f| call.contains(f.as_str()));
             self.calls.lock().unwrap().push(call.clone());
             if refused {
-                return Err(Error::Provider(format!("refused: {call}")));
+                return Err(Error::Provider(format!("refused: {call}").into()));
             }
             Ok(())
         }
@@ -1016,7 +1033,7 @@ mod tests {
 
     /// What the TMDB client returns for HTTP 404.
     fn not_found(what: String) -> Error {
-        Error::NotFound(format!("TMDB has nothing at {what}"))
+        Error::NotFound(format!("TMDB has nothing at {what}").into())
     }
 
     impl MetadataProvider for Fake {
@@ -1823,7 +1840,7 @@ mod tests {
 
     impl crate::tmdb::Http for EchoHttp {
         fn get(&self, url: &str, _bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
-            Err(Error::Provider(format!("request failed: {url}")))
+            Err(Error::Provider(format!("request failed: {url}").into()))
         }
     }
 

@@ -1,7 +1,7 @@
 //! TMDB (API v3) metadata provider over a swappable HTTP layer. The stored credential is
 //! either a v3 key or a v4 read token.
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::model::{ItemKind, Person};
 use crate::nfo::ExternalId;
 use serde_json::Value;
@@ -115,8 +115,12 @@ impl<H: Http> Tmdb<H> {
             url.push_str(&format!("{sep}api_key={}", encode(&self.key)));
         }
         let body = self.fetch(&url, bearer.then_some(self.key.as_str()))?;
-        serde_json::from_slice(&body)
-            .map_err(|e| Error::Provider(format!("invalid JSON from TMDB: {e}")))
+        serde_json::from_slice(&body).map_err(|e| {
+            Error::Provider(Detail::coded(
+                "tmdb.unreadable",
+                format!("invalid JSON from TMDB: {e}"),
+            ))
+        })
     }
 
     /// The body of a 200 response. 404 is `NotFound`, 401 and 403 are `Invalid`
@@ -125,13 +129,21 @@ impl<H: Http> Tmdb<H> {
         let (status, body) = self.http.get(url, bearer).map_err(|e| self.redact(e))?;
         match status {
             200 => Ok(body),
-            401 | 403 => Err(Error::Invalid(KEY_REJECTED.into())),
-            // The path alone: the query may hold the key.
-            404 => Err(Error::NotFound(format!(
-                "TMDB has nothing at {}",
-                url.split('?').next().unwrap_or_default()
+            401 | 403 => Err(Error::Invalid(Detail::coded(
+                "tmdb.key_rejected",
+                KEY_REJECTED,
             ))),
-            s => Err(Error::Provider(format!("HTTP {s}"))),
+            // The path alone: the query may hold the key.
+            404 => Err(Error::NotFound(
+                format!(
+                    "TMDB has nothing at {}",
+                    url.split('?').next().unwrap_or_default()
+                )
+                .into(),
+            )),
+            s => Err(Error::Provider(
+                Detail::coded("tmdb.http", format!("HTTP {s}")).with("status", s),
+            )),
         }
     }
 
@@ -140,9 +152,12 @@ impl<H: Http> Tmdb<H> {
         if self.key.is_empty() {
             return e;
         }
-        let hide = |m: String| {
-            m.replace(&encode(&self.key), "***")
-                .replace(&self.key, "***")
+        let hide = |mut m: Detail| {
+            m.text = m
+                .text
+                .replace(&encode(&self.key), "***")
+                .replace(&self.key, "***");
+            m
         };
         match e {
             Error::Provider(m) => Error::Provider(hide(m)),
@@ -421,9 +436,12 @@ impl Http for UreqHttp {
             if let Some(token) = bearer {
                 req = req.header("Authorization", &format!("Bearer {token}"));
             }
-            let mut resp = req
-                .call()
-                .map_err(|e| Error::Provider(format!("request failed: {e}")))?;
+            let mut resp = req.call().map_err(|e| {
+                Error::Provider(Detail::coded(
+                    "tmdb.unreachable",
+                    format!("request failed: {e}"),
+                ))
+            })?;
             let status = resp.status().as_u16();
             if status == 429 && !retried {
                 retried = true;
@@ -439,10 +457,12 @@ impl Http for UreqHttp {
             if status != 200 {
                 return Ok((status, Vec::new()));
             }
-            let body = resp
-                .body_mut()
-                .read_to_vec()
-                .map_err(|e| Error::Provider(format!("reading response failed: {e}")))?;
+            let body = resp.body_mut().read_to_vec().map_err(|e| {
+                Error::Provider(Detail::coded(
+                    "tmdb.unreachable",
+                    format!("reading response failed: {e}"),
+                ))
+            })?;
             return Ok((status, body));
         }
     }
@@ -495,7 +515,9 @@ mod tests {
 
     impl Http for EchoHttp {
         fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
-            Err(Error::Provider(format!("request failed: {url} {bearer:?}")))
+            Err(Error::Provider(
+                format!("request failed: {url} {bearer:?}").into(),
+            ))
         }
     }
 

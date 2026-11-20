@@ -1,28 +1,46 @@
 //! What the window sees when a command fails: the core's kind (the same names the CLI
-//! prints) and its message.
+//! prints), the code the window words in the owner's language, its parameters, and the
+//! English message the CLI would print.
 
 use exhibit_core::Error;
+use exhibit_core::error::{Detail, Fault};
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct ApiError {
     /// `Error::kind`: `not_found`, `invalid`, `source_offline`, `tool`, `provider`, `io`, `db`.
     pub kind: &'static str,
+    /// What happened, as a stable code (`source.offline`); `None` when only the kind is known,
+    /// and the window words the kind.
+    pub code: Option<&'static str>,
+    /// Values the wording of `code` names (`path`, `tool`).
+    pub params: BTreeMap<&'static str, String>,
+    /// The English the CLI would print, for logs. The window never shows it.
     pub message: String,
 }
 
 impl ApiError {
-    pub fn invalid(message: &str) -> ApiError {
-        Error::Invalid(message.to_string()).into()
+    /// An `invalid` error the window words from `code`.
+    pub fn invalid(code: &'static str, message: &str) -> ApiError {
+        Error::Invalid(Detail::coded(code, message)).into()
+    }
+}
+
+impl From<Fault> for ApiError {
+    fn from(f: Fault) -> ApiError {
+        ApiError {
+            kind: f.kind,
+            code: f.code,
+            params: f.params,
+            message: f.message,
+        }
     }
 }
 
 impl From<Error> for ApiError {
     fn from(e: Error) -> ApiError {
-        ApiError {
-            kind: e.kind(),
-            message: e.to_string(),
-        }
+        Fault::from(e).into()
     }
 }
 
@@ -63,22 +81,31 @@ mod tests {
             ApiError::from(Error::SourceOffline("E:\\".into())).kind,
             "source_offline"
         );
-        let json = serde_json::to_value(ApiError::invalid("Something is already playing")).unwrap();
+        let json = serde_json::to_value(ApiError::invalid(
+            "play.busy",
+            "Something is already playing",
+        ))
+        .unwrap();
         assert_eq!(
             json,
-            serde_json::json!({"kind": "invalid", "message": "invalid: Something is already playing"})
+            serde_json::json!({
+                "kind": "invalid",
+                "code": "play.busy",
+                "params": {},
+                "message": "invalid: Something is already playing"
+            })
         );
     }
 
-    /// The window recognises a rejected TMDB key by the core's exact message and says what to
-    /// do in its own words; the two copies must stay the same.
     #[test]
-    fn the_window_knows_the_rejected_key_message() {
-        let api = include_str!("../../../ui/src/lib/api.ts");
-        let line = format!(
-            "export const KEY_REJECTED = \"{}\";",
-            exhibit_core::tmdb::KEY_REJECTED
+    fn a_coded_error_carries_its_code_and_parameters() {
+        let e = Error::SourceOffline(Detail::coded("source.offline", "E:\\").with("path", "E:\\"));
+        let api = ApiError::from(e);
+        assert_eq!(api.code, Some("source.offline"));
+        assert_eq!(api.params.get("path").map(String::as_str), Some("E:\\"));
+        assert_eq!(
+            ApiError::from(Error::Db(rusqlite::Error::InvalidQuery)).code,
+            None
         );
-        assert!(api.contains(&line), "ui/src/lib/api.ts lacks {line}");
     }
 }

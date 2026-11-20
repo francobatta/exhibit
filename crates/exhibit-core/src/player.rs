@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::{Value, json};
 
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Result};
 use crate::model::{Id, MediaFile, PlayState};
 use crate::rows::{FILE_COLUMNS, PLAY_STATE_COLUMNS, media_file_from_row, play_state_from_row};
 use crate::tools::{Tool, Tools};
@@ -99,7 +99,15 @@ pub fn play(
     let file = choose_file(c, v, id)?;
     let start = start_position(c, id, resume)?;
     let previous = outcome(id, play_state(c, id)?);
-    let cannot_start = |e| Error::Tool(format!("cannot start {}: {e}", player.display()));
+    let cannot_start = |e| {
+        Error::Tool(
+            Detail::coded(
+                "tool.cannot_start",
+                format!("cannot start {}: {e}", player.display()),
+            )
+            .with("path", player.display()),
+        )
+    };
     let is_mpv = player
         .file_name()
         .is_some_and(|n| n.to_string_lossy().to_lowercase().starts_with("mpv"));
@@ -133,7 +141,9 @@ pub fn record(
         .prepare_cached("SELECT 1 FROM items WHERE id = ?1")?
         .exists([item_id])?
     {
-        return Err(Error::NotFound(format!("item {item_id}")));
+        return Err(Error::NotFound(
+            Detail::coded("item.not_found", format!("item {item_id}")).with("id", item_id),
+        ));
     }
     let finished = duration_s > 0.0 && position_s / duration_s >= WATCHED_FRACTION;
     let now = db::now();
@@ -191,8 +201,10 @@ fn pipe_name() -> String {
 fn no_mpv(c: &Connection) -> Result<Error> {
     let key = Tool::Mpv.setting_key();
     Ok(Error::Tool(match db::get_setting(c, &key)? {
-        Some(p) => format!("mpv not found at {p}"),
-        None => "mpv not found on this PC".to_string(),
+        Some(p) => Detail::coded("tool.missing_at", format!("mpv not found at {p}"))
+            .with("tool", "mpv")
+            .with("path", p),
+        None => Detail::coded("tool.missing", "mpv not found on this PC").with("tool", "mpv"),
     }))
 }
 
@@ -217,14 +229,20 @@ fn target(c: &Connection, id: Id) -> Result<Id> {
         .prepare_cached("SELECT kind FROM items WHERE id = ?1")?
         .query_row([id], |r| r.get(0))
         .optional()?
-        .ok_or_else(|| Error::NotFound(format!("item {id}")))?;
+        .ok_or_else(|| {
+            Error::NotFound(Detail::coded("item.not_found", format!("item {id}")).with("id", id))
+        })?;
     if kind != "show" && kind != "season" {
         return Ok(id);
     }
     match query::next_episode(c, id)? {
         Some(next) => Ok(next),
-        None => query::first_episode(c, id, false)?
-            .ok_or_else(|| Error::NotFound(format!("no episode with a file under item {id}"))),
+        None => query::first_episode(c, id, false)?.ok_or_else(|| {
+            Error::NotFound(Detail::coded(
+                "play.no_episode",
+                format!("no episode with a file under item {id}"),
+            ))
+        }),
     }
 }
 
@@ -255,8 +273,16 @@ fn choose_file(c: &Connection, v: &dyn Volumes, id: Id) -> Result<PathBuf> {
         .iter()
         .find_map(|f| source_of(f).filter(|s| !s.online))
     {
-        Some(s) => Err(Error::SourceOffline(s.path.display().to_string())),
-        None => Err(Error::NotFound(format!("no playable file for item {id}"))),
+        Some(s) => {
+            let path = s.path.display().to_string();
+            Err(Error::SourceOffline(
+                Detail::coded("source.offline", path.clone()).with("path", path),
+            ))
+        }
+        None => Err(Error::NotFound(Detail::coded(
+            "play.no_file",
+            format!("no playable file for item {id}"),
+        ))),
     }
 }
 

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::cast;
 use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
-use crate::error::{Error, Result};
+use crate::error::{Detail, Error, Fault, Result};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::model::{Candidate, CastMember, Id, ItemKind, MatchSource, Source};
 use crate::player::{self, PlayOutcome};
@@ -87,7 +87,7 @@ impl Default for RefreshOptions {
 pub struct RefreshReport {
     pub scanned: Vec<ScanReport>,
     pub identified: Option<IdentifyReport>,
-    pub identify_error: Option<String>,
+    pub identify_error: Option<Fault>,
     pub probed: Option<(u32, u32)>,
     pub rescored: Option<IdentifyReport>,
     pub thumbnails: Option<(u32, u32)>,
@@ -157,7 +157,7 @@ impl Library {
         let key = self
             .secrets
             .get(TMDB_KEY)?
-            .ok_or_else(|| Error::Invalid("TMDB key not set".into()))?;
+            .ok_or_else(|| Error::Invalid(Detail::coded("tmdb.no_key", "TMDB key not set")))?;
         Ok(Tmdb::new(key, &*self.http))
     }
 
@@ -367,11 +367,12 @@ impl Library {
     /// they are used ahead of any found on the PC (a path set by hand still wins). Asks GitHub
     /// first and fetches nothing when the newest download is already that release.
     pub fn download_tools(&self, on: &mut dyn FnMut(DownloadEvent)) -> Result<DownloadReport> {
-        let dir = self
-            .env
-            .tools_dir
-            .as_deref()
-            .ok_or_else(|| Error::Invalid("this library has no tools folder".into()))?;
+        let dir = self.env.tools_dir.as_deref().ok_or_else(|| {
+            Error::Invalid(Detail::coded(
+                "download.no_tools_folder",
+                "this library has no tools folder",
+            ))
+        })?;
         download::download(&UreqFetch::new(), dir, on)
     }
 
@@ -411,11 +412,11 @@ impl Library {
 
 /// An identification that failed for a reason outside the library (a rejected key, the
 /// network, TMDB itself) becomes its message; anything else (the database) stays an error.
-fn recoverable(r: Result<IdentifyReport>) -> Result<std::result::Result<IdentifyReport, String>> {
+fn recoverable(r: Result<IdentifyReport>) -> Result<std::result::Result<IdentifyReport, Fault>> {
     match r {
         Ok(r) => Ok(Ok(r)),
         Err(e @ (Error::Invalid(_) | Error::Provider(_) | Error::NotFound(_))) => {
-            Ok(Err(e.to_string()))
+            Ok(Err(Fault::from(e)))
         }
         Err(e) => Err(e),
     }
@@ -521,7 +522,7 @@ mod tests {
         );
         assert_eq!(r.identified, None);
         let why = r.identify_error.unwrap();
-        assert!(why.contains("rejected the key"), "{why}");
+        assert_eq!(why.code, Some("tmdb.key_rejected"), "{why:?}");
         assert_eq!(r.probed, Some((0, 1)));
         assert_eq!(r.rescored, None);
     }

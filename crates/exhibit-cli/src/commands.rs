@@ -21,7 +21,8 @@ fn ok() -> Result<Value> {
 }
 
 fn to_json<T: Serialize>(v: T) -> Result<Value> {
-    serde_json::to_value(v).map_err(|e| Error::Invalid(format!("cannot serialise output: {e}")))
+    serde_json::to_value(v)
+        .map_err(|e| Error::Invalid(format!("cannot serialise output: {e}").into()))
 }
 
 /// Writes one short line to stderr when it is a terminal.
