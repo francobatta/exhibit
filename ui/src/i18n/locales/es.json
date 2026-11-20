@@ -422,6 +422,16 @@
     "library": {
       "no_wal": "La carpeta de la biblioteca no admite la base de datos de Exhibit. Muévela a una unidad local."
     },
+    "service": {
+      "unknown": "Exhibit no conoce ese servicio.",
+      "unsupported": "Ese servicio no ofrece esto.",
+      "no_username": "Escribe primero un nombre de usuario.",
+      "user_not_found": "Letterboxd no tiene ningún miembro con ese nombre. Revisa cómo está escrito tu usuario.",
+      "private": "Ese perfil es privado. Hazlo público un momento o importa tu archivo de exportación.",
+      "unreachable": "Exhibit no pudo conectar con el servicio. Revisa la conexión y vuelve a intentarlo.",
+      "bad_export": "Ese archivo no es una exportación del servicio. Descarga una nueva y vuelve a intentarlo.",
+      "failed": "La última sincronización no terminó. Se vuelve a intentar en un rato."
+    },
     "settings": {
       "unknown_language": "Exhibit no habla ese idioma.",
       "unknown_date_format": "No existe ese formato de fecha."

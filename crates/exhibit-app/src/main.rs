@@ -5,6 +5,7 @@ mod downloads;
 mod error;
 mod folders;
 mod playback;
+mod services;
 mod state;
 #[cfg(test)]
 mod testlib;
@@ -71,6 +72,14 @@ fn main() {
             commands::refresh,
             commands::identify,
             commands::job_status,
+            services::services,
+            services::set_service_enabled,
+            services::connect_service,
+            services::forget_service,
+            services::import_service_export,
+            services::open_export_page,
+            services::find_service_export,
+            services::service_unmatched,
             commands::play,
             commands::window_fullscreen,
             commands::window_is_fullscreen,
@@ -99,6 +108,7 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     let worker = WorkerHandle::spawn(handle, changed.clone());
     worker.enqueue(Job::Refresh(None));
     watch::spawn(worker.clone(), changed.clone());
+    services::spawn(worker.clone());
     app.manage(AppState {
         lib: Mutex::new(lib),
         worker,

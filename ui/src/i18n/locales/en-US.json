@@ -431,6 +431,16 @@
     "library": {
       "no_wal": "The library's folder cannot hold Exhibit's database. Move it to a local drive."
     },
+    "service": {
+      "unknown": "Exhibit does not know that service.",
+      "unsupported": "That service does not provide this.",
+      "no_username": "Enter a username first.",
+      "user_not_found": "Letterboxd has no member by that name. Check the spelling of your username.",
+      "private": "That profile is private. Make it public for a moment, or import your export file instead.",
+      "unreachable": "Exhibit could not reach the service. Check the connection and try again.",
+      "bad_export": "That file is not an export from the service. Download a fresh one and try again.",
+      "failed": "The last sync did not finish. It is tried again in a while."
+    },
     "settings": {
       "unknown_language": "Exhibit does not speak that language.",
       "unknown_date_format": "There is no such date format."

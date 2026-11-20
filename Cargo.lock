@@ -1257,6 +1257,7 @@ name = "exhibit-app"
 version = "0.0.1"
 dependencies = [
  "exhibit-core",
+ "exhibit-services",
  "notify",
  "rusqlite",
  "serde",
@@ -1267,6 +1268,7 @@ dependencies = [
  "tauri-plugin-single-instance",
  "tauri-plugin-window-state",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
