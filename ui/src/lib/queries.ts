@@ -35,6 +35,7 @@ export const keys = {
   shelf: (shelf: Shelf, limit: number) => ["library", "shelf", shelf, limit] as const,
   items: (query: SearchQuery) => ["library", "items", query] as const,
   item: (id: Id) => ["library", "item", id] as const,
+  cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
   ask: (text: string) => ["library", "ask", text] as const,
   // Not under "library": detecting runs each tool, so a library change does not ask again.
@@ -109,6 +110,11 @@ export function useItem(id: Id | null, fetch = true) {
     enabled: id !== null && fetch,
     staleTime: ITEM_STALE,
   });
+}
+
+/** A work's cast with portraits. Portraits are fetched once and kept, so it is asked for only once per visit. */
+export function useCast(id: Id) {
+  return useQuery({ queryKey: keys.cast(id), queryFn: () => api.cast(id), staleTime: Number.POSITIVE_INFINITY });
 }
 
 /** The folders a full record's files are on, as the library knows them now; none until both are known. */

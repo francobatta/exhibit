@@ -23,6 +23,14 @@ export interface Person {
   name: string;
   /** "director" | "cast" */
   role: string;
+  character?: string;
+}
+
+/** One of a work's cast; `portrait` is a cached image file name. */
+export interface CastMember {
+  name: string;
+  character: string | null;
+  portrait: string | null;
 }
 
 export interface Candidate {
@@ -325,6 +333,8 @@ export async function boot(): Promise<Boot> {
 export const status = () => invoke<LibraryStatus>("status");
 export const search = (query: SearchQuery) => invoke<ItemSummary[]>("search", { query });
 export const item = (id: Id) => invoke<ItemDetail>("item", { id });
+/** A work's cast with portraits; the first ask fetches and caches them. */
+export const cast = (id: Id) => invoke<CastMember[]>("cast", { id });
 export const shelf = (shelf: Shelf, limit: number) =>
   invoke<ItemSummary[]>("shelf", { shelf, limit });
 export const needsReview = () => invoke<ItemDetail[]>("needs_review");

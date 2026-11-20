@@ -3,6 +3,7 @@
 
 import { isTypeaheadKey } from "@ui-sdk/core";
 import type { KeyboardEvent, ReactNode } from "react";
+import { liveGroups, type Dir } from "@/focus/bridge";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import type { JobStatus, RefreshPhase } from "@/lib/api";
 import { plain } from "@/lib/api";
@@ -117,6 +118,17 @@ function AskField({ label }: { label: string }) {
   );
 }
 
+/**
+ * Down from the bar with nothing within reach below (a screen set to the left, under the ask field
+ * on the right) enters the screen at its first group that takes focus, as if from straight above.
+ */
+function intoScreen(dir: Dir): void {
+  const from = document.activeElement;
+  if (dir[1] !== 1 || !(from instanceof HTMLElement)) return;
+  const at = from.getBoundingClientRect();
+  for (const g of liveGroups()) if (g.id !== "topbar" && g.enter(at, dir)) return;
+}
+
 export function TopBar() {
   const root = useNav((s) => s.entries[0]!.route);
   const replaceRoot = useNav((s) => s.replaceRoot);
@@ -128,7 +140,7 @@ export function TopBar() {
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
-      <FocusGroup id="topbar" orientation="horizontal" className="flex h-full items-center gap-12">
+      <FocusGroup id="topbar" orientation="horizontal" onEdge={intoScreen} className="flex h-full items-center gap-12">
         <span className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]">
           Exhibit
         </span>

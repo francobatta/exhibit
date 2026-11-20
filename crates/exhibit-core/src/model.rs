@@ -101,11 +101,28 @@ pub struct MediaFile {
     pub tech: Option<TechInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Person {
     pub name: String,
     /// "director" | "cast"
     pub role: String,
+    /// TMDB's person id. Records stored before it was kept have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmdb_id: Option<i64>,
+    /// Who they play.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub character: Option<String>,
+    /// TMDB's portrait path, for `MetadataProvider::image`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+}
+
+/// One of the cast as the details screen shows them; `portrait` is a cached image file name.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct CastMember {
+    pub name: String,
+    pub character: Option<String>,
+    pub portrait: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]

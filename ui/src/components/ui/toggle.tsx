@@ -6,14 +6,15 @@ import { buttonVariants } from "./button";
 
 export type ToggleProps = Omit<ComponentProps<typeof TogglePart>, "className"> &
   Pick<VariantProps<typeof buttonVariants>, "size"> & {
-    /** `line` (Loved, Watched): a hairline that firms up when pressed. `plain`: text on the wall, framed by a hairline when pressed. */
-    variant?: "line" | "plain";
+    /** `line` (Loved, Watched): a hairline that firms up when pressed. `plain`: text on the wall, framed by a hairline when pressed. `cue`: a placard's round cue; pressed shows in its filled icon. */
+    variant?: "line" | "plain" | "cue";
     className?: string;
   };
 
 const pressed = {
   line: "data-pressed:border-label-dim",
   plain: "data-pressed:ring-1 data-pressed:ring-inset data-pressed:ring-label-faint",
+  cue: "",
 };
 
 /** A button that stays pressed; pressed reads as label white. */

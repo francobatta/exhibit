@@ -660,7 +660,7 @@ fn fill_item(c: &Connection, id: Id, f: &Fill, how: How) -> Result<()> {
 }
 
 /// JSON for the array columns; the FTS triggers need valid JSON there.
-fn json<T: Serialize + ?Sized>(v: &T) -> String {
+pub(crate) fn json<T: Serialize + ?Sized>(v: &T) -> String {
     serde_json::to_string(v).unwrap_or_else(|_| "[]".into())
 }
 
@@ -1111,6 +1111,7 @@ mod tests {
             people: vec![Person {
                 name: "A Director".into(),
                 role: "director".into(),
+                ..Person::default()
             }],
             poster: Some(format!("/p{id}.jpg")),
             backdrop: Some(format!("/b{id}.jpg")),

@@ -20,11 +20,19 @@ export const buttonVariants = cva(
         solid: "bg-label text-wall hover:bg-lamp focus-visible:bg-lamp",
         /** A secondary action, drawn with a hairline. */
         line: "border border-line text-label hover:border-label-dim focus-visible:border-lamp focus-visible:bg-lamp/10",
+        /** A placard's cue: a pill on a hairline, lit by the lamp under focus or the pointer. */
+        cue: [
+          "rounded-full font-ui ring-1 ring-line ring-inset text-label-dim",
+          "hover:bg-(--cue-lit) hover:text-label hover:ring-lamp focus:bg-(--cue-lit) focus:text-label focus:ring-lamp",
+          "aria-disabled:text-label-faint",
+        ],
       },
       size: {
         md: "h-11 px-4 text-body",
         sm: "h-9 px-3 text-caption",
         icon: "size-11 text-body",
+        cue: "h-(--cue-height) gap-3 px-(--cue-pad) text-lead",
+        "cue-icon": "size-(--cue-height) text-lead",
       },
     },
     defaultVariants: { variant: "plain", size: "md" },

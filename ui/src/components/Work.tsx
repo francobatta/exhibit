@@ -10,6 +10,7 @@ import { imageUrl, type ItemSummary } from "@/lib/api";
 import { OFFLINE, WATCHED, episodeLabel, facts, started } from "@/lib/format";
 import { focusSpring, numberToken } from "@/lib/motion";
 import { cn } from "@/lib/utils";
+import { LovedIcon, WatchedIcon } from "./ui/state-icon";
 
 export type WorkShape = "poster" | "wide";
 
@@ -30,7 +31,7 @@ export interface WorkProps {
   mark?: string;
 }
 
-/** How a work reads aloud and in its tooltip: "Taxi Driver, 1976, Watched". */
+/** How a work reads aloud and in its tooltip: "Taxi Driver, 1976, Watched, Loved". */
 export function workLabel(item: ItemSummary): string {
   const place =
     item.kind === "episode" ? facts([item.show_title, episodeLabel(item.season, item.episode)]) : null;
@@ -39,6 +40,7 @@ export function workLabel(item: ItemSummary): string {
     place,
     item.year === null ? null : String(item.year),
     item.watched ? WATCHED : null,
+    item.loved ? "Loved" : null,
     item.available ? null : OFFLINE,
   ]);
 }
@@ -140,13 +142,18 @@ export const Work = memo(function Work({ item, shape, focused, size, light = "wo
             <div data-progress className="h-full rounded-full bg-lamp" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
         )}
-        {item.watched && (
-          <div
-            data-watched
-            aria-hidden
-            className="absolute top-[5cqi] right-[5cqi] size-[10cqi] rounded-full bg-wall/75 p-[1.5cqi] text-label-dim"
-          >
-            <Check />
+        {(item.watched || item.loved) && (
+          <div aria-hidden className="absolute top-[5cqi] right-[5cqi] flex gap-[2cqi]">
+            {item.loved && (
+              <span data-loved className="grid size-[10cqi] place-items-center rounded-full bg-wall/75 text-label-dim">
+                <LovedIcon on className="size-[5.5cqi]" />
+              </span>
+            )}
+            {item.watched && (
+              <span data-watched className="grid size-[10cqi] place-items-center rounded-full bg-wall/75 text-label-dim">
+                <WatchedIcon on className="size-[6cqi]" />
+              </span>
+            )}
           </div>
         )}
         {selected && (

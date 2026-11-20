@@ -7,11 +7,12 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 
+use crate::cast;
 use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
 use crate::error::{Error, Result};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
-use crate::model::{Candidate, Id, ItemKind, MatchSource, Source};
+use crate::model::{Candidate, CastMember, Id, ItemKind, MatchSource, Source};
 use crate::player::{self, PlayOutcome};
 use crate::probe;
 use crate::query::{
@@ -19,7 +20,7 @@ use crate::query::{
 };
 use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
-use crate::tmdb::{Http, Tmdb, UreqHttp};
+use crate::tmdb::{Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
 use crate::volume::{SystemVolumes, Volumes};
 
@@ -303,6 +304,21 @@ impl Library {
 
     pub fn item(&self, id: Id) -> Result<ItemDetail> {
         query::item(&self.conn, &*self.volumes, id)
+    }
+
+    /// The cast of `id` with portraits, fetched and cached on first ask; see `cast::cast`.
+    pub fn cast(&self, id: Id) -> Result<Vec<CastMember>> {
+        let tmdb = if self.has_secret(TMDB_KEY)? {
+            Some(self.provider()?)
+        } else {
+            None
+        };
+        cast::cast(
+            &self.conn,
+            tmdb.as_ref().map(|t| t as &dyn MetadataProvider),
+            &self.image_dir(),
+            id,
+        )
     }
 
     pub fn shelf(&self, shelf: Shelf, limit: u32) -> Result<Vec<ItemSummary>> {

@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use exhibit_core::identify::IdentifyScope;
-use exhibit_core::model::{Candidate, Id, ItemKind, Source};
+use exhibit_core::model::{Candidate, CastMember, Id, ItemKind, Source};
 use exhibit_core::query::{HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
 use exhibit_core::tools::{Tool, ToolStatus};
 use exhibit_core::{Library, LibraryStatus};
@@ -260,4 +260,11 @@ mod tests {
             assert_eq!(e.kind, "invalid", "{bad:?}");
         }
     }
+}
+
+/// The cast of a work with portraits. Its own connection, like `lookup`, so fetching portraits
+/// never holds the library from the other commands.
+#[tauri::command(async)]
+pub fn cast(id: Id) -> ApiResult<Vec<CastMember>> {
+    Ok(Library::open_default()?.cast(id)?)
 }

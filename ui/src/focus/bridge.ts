@@ -39,6 +39,8 @@ export interface GroupEntry {
   onEdge?: (dir: Dir) => void;
   /** A virtualised group brings items into view itself (`reveal`), so the bridge does not scroll. */
   reveals?: boolean;
+  /** Not where a screen lands as it opens: it settles on a later group first (Home's hero cues). */
+  aside?: boolean;
 }
 
 export interface ScopeEntry {

@@ -5,6 +5,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { create } from "zustand";
+import { LovedIcon, WatchedIcon } from "@/components/ui/state-icon";
 import { Menu, MenuContent, MenuGroup, MenuItem, MenuLabel, MenuSeparator, createMenuController } from "@/components/ui/menu";
 import { FocusScope } from "@/focus/react";
 import { itemActions, facetsOf, reasonOf, runAction, useActionContext, type Action, type ActionItem } from "@/lib/actions";
@@ -34,6 +35,23 @@ interface ItemMenuState {
 export const useItemMenu = create<ItemMenuState>()(() => ({ item: null, anchor: null, extra: [], open: false }));
 
 /** Opens the item menu for `item`, beside `anchor` (default: what has focus), with the screen's `extra` choices. */
+/** A label, with the state it changes at its end as it stands now: the heart, the eye. */
+function StateLabel({ action }: { action: Action }) {
+  const icon = {
+    love: <LovedIcon className="size-[1.1em]" />,
+    unlove: <LovedIcon on className="size-[1.1em]" />,
+    watched: <WatchedIcon className="size-[1.1em]" />,
+    unwatched: <WatchedIcon on className="size-[1.1em]" />,
+  }[action.id as string];
+  if (icon === undefined) return action.label;
+  return (
+    <span className="flex items-center justify-between gap-4">
+      {action.label}
+      {icon}
+    </span>
+  );
+}
+
 export function openItemMenu(item: ActionItem, anchor?: HTMLElement | null, extra: MenuExtra[] = []): void {
   if (useItemMenu.getState().open) return;
   const at = anchor ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
@@ -114,7 +132,7 @@ export function ItemMenu({ item, actions, extra = [], anchor, open, onClose, onC
             <MenuLabel>{title}</MenuLabel>
             {actions.map((x) => (
               <MenuItem key={x.id} value={x.id} disabled={x.disabled !== undefined} hint={x.disabled}>
-                {x.label}
+                <StateLabel action={x} />
               </MenuItem>
             ))}
           </MenuGroup>

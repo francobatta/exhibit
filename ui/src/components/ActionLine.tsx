@@ -20,7 +20,7 @@ function whyNot(action: Pick<Action, "disabled">, drive: string | undefined): st
 }
 
 /** The play glyph: a triangle in the text colour. */
-function PlayGlyph() {
+export function PlayGlyph() {
   return (
     <svg aria-hidden viewBox="0 0 10 12" className="h-(--cue-glyph) w-auto shrink-0 fill-current">
       <path d="M0 0v12l10-6z" />

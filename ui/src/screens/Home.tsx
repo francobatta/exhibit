@@ -2,17 +2,19 @@
 // the left; shelves run along the bottom. One shelf is in view with the next one's title peeking
 // below it; up and down slide the shelves inside their own region, so the page itself never
 // scrolls and nothing passes under the top bar. A on a work runs its main action (play or resume;
-// a show opens), X opens the item menu.
+// a show opens), X opens the item menu. Up from the shelves reaches the hero's cues, the same row
+// as on Details: play, Details, Loved and Watched, acting on the work last focused on a shelf.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import { ActionLine } from "@/components/ActionLine";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
+import { Cues } from "@/components/Cues";
+import { liveGroups } from "@/focus/bridge";
 import { Placard, placardLines } from "@/components/Placard";
 import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
-import { mainAction, runMain, useActionContext } from "@/lib/actions";
+import { runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useShelf, useStatus } from "@/lib/queries";
@@ -103,7 +105,6 @@ function Spotlight({ rows }: { rows: Row[] }) {
   const settled = useSettled(current.id, seconds("--delay-backdrop"));
   const loaded = useItem(current.id, settled === current.id).data;
   const detail = loaded?.item.id === current.id ? loaded : undefined;
-  const action = mainAction(detail ?? current);
   // Which drive a disabled play waits for, when the full record says.
   const drive = useItemSources(detail).find((s) => !s.online)?.path;
 
@@ -133,11 +134,14 @@ function Spotlight({ rows }: { rows: Row[] }) {
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="flex max-w-measure flex-col gap-5">
             <Placard item={current} detail={detail} size="hero" />
-            <ActionLine
-              action={action}
+            <Cues
+              id="home-cues"
+              prefix="hero"
+              item={detail ?? current}
               drive={drive}
-              progress={action.id === "resume" ? placardLines(current, detail).progress : null}
-              onPress={() => open(current)}
+              progress={placardLines(current, detail).progress}
+              details
+              aside
             />
           </div>
         </div>
@@ -183,13 +187,23 @@ function Shelves({
   // The region scrolls itself, by code only (overflow hidden), so the page never does.
   const region = useRef<HTMLDivElement>(null);
   const top = geometry?.tops[at] ?? 0;
+  const topNow = useRef(top);
   useEffect(() => {
+    topNow.current = top;
     if (region.current !== null) glideScroll(region.current, "top", top * remPx());
   }, [top]);
+  // The offset is in pixels: a resized window (full screen, another monitor) sets it again at once.
   useEffect(() => {
     const el = region.current;
+    if (el === null) return;
+    const keep = () => {
+      stopGlide(el);
+      el.scrollTop = topNow.current * remPx();
+    };
+    addEventListener("resize", keep);
     return () => {
-      if (el !== null) stopGlide(el);
+      removeEventListener("resize", keep);
+      stopGlide(el);
     };
   }, []);
   // Only the shelf in view is reachable (its neighbours' titles stay pointer targets), so Down from
@@ -205,7 +219,17 @@ function Shelves({
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const next = event.key === "ArrowUp" ? at - 1 : event.key === "ArrowDown" ? at + 1 : -1;
     const shelf = rows[next]?.shelf;
-    if (shelf !== undefined) open(shelf);
+    if (shelf === undefined) return;
+    open(shelf);
+    // Up goes to the shelf above itself: slid out of view, it lies behind the hero's cues, which
+    // the nearest-item search would take instead.
+    if (event.key === "ArrowUp" && event.target instanceof HTMLElement) {
+      const above = liveGroups().find((g) => g.id === `home-${shelf}`);
+      if (above?.enter(event.target.getBoundingClientRect(), [0, -1])) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }
   };
   // Stable handlers per shelf, so a focus move re-renders no shelf (they are memoised): a pointer
   // on a shelf's title (the peeking one) opens it before the shelf focuses its work.

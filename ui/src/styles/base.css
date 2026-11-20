@@ -166,6 +166,43 @@
     );
   }
 
+  /* Details: the backdrop darkens as the second movement glides in, on the scroller's own
+     timeline, and what scrolls up fades out under the bar. */
+  .details {
+    timeline-scope: --details;
+  }
+  .details-scroller {
+    scroll-timeline: --details y;
+    mask-image: linear-gradient(to bottom, transparent calc(var(--space-bar) * 0.55), black var(--space-bar));
+  }
+  .details-shade {
+    background: color-mix(in oklch, var(--wall-tinted) 88%, transparent);
+    animation: details-shade linear both;
+    animation-timeline: --details;
+  }
+  @keyframes details-shade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  /* What a placard's cues say beside their row comes in as focus reaches it (components/Cues). */
+  .cues-said {
+    animation: cues-said var(--dur-control) var(--curve-out) both;
+  }
+  @keyframes cues-said {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cues-said {
+      animation: none;
+    }
+  }
+
   /* The Show screen's seasons and episodes: they read on the wall, the backdrop faint behind them. */
   .show-scrim {
     background: linear-gradient(

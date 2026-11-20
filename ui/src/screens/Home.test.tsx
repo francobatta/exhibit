@@ -3,7 +3,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { tauri } from "../../test/setup";
 import { detail, summary } from "../../test/fixtures";
-import { screens, select } from "../../test/app";
+import { activeKey, press, screens, select } from "../../test/app";
 import { toast } from "@/components/ui/toast";
 import { installBridge } from "@/focus/bridge";
 import { usePlayback } from "@/lib/playback";
@@ -140,4 +140,32 @@ test("A on a film plays it; the hero's action line says so", async () => {
     await sleep(20);
   });
   expect(tauri.calls().filter((c) => c.cmd === "play")).toEqual([{ cmd: "play", args: { id: 7, resume: false } }]);
+});
+
+test("the hero's cues act on the focused work: Details, the heart, and a row that stops at its end", async () => {
+  shelves({ recently_added: [summary({ id: 7, title: "Heat" }), summary({ id: 8, title: "Ran" })] });
+  tauri.handle("set_loved", () => null);
+  home();
+  await settle();
+  await press("ArrowRight");
+  expect(activeKey()).toBe("home-recently_added:item:8");
+  // Up reaches the row by geometry, which happy-dom does not lay out; the window check covers it.
+  await act(async () => {
+    document.querySelector<HTMLElement>("[data-focus-key='hero:main']")?.focus();
+    await sleep(20);
+  });
+  expect(placardTitle()).toBe("Ran");
+  const row = [...document.querySelectorAll("[data-focus-group=home-cues] [data-focus-key]")].map((c) => c.getAttribute("data-focus-key"));
+  expect(row).toEqual(["hero:main", "hero:details", "hero:love", "hero:watched"]);
+  await press("ArrowRight");
+  await press("ArrowRight");
+  expect(activeKey()).toBe("hero:love");
+  await act(async () => {
+    (document.activeElement as HTMLElement).click();
+    await sleep(40);
+  });
+  expect(tauri.calls().find((c) => c.cmd === "set_loved")?.args).toEqual({ id: 8, loved: true });
+  await press("ArrowRight");
+  await press("ArrowRight");
+  expect(activeKey()).toBe("hero:watched");
 });

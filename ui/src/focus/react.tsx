@@ -140,12 +140,16 @@ function startOf(from: Box, boxes: Array<{ rect: Box }>, dir: Dir): Box {
   return { left: from.left, top: from.top, right: from.left + widest, bottom: from.bottom };
 }
 
-/** Lands in a group: its remembered item, else the one nearest `from` that way, else nearest on the cross axis. */
-function enter(group: GroupHandle, useStop: boolean, from: Box, dir: Dir): boolean {
+/**
+ * Lands in a group: its `entry` item when it names one, else its remembered item, else the one
+ * nearest `from` that way, else nearest on the cross axis.
+ */
+function enter(group: GroupHandle, useStop: boolean, from: Box, dir: Dir, entry?: string): boolean {
   const items = group.api.roving.items();
   if (items.length === 0) return false;
   const stop = group.instance.get().stop;
-  let key = useStop && items.some((i) => i.key === stop) ? stop! : undefined;
+  let key = entry !== undefined && items.some((i) => i.key === entry) ? entry : undefined;
+  key ??= useStop && items.some((i) => i.key === stop) ? stop! : undefined;
   if (key === undefined) {
     const boxes = items.map((i) => ({ key: i.key, rect: i.el.getBoundingClientRect() as Box }));
     key = nearestInDirection(startOf(from, boxes, dir), boxes, dir);
@@ -173,6 +177,10 @@ export interface FocusGroupProps extends Omit<PartProps<"div">, "children" | "re
   move?: GroupMove;
   /** The group scrolls its own items into view, so the bridge does not. */
   reveals?: boolean;
+  /** A screen opening lands on a later group first; arrows still reach this one. */
+  aside?: boolean;
+  /** The item an arrow from another group always lands on (a row whose first item is its main one). */
+  entry?: string;
   children?: ReactNode;
 }
 
@@ -184,6 +192,8 @@ export function FocusGroup({
   onEdge,
   move,
   reveals = false,
+  aside = false,
+  entry,
   children,
   onFocus,
   ...props
@@ -202,13 +212,14 @@ export function FocusGroup({
       registerGroup({
         id,
         el: root.current!,
-        enter: (from, dir) => enter(group, visited.current && remember, from, dir),
+        enter: (from, dir) => enter(group, visited.current && remember, from, dir, entry),
         stop: () => stopOf(group),
         items: () => group.api.roving.items().map((i) => i.el),
         onEdge: (dir) => edge.current?.(dir),
         reveals,
+        aside,
       }),
-    [id, group, remember, reveals],
+    [id, group, remember, reveals, aside, entry],
   );
 
   const part = usePart(
@@ -498,7 +509,8 @@ export function FocusScope({
         }
       }
       if (!final) return;
-      for (const g of liveGroups(root)) {
+      const groups = liveGroups(root);
+      for (const g of [...groups.filter((g) => !g.aside), ...groups.filter((g) => g.aside)]) {
         const stop = g.stop();
         if (stop !== undefined) {
           stop.focus({ preventScroll: true });

@@ -334,17 +334,26 @@ fn crew_directors(v: &Value) -> Vec<String> {
 
 /// Directors first, then the first `MAX_CAST` cast members.
 fn people(directors: Vec<String>, v: &Value) -> Vec<Person> {
-    let person = |role: &'static str| {
-        move |name| Person {
-            name,
-            role: role.to_string(),
-        }
-    };
-    let cast = names(&v["credits"]["cast"]).into_iter().take(MAX_CAST);
+    let cast = arr(&v["credits"]["cast"])
+        .iter()
+        .filter_map(|c| {
+            Some(Person {
+                name: opt_text(&c["name"])?,
+                role: "cast".into(),
+                tmdb_id: c["id"].as_i64(),
+                character: opt_text(&c["character"]),
+                profile: opt_text(&c["profile_path"]),
+            })
+        })
+        .take(MAX_CAST);
     directors
         .into_iter()
-        .map(person("director"))
-        .chain(cast.map(person("cast")))
+        .map(|name| Person {
+            name,
+            role: "director".into(),
+            ..Person::default()
+        })
+        .chain(cast)
         .collect()
 }
 
@@ -594,9 +603,15 @@ mod tests {
             m.people[2],
             Person {
                 name: "Keanu Reeves".into(),
-                role: "cast".into()
+                role: "cast".into(),
+                tmdb_id: Some(6384),
+                character: Some("Thomas A. Anderson / Neo".into()),
+                profile: Some("/4D0PpNI0kmP58hgrwGC3wCjxhnm.jpg".into()),
             }
         );
+        // No portrait, and no character: each simply absent.
+        assert_eq!(m.people[3].profile, None);
+        assert_eq!(m.people[4].character, None);
     }
 
     #[test]
@@ -611,7 +626,8 @@ mod tests {
             s.people[0],
             Person {
                 name: "Dan Erickson".into(),
-                role: "director".into()
+                role: "director".into(),
+                ..Person::default()
             }
         );
         assert_eq!(s.people.len(), 3);

@@ -55,6 +55,7 @@ fn main() {
             commands::apply_match,
             commands::move_to_other,
             commands::lookup,
+            commands::cast,
             commands::add_source,
             commands::remove_source,
             commands::list_folders,
