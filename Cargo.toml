@@ -4,4 +4,4 @@ members = ["crates/exhibit-core", "crates/exhibit-cli", "crates/exhibit-app", "c
 
 [workspace.package]
 edition = "2024"
-version = "0.0.1"
+version = "0.0.2"
