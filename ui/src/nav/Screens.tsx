@@ -13,13 +13,16 @@ import { Home } from "@/screens/Home";
 import { Review } from "@/screens/Review";
 import { Settings } from "@/screens/Settings";
 import { Show } from "@/screens/Show";
+import { Spotlight } from "@/screens/Spotlight";
 import { Wall } from "@/screens/Wall";
+import { SectionViews } from "@/components/SectionViews";
+import { viewsOf } from "./sections";
 import { DEFAULT_VIEW, onFirstRun, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [
   { screen: "home" },
-  { screen: "wall", kind: "movie" },
+  { screen: "spotlight", kind: "movie" },
   { screen: "wall", kind: "show" },
   { screen: "wall", kind: "other" },
 ];
@@ -29,7 +32,8 @@ export function cycleSection(delta: -1 | 1): void {
   const { entries, replaceRoot } = useNav.getState();
   const root = entries[0]!.route;
   if (onFirstRun()) return;
-  const at = SECTIONS.findIndex((s) => samePlace(s, root));
+  // Movies' second view (the wall) is still Movies.
+  const at = SECTIONS.findIndex((s) => samePlace(s, root) || (root.screen === "wall" && root.kind === "movie" && s.screen === "spotlight"));
   const next = at === -1 ? 0 : (at + delta + SECTIONS.length) % SECTIONS.length;
   replaceRoot(SECTIONS[next]!);
 }
@@ -41,19 +45,15 @@ export function openSettings(part?: SettingsPart): void {
   nav.push(part === undefined ? { screen: "settings" } : { screen: "settings", part });
 }
 
-function screenFor(entry: Entry): ReactNode {
-  const route = entry.route;
+/** A route's screen; `set` keeps the state it carries (a wall's sort and filters). */
+export function screenFor(route: Route, set: (route: Route) => void): ReactNode {
   switch (route.screen) {
     case "home":
       return <Home />;
+    case "spotlight":
+      return <Spotlight kind={route.kind} />;
     case "wall":
-      return (
-        <Wall
-          kind={route.kind}
-          view={route.view ?? DEFAULT_VIEW}
-          onView={(view) => useNav.getState().setRoute(entry.id, { ...route, view })}
-        />
-      );
+      return <Wall kind={route.kind} view={route.view ?? DEFAULT_VIEW} onView={(view) => set({ ...route, view })} />;
     case "show":
       return <Show id={route.id} />;
     case "details":
@@ -74,6 +74,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
   const live = top && present;
   const shift = length("--shift-screen");
   const transition = { duration: seconds("--dur-screen"), ease: easeOut() };
+  const page = screenFor(entry.route, (route) => useNav.getState().setRoute(entry.id, route));
+  const views = viewsOf(entry.route);
   return (
     <motion.div
       className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar"
@@ -92,7 +94,12 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
         active={live}
         onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry)}
+        {views === null ? (
+          page
+        ) : (
+          // A section's views take the right-hand column at the top; the page's first row stops short of it.
+          <div className="contents [--views-room:calc(var(--wall-panel)+var(--space-edge))]">{page}</div>
+        )}
       </FocusScope>
     </motion.div>
   );
@@ -100,6 +107,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
 
 export function Screens() {
   const entries = useNav((s) => s.entries);
+  const root = entries[0]!.route;
+  const views = viewsOf(root);
   return (
     <main className="relative h-full">
       <AnimatePresence initial={false}>
@@ -107,6 +116,12 @@ export function Screens() {
           <Layer key={e.id} entry={e} top={i === entries.length - 1} />
         ))}
       </AnimatePresence>
+      {/* A section's views stay drawn while its pages replace each other below them, outside any
+          page's focus scope, like the bar: a page opens on its own work, never on these. They step
+          aside while a screen is stacked over the section. */}
+      {views !== null && (
+        <SectionViews key={views.map((v) => v.id).join()} views={views} route={root} live={entries.length === 1} />
+      )}
     </main>
   );
 }

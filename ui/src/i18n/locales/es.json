@@ -25,7 +25,9 @@
     "shows": "Series",
     "episodes": "Episodios",
     "other": "Otros",
-    "review": "Por revisar"
+    "review": "Por revisar",
+    "spotlight": "Destacadas",
+    "allMovies": "Todas las películas"
   },
   "topBar": {
     "ask": "Pide algo",
@@ -82,7 +84,10 @@
     "track_one": "{{count, number}} pista",
     "track_many": "{{count, number}} pistas",
     "track_other": "{{count, number}} pistas",
-    "more": "{{count, number}} más"
+    "more": "{{count, number}} más",
+    "subtitle_one": "{{count, number}} subtítulo",
+    "subtitle_many": "{{count, number}} subtítulos",
+    "subtitle_other": "{{count, number}} subtítulos"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
@@ -113,7 +118,12 @@
     "left": "Quedan {{time}}",
     "sound": "Audio",
     "subtitles": "Subtítulos",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "noSubtitles": "sin subtítulos",
+    "heardMore_one": "{{first}} y {{count, number}} idioma más",
+    "heardMore_many": "{{first}} y {{count, number}} idiomas más",
+    "heardMore_other": "{{first}} y {{count, number}} idiomas más",
+    "yours": "Tu nota"
   },
   "cues": {
     "actions": "Acciones",

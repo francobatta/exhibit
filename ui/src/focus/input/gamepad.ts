@@ -20,6 +20,7 @@ export type PadAction =
   | "ask"
   | "previous"
   | "next"
+  | "views"
   | "settings";
 
 export interface PadState {
@@ -46,6 +47,7 @@ const BUTTONS: Partial<Record<number, PadAction>> = {
   3: "ask",
   4: "previous",
   5: "next",
+  8: "views",
   9: "settings",
 };
 
@@ -105,6 +107,7 @@ const KEYS: Partial<Record<PadAction, string>> = {
   ask: "/",
   previous: "[",
   next: "]",
+  views: "v",
 };
 
 function perform(action: PadAction, onSettings: () => void) {

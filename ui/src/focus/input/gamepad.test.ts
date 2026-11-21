@@ -92,7 +92,8 @@ test("the face, shoulder and menu buttons map to their actions", () => {
   expect(run([[0, pad([4])]]).out).toEqual([[0, ["previous"]]]);
   expect(run([[0, pad([5])]]).out).toEqual([[0, ["next"]]]);
   expect(run([[0, pad([9])]]).out).toEqual([[0, ["settings"]]]);
-  expect(run([[0, pad([6, 7, 8, 10, 11, 16])]]).out).toEqual([]);
+  expect(run([[0, pad([8])]]).out).toEqual([[0, ["views"]]]);
+  expect(run([[0, pad([6, 7, 10, 11, 16])]]).out).toEqual([]);
 });
 
 test("a pad that goes away and comes back keeps working", () => {

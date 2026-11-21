@@ -245,8 +245,8 @@
       linear-gradient(
         to right,
         var(--wall-tinted) 0%,
-        color-mix(in oklch, var(--wall-tinted) 75%, transparent) 28%,
-        transparent 58%
+        color-mix(in oklch, var(--wall-tinted) 75%, transparent) var(--scrim-hold),
+        transparent var(--scrim-reach)
       ),
       linear-gradient(to top, var(--wall-tinted) 0%, transparent 50%),
       linear-gradient(
@@ -254,5 +254,77 @@
         color-mix(in oklch, var(--wall-tinted) 85%, transparent) 0%,
         transparent calc(var(--space-bar) * 2.2)
       );
+  }
+}
+
+/* The outline round a section's views, and the glint that runs once round it as the section opens
+   (components/SectionViews): a turning light seen only through the outline. */
+.views-ring {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: 9999px;
+  padding: var(--views-ring);
+  background: var(--line);
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+.views-ring::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(transparent 0 62%, var(--views-glint) 90%, transparent);
+  opacity: 0;
+  animation: views-ring var(--dur-views-glint) var(--curve-glint) var(--delay-views-glint) 1 both;
+}
+/* It comes up out of nothing and goes back into it while still moving, so the lap has no edges. */
+@keyframes views-ring {
+  0% {
+    transform: rotate(-40deg);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(400deg);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .views-ring::after {
+    animation: none;
+  }
+}
+
+/* Runs with the SDK's countdown: it holds while the stack is hovered or focused, and while the
+   window is away, the same things that hold the toast's timer. */
+.toast-timer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--toast-timer-weight);
+  background: var(--toast-timer);
+  transform-origin: left;
+  animation: toast-timer var(--toast-ms) linear both;
+}
+:dir(rtl) .toast-timer {
+  transform-origin: right;
+}
+[data-slot="toast-region"]:is([data-expanded], [data-away]) .toast-timer {
+  animation-play-state: paused;
+}
+@keyframes toast-timer {
+  to {
+    transform: scaleX(0);
   }
 }

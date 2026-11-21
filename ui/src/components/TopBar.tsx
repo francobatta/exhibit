@@ -17,11 +17,15 @@ import { openAsk, samePlace, useNav, type Route } from "@/nav/stack";
 import { BackButton } from "./BackButton";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
+import { viewsOf } from "@/nav/sections";
 
-/** The sections, by a stable id (their focus keys) and the key of their name. */
+/**
+ * The sections, by a stable id (their focus keys) and the key of their name. A section with views
+ * (Movies: its Spotlight and its wall, nav/sections) opens on the first and is lit on any of them.
+ */
 const SECTIONS = [
   { id: "home", label: "sections.home", route: { screen: "home" } },
-  { id: "movies", label: "sections.movies", route: { screen: "wall", kind: "movie" } },
+  { id: "movies", label: "sections.movies", route: { screen: "spotlight", kind: "movie" } },
   { id: "shows", label: "sections.shows", route: { screen: "wall", kind: "show" } },
   { id: "other", label: "sections.other", route: { screen: "wall", kind: "other" } },
 ] as const satisfies Array<{ id: string; label: string; route: Route }>;
@@ -54,7 +58,7 @@ export function jobLine(job: JobStatus | null): string | null {
 
 function SettingsIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="size-[1.375rem]" fill="none">
+    <svg viewBox="0 0 24 24" aria-hidden className="size-(--bar-icon)" fill="none">
       <path
         d="M4 7h10M18 7h2M4 17h4M12 17h8"
         stroke="currentColor"
@@ -88,7 +92,7 @@ function BarButton({
       ref={ref}
       {...props}
       {...rest}
-      className={cn("relative focus-visible:bg-transparent focus:text-label", className)}
+      className={cn("relative h-(--bar-control) focus-visible:bg-transparent focus:text-label", className)}
     >
       {children}
       {focused && <Lamp />}
@@ -118,8 +122,8 @@ function AskField({ label }: { label: string }) {
       type="button"
       aria-haspopup="dialog"
       className={cn(
-        "flex h-11 w-[22rem] items-center rounded-control border border-line bg-wall/40 px-4 outline-none",
-        "font-display text-body text-label-faint transition-[border-color,background-color]",
+        "flex h-(--bar-control) w-(--bar-field) items-center rounded-control border border-line bg-wall/40 px-5 outline-none",
+        "font-display text-(length:--size-bar-field) text-label-faint transition-[border-color,background-color]",
         "hover:border-label-faint",
         focused && "border-lamp/60 bg-wall/70 text-label-dim",
       )}
@@ -153,7 +157,7 @@ export function TopBar() {
     review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
+    <header className="fixed inset-x-0 top-0 z-30 h-(--bar-height) px-edge">
       <FocusGroup id="topbar" orientation="horizontal" onEdge={intoScreen} className="flex h-full items-center gap-12">
         {/* Back takes the mark's place, so the sections never move. */}
         <div className="flex h-full w-(--bar-lead) shrink-0 items-center">
@@ -165,7 +169,7 @@ export function TopBar() {
             <motion.span
               key="mark"
               {...fade}
-              className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
+              className="font-display text-(length:--size-bar-mark) font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
             >
               Exhibit
             </motion.span>
@@ -174,13 +178,13 @@ export function TopBar() {
 
         <nav aria-label={t("sections.label")} className="-ml-4 flex items-center gap-1">
           {sections.map(({ id, label, route }) => {
-            const here = samePlace(root, route);
+            const here = samePlace(root, route) || (viewsOf(route)?.some((v) => samePlace(root, v.route)) ?? false);
             return (
               <BarButton
                 key={id}
                 focusKey={`section:${id}`}
                 aria-current={here ? "page" : undefined}
-                className={cn(here && "text-label")}
+                className={cn("px-5 text-(length:--size-bar)", here && "text-label")}
                 // The section already under the stack returns as it was left.
                 onSelect={() => (here ? toRoot() : replaceRoot(route))}
               >
@@ -193,7 +197,7 @@ export function TopBar() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-6">
+        <div className="ml-auto flex items-center gap-(--bar-gap)">
           {job !== null && (
             <p
               role="status"
@@ -206,6 +210,7 @@ export function TopBar() {
           <BarButton
             focusKey="settings"
             size="icon"
+            className="size-(--bar-control)"
             aria-label={t("topBar.settings")}
             onSelect={openSettings}
           >

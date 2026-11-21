@@ -1,12 +1,17 @@
-// The wall label, read in clusters: the title; then "year, director", "runtime, watched state" with
-// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), the verdicts (the
-// owner's rating as stars, with the mark of the service it came from, then up to three public
-// scores, each with its origin's mark), and the languages it can be
-// heard and read in; then a line or two of description. Plain text, commas between facts,
-// every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
-// say is left out, except on Home, where the placard keeps its shape (see `hold`).
+// The wall label, read in clusters: the title; "director, year"; "runtime, watched state" with the
+// marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos); the verdicts (the owner's
+// rating as stars, with the mark of the service it came from, then up to three public scores, each
+// with its origin's mark); the languages it can be heard and read in; a line or two of
+// description. Plain text, commas between facts, every line built with `format.facts` so a missing
+// fact leaves no trace. A line with nothing to say is left out, except on Home, where the placard
+// keeps its shape (see `hold`).
+//
+// The hero (Home, Details, Show) sets these as a wall label: the title alone, then the story (the
+// byline over the description) beside the verdicts as large figures, with the file beneath them.
+// Beside a wall, the panel keeps them as one column of lines.
 
-import { t, useT } from "@/i18n";
+import type { ReactNode } from "react";
+import { language, t, useT } from "@/i18n";
 import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, SourcedScore, TechInfo } from "@/lib/api";
 import { useServices } from "@/lib/queries";
 import { episodeLabel, facts, languageName, listed, number, runtime, started, stars, titleOf } from "@/lib/format";
@@ -28,6 +33,8 @@ export interface PlacardLines {
   sound: string | null;
   /** The languages of its full subtitles, "None", or how many unnamed tracks. */
   subtitles: string | null;
+  /** The hero's short form of both: "English, 19 subtitles". */
+  languages: string | null;
   /** How far a started, unwatched work has got; shown beside its action. */
   progress: Progress | null;
   overview: string | null;
@@ -64,6 +71,31 @@ export function trackLines(tech: TechInfo | null): { sound: string | null; subti
   };
 }
 
+/**
+ * What a file can be heard and read in, short enough for one line beside the format marks: the
+ * film's own language named, the others heard and the subtitles counted ("English and 2 other
+ * languages, 19 subtitles"). Subtitles count by language, else by track when none is named.
+ */
+export function heardAndRead(tech: TechInfo | null): string | null {
+  if (tech === null) return null;
+  const heard = [
+    ...new Set(
+      tech.audio
+        .filter((a) => !a.commentary)
+        .sort((a, b) => Number(b.original) - Number(a.original))
+        .map((a) => languageName(a.lang))
+        .filter((n) => n !== null),
+    ),
+  ];
+  const subs = tech.subtitles.filter((s) => !s.forced);
+  const read = new Set(subs.map((s) => languageName(s.lang)).filter((n) => n !== null)).size || subs.length;
+  const subtitles = read > 0 ? t("units.subtitle", { count: read }) : t("placard.noSubtitles");
+  const first = heard[0];
+  if (first === undefined) return subtitles.charAt(0).toLocaleUpperCase(language()) + subtitles.slice(1);
+  const said = heard.length > 1 ? t("placard.heardMore", { first, count: heard.length - 1 }) : first;
+  return facts([said, subtitles]);
+}
+
 const isSummary = (item: ItemSummary | Item): item is ItemSummary => "available" in item;
 const yearOf = (y: number | null | undefined) => (typeof y === "number" && y > 0 ? String(y) : null);
 
@@ -78,7 +110,7 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   const credit =
     kind === "episode"
       ? facts([summary?.show_title, episodeLabel(full?.season ?? item.season, full?.episode ?? item.episode), year])
-      : facts([year, director]);
+      : facts([director, year]);
 
   const tech = detail?.files.find((f) => f.tech !== null)?.tech ?? null;
   const picture = tech
@@ -122,6 +154,7 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
         ]),
     marks: absent ? [] : sound === null ? picture.marks : [...picture.marks, sound],
     ...trackLines(tech),
+    languages: absent ? null : heardAndRead(tech),
     progress,
     overview: full?.overview?.trim() || null,
     verdicts: {
@@ -172,12 +205,13 @@ export function Stars({ rating, className }: { rating: RatingFact; className?: s
   );
 }
 
-/** One kind of track and its languages, named quietly before them. */
-function Tracks({ name, value }: { name: string; value: string }) {
+/** A verdict on the hero, set as a figure: the value large, what it is small beneath it. */
+function Figure({ value, caption, ...data }: { value: ReactNode; caption: ReactNode } & Record<`data-${string}`, string>) {
   return (
-    <span className="min-w-0 truncate">
-      <span className="text-label-faint">{name} </span>
-      {value}
+    <span {...data} className="flex flex-col items-center gap-(--verdict-caption-gap)">
+      {/* A fixed slot: the stars' glyphs come from a font with a taller line than the figures'. */}
+      <span className="flex h-(--verdict-figure) items-end">{value}</span>
+      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label">{caption}</span>
     </span>
   );
 }
@@ -219,44 +253,131 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
   const services = useServices().data;
   const scores = orderedScores(lines.verdicts.public, services).slice(0, PUBLIC_SCORES);
   const verdicts = mine !== null || scores.length > 0 || (hold && holdVerdicts);
-  return (
-    <div className={cn("flex w-full flex-col", hero ? "max-w-measure gap-5" : "gap-3", className)}>
-      <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
-        <FitTitle
-          text={name.main}
-          maxLines={2}
-          className={cn(
-            "font-display text-label",
-            hero ? "text-hero font-title tracking-display" : "text-title font-title tracking-title",
-          )}
-        />
-        {name.sub !== null && (
-          <p
-            data-line="subtitle"
-            className={cn(
-              "font-display font-ui text-balance text-label",
-              hero ? "text-heading tracking-title" : "text-lead",
-            )}
-          >
-            {name.sub}
-          </p>
+  const title = (
+    <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
+      <FitTitle
+        text={name.main}
+        maxLines={2}
+        className={cn(
+          "font-display text-label",
+          hero ? "text-hero font-title tracking-display" : "text-title font-title tracking-title",
         )}
-      </hgroup>
+      />
+      {name.sub !== null && (
+        <p
+          data-line="subtitle"
+          className={cn("font-display font-ui text-balance text-label", hero ? "text-heading tracking-title" : "text-lead")}
+        >
+          {name.sub}
+        </p>
+      )}
+    </hgroup>
+  );
+  const overview = (hold || lines.overview) && (
+    <p
+      data-line="overview"
+      className={cn(
+        "font-reading leading-reading text-label-soft",
+        full ? "line-clamp-8" : hero ? "line-clamp-3" : "line-clamp-2",
+        hold && (hero ? "min-h-[3lh]" : "min-h-[2lh]"),
+        hero ? "text-(length:--size-reading-hero)" : "text-body",
+      )}
+    >
+      {lines.overview}
+    </p>
+  );
+
+  if (hero) {
+    // A wall label: the title, then the story (the byline, bright, over the description) beside the
+    // verdicts as figures with the file under them, set off by a rule. Both columns start level with
+    // the byline. Where the placard is narrow (Show, a small window) the two stack.
+    const credit = (hold || lines.credit) && (
+      <p data-line="credit" className="min-h-[1lh] truncate font-display font-ui text-heading tracking-title text-label">
+        {lines.credit}
+      </p>
+    );
+    const story = Boolean(credit) || Boolean(overview) || after.length > 0;
+    return (
+      <div className={cn("@container flex w-full flex-col gap-6", className)}>
+        {title}
+        <div
+          data-line="body"
+          className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-start @placard-split:gap-x-(--placard-split-gap)"
+        >
+          {story && (
+            <div data-line="story" className="flex min-w-0 flex-col gap-3">
+              {credit}
+              {(overview || after.length > 0) && (
+                <div className="flex flex-col gap-3">
+                  {overview}
+                  {after.map((l) => (
+                    <p key={l} className="line-clamp-2 font-display text-body text-label-dim">
+                      {l}
+                    </p>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-col gap-5 self-stretch font-display text-body text-label-dim @placard-split:border-l @placard-split:border-line @placard-split:pl-(--placard-rule-pad)">
+            {verdicts && (
+              <div
+                data-line="verdicts"
+                className={cn("flex items-end gap-x-(--verdict-figure-gap) whitespace-nowrap", hold && holdVerdicts && "min-h-(--verdict-row)")}
+              >
+                {mine && (
+                  <Figure
+                    data-figure="mine"
+                    value={<Stars rating={mine} className="text-(length:--verdict-figure-stars)" />}
+                    caption={
+                      <>
+                        <ServiceMark service={mine.service} size="caption" />
+                        <span>{t("placard.yours")}</span>
+                      </>
+                    }
+                  />
+                )}
+                {scores.map(({ score, origin }) => (
+                  <Figure
+                    key={score.origin}
+                    data-score={score.origin}
+                    value={<ScoreValue score={score} origin={origin} className={cn("font-title", origin.style === "badge" ? "text-(length:--verdict-badge)" : "text-(length:--verdict-figure)")} />}
+                    caption={<OriginMark origin={origin} size="caption" />}
+                  />
+                ))}
+              </div>
+            )}
+            {(hold || lines.facts || lines.marks.length > 0 || lines.languages) && (
+              // The file, then what it is heard and read in on a line of its own: a longer language
+              // (Spanish) never cuts the other short.
+              <div data-line="facts" className="flex flex-col gap-1">
+                <p className="flex min-h-(--mark-hero-tall) items-center gap-(--mark-gap) text-label">
+                  {lines.facts && <span className="min-w-0 truncate font-ui text-lead">{lines.facts}</span>}
+                  {lines.marks.map((m) => (
+                    <FormatMark key={m.id} mark={m} size="hero" />
+                  ))}
+                </p>
+                {(hold || lines.languages) && <p className="min-h-[1lh] truncate">{lines.languages}</p>}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex w-full flex-col gap-3", className)}>
+      {title}
       {(hold || lines.credit || lines.facts || verdicts || after.length > 0) && (
-        <div className={cn("flex flex-col font-display text-label-dim", hero ? "gap-1 text-lead" : "gap-0.5 text-body")}>
+        <div className="flex flex-col gap-0.5 font-display text-body text-label-dim">
           {(hold || lines.credit) && (
             <p data-line="credit" className="min-h-[1lh] truncate font-ui text-label">
               {lines.credit}
             </p>
           )}
           {(hold || lines.facts || lines.marks.length > 0) && (
-            <p
-              data-line="facts"
-              className={cn(
-                "flex items-center gap-(--mark-gap)",
-                hero ? "min-h-(--mark-hero-tall)" : "min-h-(--mark-panel-tall)",
-              )}
-            >
+            <p data-line="facts" className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
               {lines.facts && <span className="min-w-0 truncate">{lines.facts}</span>}
               {lines.marks.map((m) => (
                 <FormatMark key={m.id} mark={m} size={size} />
@@ -266,10 +387,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           {verdicts && (
             <p
               data-line="verdicts"
-              className={cn(
-                "flex items-center gap-x-3 whitespace-nowrap",
-                hero ? "min-h-(--verdict-star) text-(length:--verdict-star)" : "min-h-(--verdict-star-panel) text-(length:--verdict-star-panel)",
-              )}
+              className="flex min-h-(--verdict-star-panel) items-center gap-x-3 text-(length:--verdict-star-panel) whitespace-nowrap"
             >
               {mine && <Stars rating={mine} />}
               {mine && <ServiceMark service={mine.service} size={size} />}
@@ -290,28 +408,9 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               {l}
             </p>
           ))}
-          {/* Beside a wall, the panel lists the tracks in full below the placard. */}
-          {hero && (hold || lines.sound || lines.subtitles) && (
-            <p data-line="tracks" className="mt-1.5 flex min-h-[1lh] gap-8 text-body">
-              {lines.sound && <Tracks name={t("placard.sound")} value={lines.sound} />}
-              {lines.subtitles && <Tracks name={t("placard.subtitles")} value={lines.subtitles} />}
-            </p>
-          )}
         </div>
       )}
-      {(hold || lines.overview) && (
-        <p
-          data-line="overview"
-          className={cn(
-            "font-reading leading-reading text-label-soft",
-            full ? "line-clamp-8" : "line-clamp-2",
-            hold && "min-h-[2lh]",
-            hero ? "text-lead" : "text-body",
-          )}
-        >
-          {lines.overview}
-        </p>
-      )}
+      {overview}
     </div>
   );
 }

@@ -43,13 +43,15 @@
   /* Type. */
   --type-display: "Archivo Variable", "Archivo", system-ui, sans-serif;
   --type-reading: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
-  --size-caption: 0.875rem;
-  --size-body: 1rem;
-  --size-lead: 1.25rem;
+  --size-caption: 1rem;
+  --size-body: 1.125rem;
+  --size-lead: 1.4rem;
   --size-heading: 1.6rem;
   --size-title: 2.4rem;
   --size-display: 4rem;
-  --size-hero: 6.5rem;
+  --size-hero: 8rem;
+  /* The hero's description, read from across the room. */
+  --size-reading-hero: 1.4rem;
   --weight-text: 450;
   --weight-ui: 600;
   --weight-title: 680;
@@ -75,6 +77,17 @@
      it: on the hero (Home, Details) and on the wall's panel. */
   --verdict-star: 1.5rem;
   --verdict-star-panel: 1.2rem;
+  /* The hero's verdicts, set as figures: a score's value, the owner's stars, the mark naming each
+     beneath it and the space above that mark, the space between figures, and the row's height, held
+     on Home so a work without verdicts moves nothing. */
+  --verdict-figure: 3rem;
+  --verdict-figure-stars: 2.25rem;
+  /* A badge (Metacritic) is a filled square: a size down, so it stands no taller than a figure's digits. */
+  --verdict-badge: 2.25rem;
+  --mark-caption: 2.25rem;
+  --verdict-caption-gap: 0.625rem;
+  --verdict-figure-gap: 2.25rem;
+  --verdict-row: calc(var(--verdict-figure) + var(--verdict-caption-gap) + var(--mark-caption));
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -85,17 +98,61 @@
 
   /* Space and shape. */
   --space-edge: 4.5rem;
-  --space-bar: 6rem;
+  /* The column at the window's right edge that the search field and settings, a section's views and
+     the wall's panel share, so all three start on one line. */
+  --rail: 27rem;
+  /* The top bar, read from across the room: its height, the size of its sections, the mark and the
+     search field's words, a control's height (a section, the field, settings), settings' icon, and
+     the field's width. Pages start --space-bar down: the bar, and under a section's views their row. */
+  --bar-height: 7.5rem;
+  --space-bar: var(--bar-height);
+  --size-bar: 1.5rem;
+  --size-bar-mark: 1.75rem;
+  --size-bar-field: 1.25rem;
+  --bar-control: 3.5rem;
+  --bar-icon: 2.25rem;
+  --bar-gap: 1.5rem;
+  --bar-field: calc(var(--rail) - var(--bar-control) - var(--bar-gap));
+  /* The row naming a section's views (Movies: Spotlight, All movies) under the bar: its height, the
+     size of its names and the space between them. */
+  --views-row: 3.5rem;
+  --size-views: 1.375rem;
+  --views-gap: 2.5rem;
+  /* The row's outline: the room inside it, its weight, and the glint that runs once round it as the
+     section opens (its light, one lap, and how long after the section opens it starts). */
+  --views-pad: 1.5rem;
+  --views-ring: 0.125rem;
+  --views-glint: var(--lamp);
+  --dur-views-glint: 1900ms;
+  --curve-glint: cubic-bezier(0.45, 0, 0.55, 1);
+  --delay-views-glint: 350ms;
   /* The bar's first slot: the mark, or Back on a screen stacked over another. Back may run into
      the gap after it, never into the sections. */
-  --bar-lead: 4.5rem;
+  --bar-lead: 6.5rem;
   /* Control hints: a button's glyph (a key cap grows with its name), the space between hints, and
      the dark pill they stand on, so they read over artwork; its padding keeps the text on the edge. */
   --hint-glyph: 1.75rem;
   --hint-gap: 1.75rem;
   --hint-pad: 1rem;
   --hint-scrim: color-mix(in oklch, var(--wall) 78%, transparent);
+  /* How far the hint line stands off the bottom; toasts stand just above it, in the rail. A toast's
+     timer is a thin line along its foot that runs out as the toast does. */
+  --hint-floor: 1.5rem;
+  --toast-floor: calc(var(--hint-floor) + var(--hint-glyph) + 1rem + 0.75rem);
+  --toast-timer: color-mix(in oklch, var(--label) 35%, transparent);
+  --toast-timer-weight: 0.1875rem;
   --placard-measure: 46rem;
+  /* The hero placard on Home and Details, wide enough to set its story beside its verdicts. */
+  --placard-hero-measure: 80rem;
+  /* How far the backdrop's shade holds from the left, and where it has gone, so the hero placard reads. */
+  --scrim-hold: 40%;
+  --scrim-reach: 72%;
+  /* The hero placard: the right column holding its verdicts and file, and the gap before it. It
+     stands beside the story once the placard is as wide as --container-placard-split. */
+  --placard-side: 34rem;
+  --placard-split-gap: 2.5rem;
+  /* The room between the rule that sets off the verdicts and the figures. */
+  --placard-rule-pad: 2.5rem;
   /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
   --space-work-gap: 1.75rem;
   --space-light: 4rem;
@@ -132,11 +189,12 @@
   --home-peek: 3.5rem;
   /* The wall: the details panel's share of the window beside the grid, a portrait's width in its
      cast, and the room under the cast for the hint line. */
-  --wall-panel: 26%;
+  --wall-panel: calc(var(--rail) + var(--space-edge));
   --wall-portrait: 7rem;
   --wall-panel-foot: 5.5rem;
-  /* The height of the row of controls above a wall. */
-  --wall-controls: 3.5rem;
+  /* The row of controls above a wall: its height, and the size of its words (sort, filters, the count). */
+  --wall-controls: 4.5rem;
+  --size-wall-controls: 1.375rem;
   /* Details, in two movements: the work, then its cast and record. How much of the second shows
      below the first, the space under the first's actions, between the second's parts, a portrait's
      width and the gap between portraits, and the column naming each line of the record. */
@@ -207,6 +265,8 @@
   --dur-reduced: 120ms;
   --curve-out: cubic-bezier(0.22, 1, 0.36, 1);
   --shift-screen: 1.5rem;
+  /* How far a new work's placard on Home comes in from, the way focus moved along a shelf. */
+  --shift-placard: 2rem;
 
   /* The intro. The E's height once lit; it spawns from a share of that, turned away in depth
      (degrees about x, y and z, seen from --intro-depth), out of focus and in the lamp's shade, and
@@ -343,6 +403,7 @@
   --spacing-edge: var(--space-edge);
   --spacing-bar: var(--space-bar);
   --spacing-measure: var(--placard-measure);
+  --spacing-measure-hero: var(--placard-hero-measure);
   --spacing-work-gap: var(--space-work-gap);
   --spacing-light: var(--space-light);
   --spacing-menu: var(--menu-width);
@@ -350,4 +411,10 @@
   --ease-out: var(--curve-out);
   --default-transition-duration: var(--dur-control);
   --default-transition-timing-function: var(--curve-out);
+}
+
+/* A container query cannot read a variable, so the hero placard's split is a plain theme value:
+   the `@placard-split:` variant. */
+@theme {
+  --container-placard-split: 60rem;
 }
