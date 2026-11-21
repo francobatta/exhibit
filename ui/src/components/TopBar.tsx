@@ -18,13 +18,25 @@ import { BackButton } from "./BackButton";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
 
-/** The sections, by a stable id (their focus keys) and the key of their name. */
+/**
+ * The sections, by a stable id (their focus keys) and the key of their name. A section with views
+ * (Movies: its Spotlight and its wall) opens on the first and names them beside it while it is the
+ * one showing.
+ */
 const SECTIONS = [
   { id: "home", label: "sections.home", route: { screen: "home" } },
-  { id: "movies", label: "sections.movies", route: { screen: "wall", kind: "movie" } },
+  {
+    id: "movies",
+    label: "sections.movies",
+    route: { screen: "spotlight", kind: "movie" },
+    views: [
+      { id: "spotlight", label: "sections.spotlight", route: { screen: "spotlight", kind: "movie" } },
+      { id: "all", label: "sections.allMovies", route: { screen: "wall", kind: "movie" } },
+    ],
+  },
   { id: "shows", label: "sections.shows", route: { screen: "wall", kind: "show" } },
   { id: "other", label: "sections.other", route: { screen: "wall", kind: "other" } },
-] as const satisfies Array<{ id: string; label: string; route: Route }>;
+] as const satisfies Array<{ id: string; label: string; route: Route; views?: ReadonlyArray<{ id: string; label: string; route: Route }> }>;
 
 const REVIEW = { id: "review", label: "sections.review", route: { screen: "review" } } as const satisfies {
   id: string;
@@ -149,8 +161,13 @@ export function TopBar() {
   const { data: status } = useStatus();
   const job = jobLine(useJobStatus());
   const review = status?.needs_review ?? 0;
-  const sections: Array<{ id: string; label: (typeof SECTIONS)[number]["label"] | typeof REVIEW.label; route: Route }> =
-    review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
+  type View = { id: string; label: "sections.spotlight" | "sections.allMovies"; route: Route };
+  const sections: Array<{
+    id: string;
+    label: (typeof SECTIONS)[number]["label"] | typeof REVIEW.label;
+    route: Route;
+    views?: ReadonlyArray<View>;
+  }> = review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
 
   return (
     <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
@@ -173,9 +190,9 @@ export function TopBar() {
         </div>
 
         <nav aria-label={t("sections.label")} className="-ml-4 flex items-center gap-1">
-          {sections.map(({ id, label, route }) => {
-            const here = samePlace(root, route);
-            return (
+          {sections.map(({ id, label, route, views }) => {
+            const here = samePlace(root, route) || (views?.some((v) => samePlace(root, v.route)) ?? false);
+            const section = (
               <BarButton
                 key={id}
                 focusKey={`section:${id}`}
@@ -189,6 +206,27 @@ export function TopBar() {
                   <span className="text-label-faint tabular-nums">{review}</span>
                 )}
               </BarButton>
+            );
+            if (!here || views === undefined) return section;
+            return (
+              <div key={id} className="flex items-center gap-1">
+                {section}
+                <span aria-hidden className="mx-1 h-[1lh] w-px bg-line" />
+                {views.map((v) => {
+                  const on = samePlace(root, v.route);
+                  return (
+                    <BarButton
+                      key={v.id}
+                      focusKey={`section:${id}:${v.id}`}
+                      aria-current={on ? "page" : undefined}
+                      className={cn(on ? "text-label" : "text-label-faint")}
+                      onSelect={() => (on ? toRoot() : replaceRoot(v.route))}
+                    >
+                      {t(v.label)}
+                    </BarButton>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>

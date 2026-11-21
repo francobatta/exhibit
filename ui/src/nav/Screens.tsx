@@ -13,13 +13,14 @@ import { Home } from "@/screens/Home";
 import { Review } from "@/screens/Review";
 import { Settings } from "@/screens/Settings";
 import { Show } from "@/screens/Show";
+import { Spotlight } from "@/screens/Spotlight";
 import { Wall } from "@/screens/Wall";
 import { DEFAULT_VIEW, onFirstRun, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
 const SECTIONS: Route[] = [
   { screen: "home" },
-  { screen: "wall", kind: "movie" },
+  { screen: "spotlight", kind: "movie" },
   { screen: "wall", kind: "show" },
   { screen: "wall", kind: "other" },
 ];
@@ -29,7 +30,8 @@ export function cycleSection(delta: -1 | 1): void {
   const { entries, replaceRoot } = useNav.getState();
   const root = entries[0]!.route;
   if (onFirstRun()) return;
-  const at = SECTIONS.findIndex((s) => samePlace(s, root));
+  // Movies' second view (the wall) is still Movies.
+  const at = SECTIONS.findIndex((s) => samePlace(s, root) || (root.screen === "wall" && root.kind === "movie" && s.screen === "spotlight"));
   const next = at === -1 ? 0 : (at + delta + SECTIONS.length) % SECTIONS.length;
   replaceRoot(SECTIONS[next]!);
 }
@@ -41,19 +43,15 @@ export function openSettings(part?: SettingsPart): void {
   nav.push(part === undefined ? { screen: "settings" } : { screen: "settings", part });
 }
 
-function screenFor(entry: Entry): ReactNode {
-  const route = entry.route;
+/** A route's screen; `set` keeps the state it carries (a wall's sort and filters). */
+export function screenFor(route: Route, set: (route: Route) => void): ReactNode {
   switch (route.screen) {
     case "home":
       return <Home />;
+    case "spotlight":
+      return <Spotlight kind={route.kind} />;
     case "wall":
-      return (
-        <Wall
-          kind={route.kind}
-          view={route.view ?? DEFAULT_VIEW}
-          onView={(view) => useNav.getState().setRoute(entry.id, { ...route, view })}
-        />
-      );
+      return <Wall kind={route.kind} view={route.view ?? DEFAULT_VIEW} onView={(view) => set({ ...route, view })} />;
     case "show":
       return <Show id={route.id} />;
     case "details":
@@ -92,7 +90,7 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
         active={live}
         onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry)}
+        {screenFor(entry.route, (route) => useNav.getState().setRoute(entry.id, route))}
       </FocusScope>
     </motion.div>
   );

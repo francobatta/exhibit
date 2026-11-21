@@ -10,7 +10,7 @@ import { usePlayback } from "@/lib/playback";
 import { FocusScope } from "@/focus/react";
 import { useNav } from "@/nav/stack";
 import type { ItemSummary, Shelf, Source } from "@/lib/api";
-import { Home } from "./Home";
+import { Spotlight } from "./Spotlight";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -48,7 +48,7 @@ function home() {
   return render(
     <QueryClientProvider client={client}>
       <FocusScope id="entry">
-        <Home />
+        <Spotlight kind="movie" />
       </FocusScope>
     </QueryClientProvider>,
   );
@@ -105,7 +105,7 @@ test("with no folders, the empty library says to add one and offers Settings", a
 test("with only Other videos, the empty Home says where they are and opens Other", async () => {
   shelves({});
   status([MOVIES], 12);
-  screens({ screen: "home" });
+  screens({ screen: "spotlight", kind: "movie" });
   await settle(120);
   expect(document.body.textContent).toContain("Everything Exhibit has found so far is in Other.");
   expect(document.activeElement?.textContent).toBe("Open Other");
@@ -121,7 +121,7 @@ test("A on a film whose drive is away never plays, and the message names the dri
   tauri.handle("item", () =>
     detail({ available: false, files: [{ id: 1, source_id: 1, rel_path: "Heat.mkv", size: 1, mtime: 0, item_id: 7, tech: null }] }, { id: 7 }),
   );
-  screens({ screen: "home" });
+  screens({ screen: "spotlight", kind: "movie" });
   await settle(120);
   await select();
   await settle(120);

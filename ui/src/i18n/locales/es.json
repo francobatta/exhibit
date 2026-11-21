@@ -25,7 +25,9 @@
     "shows": "Series",
     "episodes": "Episodios",
     "other": "Otros",
-    "review": "Por revisar"
+    "review": "Por revisar",
+    "spotlight": "Destacadas",
+    "allMovies": "Todas las películas"
   },
   "topBar": {
     "ask": "Pide algo",

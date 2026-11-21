@@ -71,6 +71,8 @@ function app() {
 }
 
 test("Back returns focus to the item the previous screen remembered, through the real stack", async () => {
+  // The shelves live in a Spotlight (these works are shows); Home is empty until the owner chooses a page.
+  useNav.getState().replaceRoot({ screen: "spotlight", kind: "show" });
   app();
   await settle();
   const home = String(useNav.getState().entries[0]!.id);

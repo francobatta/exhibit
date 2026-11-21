@@ -28,7 +28,9 @@
     "shows": "Shows",
     "episodes": "Episodes",
     "other": "Other",
-    "review": "Needs review"
+    "review": "Needs review",
+    "spotlight": "Spotlight",
+    "allMovies": "All movies"
   },
   "topBar": {
     "ask": "Ask for something",

@@ -23,6 +23,7 @@ export type SettingsPart = "tools" | "tmdb";
 export type Route =
   | { screen: "home" }
   | { screen: "wall"; kind: WallKind; view?: WallView }
+  | { screen: "spotlight"; kind: WallKind }
   | { screen: "show"; id: Id }
   | { screen: "details"; id: Id }
   | { screen: "review" }
@@ -31,7 +32,7 @@ export type Route =
 
 /** Whether two routes are the same place, whatever state they carry (a wall's sort and filters). */
 export const samePlace = (a: Route, b: Route) =>
-  a.screen === b.screen && (a.screen !== "wall" || (b.screen === "wall" && a.kind === b.kind));
+  a.screen === b.screen && (!("kind" in a) || ("kind" in b && a.kind === b.kind));
 
 export interface Entry {
   /** Unique per visit, for React keys and focus memory. */
