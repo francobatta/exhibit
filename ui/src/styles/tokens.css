@@ -49,7 +49,7 @@
   --size-heading: 1.6rem;
   --size-title: 2.4rem;
   --size-display: 4rem;
-  --size-hero: 6.5rem;
+  --size-hero: 8rem;
   --weight-text: 450;
   --weight-ui: 600;
   --weight-title: 680;
@@ -80,9 +80,11 @@
      on Home so a work without verdicts moves nothing. */
   --verdict-figure: 3rem;
   --verdict-figure-stars: 2.25rem;
-  --mark-caption: 1rem;
+  /* A badge (Metacritic) is a filled square: a size down, so it stands no taller than a figure's digits. */
+  --verdict-badge: 2.25rem;
+  --mark-caption: 1.375rem;
   --verdict-caption-gap: 0.625rem;
-  --verdict-figure-gap: 2.5rem;
+  --verdict-figure-gap: 2.25rem;
   --verdict-row: calc(var(--verdict-figure) + var(--verdict-caption-gap) + var(--mark-caption));
   --stretch-poster: 75%;
   --stretch-mark: 112%;
@@ -105,10 +107,15 @@
   --hint-pad: 1rem;
   --hint-scrim: color-mix(in oklch, var(--wall) 78%, transparent);
   --placard-measure: 46rem;
+  /* The hero placard on Home and Details, wide enough to set its story beside its verdicts. */
+  --placard-hero-measure: 80rem;
+  /* How far the backdrop's shade holds from the left, and where it has gone, so the hero placard reads. */
+  --scrim-hold: 40%;
+  --scrim-reach: 72%;
   /* The hero placard: the right column holding its verdicts and file, and the gap before it. It
      stands beside the story once the placard is as wide as --container-placard-split. */
-  --placard-side: 36rem;
-  --placard-split-gap: 4rem;
+  --placard-side: 34rem;
+  --placard-split-gap: 3rem;
   /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
   --space-work-gap: 1.75rem;
   --space-light: 4rem;
@@ -356,6 +363,7 @@
   --spacing-edge: var(--space-edge);
   --spacing-bar: var(--space-bar);
   --spacing-measure: var(--placard-measure);
+  --spacing-measure-hero: var(--placard-hero-measure);
   --spacing-work-gap: var(--space-work-gap);
   --spacing-light: var(--space-light);
   --spacing-menu: var(--menu-width);

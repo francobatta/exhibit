@@ -105,7 +105,7 @@ describe("verdicts", () => {
     const view = withServices(<Placard item={d.item} detail={d} size="hero" />, [service(), scoresService()]);
     const line = view.container.querySelector("[data-line=verdicts]")!;
     await waitFor(() => expect(line.querySelectorAll("[data-score]").length).toBe(3));
-    expect(lineNames(view.container)).toEqual(["title", "credit", "body", "story", "overview", "verdicts", "facts"]);
+    expect(lineNames(view.container)).toEqual(["title", "body", "story", "credit", "overview", "verdicts", "facts"]);
     // Each score is a figure: its value, then its origin's mark beneath.
     for (const figure of line.querySelectorAll("[data-score]")) {
       const parts = [...figure.querySelectorAll("[role=img]")];

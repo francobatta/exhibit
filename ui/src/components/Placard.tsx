@@ -1,10 +1,14 @@
-// The wall label, read in clusters: the title; then "year, director", "runtime, watched state" with
-// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), the verdicts (the
-// owner's rating as stars, with the mark of the service it came from, then up to three public
-// scores, each with its origin's mark), and the languages it can be
-// heard and read in; then a line or two of description. Plain text, commas between facts,
-// every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
-// say is left out, except on Home, where the placard keeps its shape (see `hold`).
+// The wall label, read in clusters: the title; "director, year"; "runtime, watched state" with the
+// marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos); the verdicts (the owner's
+// rating as stars, with the mark of the service it came from, then up to three public scores, each
+// with its origin's mark); the languages it can be heard and read in; a line or two of
+// description. Plain text, commas between facts, every line built with `format.facts` so a missing
+// fact leaves no trace. A line with nothing to say is left out, except on Home, where the placard
+// keeps its shape (see `hold`).
+//
+// The hero (Home, Details, Show) sets these as a wall label: the title alone, then the story (the
+// byline over the description) beside the verdicts as large figures, with the file beneath them.
+// Beside a wall, the panel keeps them as one column of lines.
 
 import type { ReactNode } from "react";
 import { language, t, useT } from "@/i18n";
@@ -205,7 +209,8 @@ export function Stars({ rating, className }: { rating: RatingFact; className?: s
 function Figure({ value, caption, ...data }: { value: ReactNode; caption: ReactNode } & Record<`data-${string}`, string>) {
   return (
     <span {...data} className="flex flex-col items-start gap-(--verdict-caption-gap)">
-      {value}
+      {/* A fixed slot: the stars' glyphs come from a font with a taller line than the figures'. */}
+      <span className="flex h-(--verdict-figure) items-end">{value}</span>
       <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label-dim">{caption}</span>
     </span>
   );
@@ -283,29 +288,36 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
   );
 
   if (hero) {
-    // A wall label: the title, a bright byline, then the story beside the verdicts as figures, with
-    // the file under them. Where the placard is narrow (Show, a small window) the two stack.
-    const story = Boolean(overview) || after.length > 0;
+    // A wall label: the title, then the story (the byline, bright, over the description) beside the
+    // verdicts as figures with the file under them. The byline stands level with the figures and the
+    // description ends on the file's line. Where the placard is narrow (Show, a small window) the
+    // two stack.
+    const credit = (hold || lines.credit) && (
+      <p data-line="credit" className="min-h-[1lh] truncate font-display font-ui text-heading tracking-title text-label">
+        {lines.credit}
+      </p>
+    );
+    const story = Boolean(credit) || Boolean(overview) || after.length > 0;
     return (
       <div className={cn("@container flex w-full flex-col gap-6", className)}>
         {title}
-        {(hold || lines.credit) && (
-          <p data-line="credit" className="min-h-[1lh] truncate font-display font-ui text-heading tracking-title text-label">
-            {lines.credit}
-          </p>
-        )}
         <div
           data-line="body"
           className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-end @placard-split:gap-x-(--placard-split-gap)"
         >
           {story && (
-            <div data-line="story" className="flex min-w-0 flex-col gap-3">
-              {overview}
-              {after.map((l) => (
-                <p key={l} className="line-clamp-2 font-display text-body text-label-dim">
-                  {l}
-                </p>
-              ))}
+            <div data-line="story" className="flex min-w-0 flex-col justify-between gap-4 self-stretch">
+              {credit}
+              {(overview || after.length > 0) && (
+                <div className="flex flex-col gap-3">
+                  {overview}
+                  {after.map((l) => (
+                    <p key={l} className="line-clamp-2 font-display text-body text-label-dim">
+                      {l}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           <div className="flex min-w-0 flex-col gap-5 font-display text-body text-label-dim">
@@ -330,20 +342,24 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
                   <Figure
                     key={score.origin}
                     data-score={score.origin}
-                    value={<ScoreValue score={score} origin={origin} className="text-(length:--verdict-figure) font-title" />}
+                    value={<ScoreValue score={score} origin={origin} className={cn("font-title", origin.style === "badge" ? "text-(length:--verdict-badge)" : "text-(length:--verdict-figure)")} />}
                     caption={<OriginMark origin={origin} size="caption" />}
                   />
                 ))}
               </div>
             )}
             {(hold || lines.facts || lines.marks.length > 0 || lines.languages) && (
-              <p data-line="facts" className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
-                {lines.facts && <span className="shrink-0 whitespace-nowrap">{lines.facts}</span>}
-                {lines.marks.map((m) => (
-                  <FormatMark key={m.id} mark={m} size="panel" />
-                ))}
-                {lines.languages && <span className="min-w-0 truncate">{lines.languages}</span>}
-              </p>
+              // The file, then what it is heard and read in on a line of its own: a longer language
+              // (Spanish) never cuts the other short.
+              <div data-line="facts" className="flex flex-col gap-1">
+                <p className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
+                  {lines.facts && <span className="min-w-0 truncate">{lines.facts}</span>}
+                  {lines.marks.map((m) => (
+                    <FormatMark key={m.id} mark={m} size="panel" />
+                  ))}
+                </p>
+                {(hold || lines.languages) && <p className="min-h-[1lh] truncate">{lines.languages}</p>}
+              </div>
             )}
           </div>
         </div>

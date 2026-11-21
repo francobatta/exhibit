@@ -143,7 +143,7 @@ function Spotlight({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
       <div className="flex h-full flex-col">
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
-          <div data-placard className="flex max-w-measure flex-col gap-5">
+          <div data-placard className="flex max-w-measure-hero flex-col gap-5">
             <Placard item={current} detail={detail} size="hero" holdVerdicts={verdicts} />
             <Cues
               id="home-cues"

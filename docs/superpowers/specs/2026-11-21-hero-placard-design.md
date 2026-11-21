@@ -74,6 +74,22 @@ the streets nightly…                  1 h 54 · HD · English, 19 subtitles
 - **New words.** The label under the owner's stars ("yours") and the shortened languages ("19
   subtitles") go into the three catalogues (en-US, es-ES, es-MX).
 
+## As built (2026-11-21)
+
+Settled in the window, against the sketch above:
+
+- The byline stands at the top of the story column, level with the figures, and the description
+  ends on the file's last line: below a bare title, the two columns fill the space the sketch left
+  empty between the byline and the description.
+- The file is two quiet lines: runtime, state and format marks; then the languages. Spanish names
+  are too long to share a line with the marks.
+- More than one heard language is counted, not listed ("English and 4 other languages, 19
+  subtitles"), so the two halves of the phrase never run together.
+- Metacritic's badge is a size down from the figures, so the filled square stands no taller than
+  their digits.
+- Sizes: title 8rem, hero measure 80rem, right column 34rem, split at 60rem. The backdrop's shade
+  holds to 40% of the width and has gone by 72%.
+
 ## Left to the builder
 
 - Exact sizes, gaps and the gradient's reach, as tokens in `tokens.css`, settled by looking at the

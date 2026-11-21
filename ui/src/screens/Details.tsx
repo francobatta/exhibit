@@ -204,7 +204,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
           aria-label={item.title}
           className="flex h-[calc(100%-var(--details-peek))] flex-col justify-end px-edge pt-bar pb-(--details-foot)"
         >
-          <div className="flex max-w-measure flex-col gap-5">
+          <div className="flex max-w-measure-hero flex-col gap-5">
             <Laurels awards={detail.awards} services={services} />
             <Placard item={item} detail={detail} size="hero" full more={[facts(item.genres)]} />
             <Cues

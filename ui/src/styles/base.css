@@ -245,8 +245,8 @@
       linear-gradient(
         to right,
         var(--wall-tinted) 0%,
-        color-mix(in oklch, var(--wall-tinted) 75%, transparent) 28%,
-        transparent 58%
+        color-mix(in oklch, var(--wall-tinted) 75%, transparent) var(--scrim-hold),
+        transparent var(--scrim-reach)
       ),
       linear-gradient(to top, var(--wall-tinted) 0%, transparent 50%),
       linear-gradient(
