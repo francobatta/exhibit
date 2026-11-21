@@ -1,7 +1,7 @@
 // The row naming a section's views (Movies: Spotlight, All movies), under the bar at its right
 // edge, below the search field, where no title reaches. The view showing is lit; the others are
-// quiet, and a glint crosses them as the section opens, so the owner sees there is another way to
-// look. One button switches from anywhere on the page (the pad's View, the V key), and its glyph
+// quiet. The row is drawn as a thin outline, and as the section opens a glint runs once round it,
+// so the owner sees there is another way to look. One button switches from anywhere on the page (the pad's View, the V key), and its glyph
 // leads the row; choosing a view by focus works too.
 
 import { registerShortcut } from "@ui-sdk/core/shortcuts";
@@ -43,8 +43,7 @@ function ViewButton({ view, on }: { view: SectionView; on: boolean }) {
     >
       {t(view.label)}
       {/* The view showing stands on a rule, as a section in the bar stands on its lamp. */}
-      {on && <span aria-hidden className="absolute inset-x-0 bottom-0 h-(--cue-rule-weight) rounded-full bg-label" />}
-      {!on && <span aria-hidden className="views-glint" />}
+      {on && <span aria-hidden className="absolute inset-x-0 bottom-2 h-(--cue-rule-weight) rounded-full bg-label" />}
       {focused && <Lamp />}
     </button>
   );
@@ -62,16 +61,19 @@ export function SectionViews({ views, route, live }: { views: readonly SectionVi
       id="section-views"
       orientation="horizontal"
       aria-label={t("sections.label")}
-      className="absolute top-(--bar-height) right-0 z-10 flex h-(--views-row) items-stretch gap-(--views-gap) px-edge"
+      className="absolute top-(--bar-height) right-0 z-10 flex h-(--views-row) px-edge"
     >
-      {mode !== "pointer" && (
-        <span aria-hidden className="flex items-center gap-1 self-center">
-          <Glyph action="views" mode={mode} />
-        </span>
-      )}
-      {views.map((v) => (
-        <ViewButton key={v.id} view={v} on={samePlace(route, v.route)} />
-      ))}
+      <div className="relative flex items-stretch gap-(--views-gap) px-(--views-pad)">
+        <span aria-hidden className="views-ring" />
+        {mode !== "pointer" && (
+          <span aria-hidden className="flex items-center gap-1 self-center">
+            <Glyph action="views" mode={mode} />
+          </span>
+        )}
+        {views.map((v) => (
+          <ViewButton key={v.id} view={v} on={samePlace(route, v.route)} />
+        ))}
+      </div>
     </FocusGroup>
   );
 }

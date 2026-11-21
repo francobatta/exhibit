@@ -114,11 +114,13 @@
   --views-row: 3.5rem;
   --size-views: 1.375rem;
   --views-gap: 2.5rem;
-  /* The glint that crosses a view not showing as its section opens: its light, how long one pass
-     takes and how long after the section opens it starts. */
-  --views-glint: color-mix(in oklch, var(--lamp) 45%, transparent);
-  --dur-views-glint: 900ms;
-  --delay-views-glint: 450ms;
+  /* The row's outline: the room inside it, its weight, and the glint that runs once round it as the
+     section opens (its light, one lap, and how long after the section opens it starts). */
+  --views-pad: 1.5rem;
+  --views-ring: 0.125rem;
+  --views-glint: var(--lamp);
+  --dur-views-glint: 1400ms;
+  --delay-views-glint: 350ms;
   /* The bar's first slot: the mark, or Back on a screen stacked over another. Back may run into
      the gap after it, never into the sections. */
   --bar-lead: 6.5rem;

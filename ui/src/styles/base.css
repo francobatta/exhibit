@@ -257,30 +257,47 @@
   }
 }
 
-/* A view not showing: a glint crosses it twice as its section opens (components/SectionViews). */
-.views-glint {
+/* The outline round a section's views, and the glint that runs once round it as the section opens
+   (components/SectionViews): a turning light seen only through the outline. */
+.views-ring {
   position: absolute;
   inset: 0;
   overflow: hidden;
+  border-radius: 9999px;
+  padding: var(--views-ring);
+  background: var(--line);
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
   pointer-events: none;
 }
-.views-glint::after {
+.views-ring::after {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 45%;
-  background: linear-gradient(100deg, transparent, var(--views-glint), transparent);
-  transform: translateX(-120%);
-  animation: views-glint var(--dur-views-glint) var(--curve-out) var(--delay-views-glint) 2 both;
+  top: 50%;
+  left: 50%;
+  width: 200%;
+  aspect-ratio: 1;
+  translate: -50% -50%;
+  background: conic-gradient(transparent 0 78%, var(--views-glint) 94%, transparent);
+  opacity: 0;
+  animation: views-ring var(--dur-views-glint) var(--curve-out) var(--delay-views-glint) 1 both;
 }
-@keyframes views-glint {
-  to {
-    transform: translateX(340%);
+@keyframes views-ring {
+  0% {
+    transform: rotate(0deg);
+    opacity: 1;
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(360deg);
+    opacity: 0;
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .views-glint::after {
+  .views-ring::after {
     animation: none;
-    opacity: 0;
   }
 }
