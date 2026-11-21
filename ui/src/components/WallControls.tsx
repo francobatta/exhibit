@@ -42,7 +42,7 @@ export function watchlistLine(n: number, wanted: number): string {
   return facts([t("activity.watchlistCount", { count: n }), wanted > 0 ? t("activity.notInLibraryCount", { count: wanted }) : null]);
 }
 
-const control = "relative h-(--wall-controls) text-(length:--size-wall-controls) focus-visible:bg-transparent focus:text-label";
+const control = "relative h-(--wall-controls) px-3 text-(length:--size-wall-controls) focus-visible:bg-transparent focus:text-label";
 
 function SortToggle({ sort, view, onView }: { sort: Sort; view: WallView; onView: (view: WallView) => void }) {
   const t = useT();
@@ -155,7 +155,7 @@ export function WallControls({ kind, view, onView, total, wanted = 0, selection,
         id="wall-controls"
         orientation="horizontal"
         aria-label={selection ? t("wall.chosen") : t("wall.sortAndFilter")}
-        className={cn("flex h-(--wall-controls) items-center gap-1 px-edge", className)}
+        className={cn("flex h-(--wall-controls) items-center gap-1 pr-[var(--views-room,var(--space-edge))] pl-edge", className)}
       >
         {selection ? (
           <>
@@ -180,7 +180,7 @@ export function WallControls({ kind, view, onView, total, wanted = 0, selection,
                     <SortToggle key={s} sort={s} view={view} onView={onView} />
                   ))}
                 </div>
-                <span aria-hidden className="mx-5 h-5 w-px shrink-0 bg-line" />
+                <span aria-hidden className="mx-3 h-5 w-px shrink-0 bg-line" />
               </>
             )}
             <ControlButton focusKey="wall:filters" onSelect={() => setOpen(true)}>

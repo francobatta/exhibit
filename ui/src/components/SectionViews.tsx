@@ -1,5 +1,5 @@
-// The row naming a section's views (Movies: Spotlight, All movies), under the bar at its right
-// edge, below the search field, where no title reaches. The view showing is lit; the others are
+// The row naming a section's views (Movies: Spotlight, All movies), under the bar in the right-hand
+// column, on the line of a wall's controls (which stop short of it), where no title reaches. The view showing is lit; the others are
 // quiet. The row is drawn as a thin outline, and as the section opens a glint runs once round it,
 // so the owner sees there is another way to look. One button switches from anywhere on the page (the pad's View, the V key), and its glyph
 // leads the row; choosing a view by focus works too.
@@ -82,9 +82,9 @@ export function SectionViews({
         id="section-views"
         orientation="horizontal"
         aria-label={t("sections.label")}
-        className="flex h-(--views-row) px-edge"
+        className="flex h-(--wall-controls) items-center px-edge"
       >
-        <div className="relative flex w-(--rail) items-stretch gap-(--views-gap) px-(--views-pad)">
+        <div className="relative flex h-(--views-row) w-(--rail) items-stretch gap-(--views-gap) px-(--views-pad)">
           <span aria-hidden className="views-ring" />
           {mode !== "pointer" && (
             <span aria-hidden className="flex shrink-0 items-center gap-1 self-center">

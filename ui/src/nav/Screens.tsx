@@ -97,8 +97,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
         {views === null ? (
           page
         ) : (
-          // Under a section's views, the page starts below their row.
-          <div className="contents [--space-bar:calc(var(--bar-height)+var(--views-row))]">{page}</div>
+          // A section's views take the right-hand column at the top; the page's first row stops short of it.
+          <div className="contents [--views-room:calc(var(--wall-panel)+var(--space-edge))]">{page}</div>
         )}
       </FocusScope>
     </motion.div>
