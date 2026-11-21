@@ -12,6 +12,7 @@ use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
 use crate::error::{Detail, Error, Fault, Result};
 use crate::filter::{self, Facets};
+use crate::freshen::{self, FreshenReport};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::lang;
 use crate::model::{Candidate, CastMember, Id, ItemKind, MatchSource, Source};
@@ -20,11 +21,13 @@ use crate::probe;
 use crate::query::{
     self, HistoryEntry, ItemDetail, ItemSummary, LibraryCounts, SearchQuery, Shelf,
 };
+use crate::reception::{self, ReceptionReport};
 use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
-use crate::service::{Account, Service, SyncInput, normalize_username};
+use crate::service::{Account, DeviceCode, Need, Service, SyncInput, normalize_username};
+use crate::signin::{self, SignInState};
 use crate::sync::{self, ServiceState, SyncReport};
-use crate::tmdb::{Http, MetadataProvider, Tmdb, UreqHttp};
+use crate::tmdb::{self, Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
 use crate::translate::{self, TranslateReport};
 use crate::volume::{SystemVolumes, Volumes};
@@ -41,7 +44,12 @@ pub struct LibraryStatus {
     #[serde(flatten)]
     pub counts: LibraryCounts,
     pub sources: Vec<Source>,
+    /// Exhibit can reach TMDB: with the owner's own key, or with Exhibit's.
     pub tmdb_key: bool,
+    /// The owner set their own TMDB key; it is used instead of Exhibit's.
+    pub tmdb_own_key: bool,
+    /// This build carries a TMDB key of its own.
+    pub tmdb_builtin: bool,
     pub agent_key: bool,
     /// Whether the window plays the intro as it opens.
     pub intro: bool,
@@ -62,6 +70,10 @@ pub enum RefreshPhase {
     /// Fetching the text of matched items in the owner's language.
     Translating,
     Thumbnails,
+    /// Asking services for the public's scores and the awards.
+    Reception,
+    /// Fetching TMDB's details of older works again (`freshen`).
+    Freshening,
 }
 
 /// Progress of a refresh: a phase starting, a scan event, an item identified or given a
@@ -112,17 +124,24 @@ pub struct Library {
     secrets: Box<dyn Secrets + Send>,
     env: Env,
     http: Box<dyn Http + Send + Sync>,
+    /// Exhibit's own TMDB key, used when the owner has not set theirs.
+    builtin_tmdb: Option<String>,
 }
 
 impl Library {
-    /// The owner's data directory, drives, credential store and machine.
+    /// The owner's data directory, drives, credential store and machine, and Exhibit's own TMDB
+    /// key when the build has one (`EXHIBIT_TMDB_BUILTIN=off` leaves it out, for tests).
     pub fn open_default() -> Result<Library> {
-        Library::open(
+        let mut lib = Library::open(
             db::data_dir(),
             Box::new(SystemVolumes::new()),
             Box::new(OsSecrets::new()),
             Env::system(),
-        )
+        )?;
+        if std::env::var("EXHIBIT_TMDB_BUILTIN").as_deref() != Ok("off") {
+            lib.builtin_tmdb = tmdb::builtin_key();
+        }
+        Ok(lib)
     }
 
     pub fn open(
@@ -139,6 +158,7 @@ impl Library {
             secrets,
             env,
             http: Box::new(UreqHttp::new()),
+            builtin_tmdb: None,
         })
     }
 
@@ -165,10 +185,28 @@ impl Library {
             .query_row("PRAGMA data_version", [], |r| r.get(0))?)
     }
 
-    fn provider(&self) -> Result<Tmdb<&(dyn Http + Sync)>> {
-        let key = self
+    /// The same library with a TMDB key of its own, as a build that carries one has.
+    #[cfg(test)]
+    pub(crate) fn with_builtin_tmdb(mut self, key: &str) -> Library {
+        self.builtin_tmdb = Some(key.to_string());
+        self
+    }
+
+    /// The TMDB key in use: the owner's own, else Exhibit's.
+    fn tmdb_key(&self) -> Result<Option<String>> {
+        Ok(self
             .secrets
             .get(TMDB_KEY)?
+            .or_else(|| self.builtin_tmdb.clone()))
+    }
+
+    fn has_tmdb(&self) -> Result<bool> {
+        Ok(self.tmdb_key()?.is_some())
+    }
+
+    fn provider(&self) -> Result<Tmdb<&(dyn Http + Sync)>> {
+        let key = self
+            .tmdb_key()?
             .ok_or_else(|| Error::Invalid(Detail::coded("tmdb.no_key", "TMDB key not set")))?;
         Ok(Tmdb::new(key, &*self.http))
     }
@@ -280,7 +318,7 @@ impl Library {
         on(RefreshEvent::Phase(RefreshPhase::Scanning));
         report.scanned = self.scan(source, &mut |e| on(RefreshEvent::Scan(e)))?;
 
-        if opts.identify && self.has_secret(TMDB_KEY)? {
+        if opts.identify && self.has_tmdb()? {
             on(RefreshEvent::Phase(RefreshPhase::Identifying));
             let found = self.identify(IdentifyScope::Unmatched, &mut |id| {
                 on(RefreshEvent::Item(id))
@@ -311,7 +349,7 @@ impl Library {
         }
 
         // A language chosen, or suggested by Windows, that the library does not hold yet.
-        if opts.identify && self.has_secret(TMDB_KEY)? && !self.translated()? {
+        if opts.identify && self.has_tmdb()? && !self.translated()? {
             on(RefreshEvent::Phase(RefreshPhase::Translating));
             let done = self.translate(&mut |id| on(RefreshEvent::Item(id)));
             match recoverable(done)? {
@@ -359,7 +397,7 @@ impl Library {
 
     /// The cast of `id` with portraits, fetched and cached on first ask; see `cast::cast`.
     pub fn cast(&self, id: Id) -> Result<Vec<CastMember>> {
-        let tmdb = if self.has_secret(TMDB_KEY)? {
+        let tmdb = if self.has_tmdb()? {
             Some(self.provider()?)
         } else {
             None
@@ -409,16 +447,65 @@ impl Library {
         sync::set_service_enabled(&self.conn, service, on)
     }
 
-    /// `None` forgets the service: its facts, films, state and `wanted` rows go.
+    /// `None` forgets the service: its facts, scores, films, state, `wanted` rows and any
+    /// sign-in go.
     pub fn set_service_username(&self, service: &str, username: Option<&str>) -> Result<()> {
-        sync::set_service_username(&self.conn, service, username)
+        sync::set_service_username(&self.conn, service, username)?;
+        if username.is_none() {
+            self.secrets.set(service, None)?;
+        }
+        Ok(())
+    }
+
+    /// Starts signing in to `svc`: the code the owner enters and where.
+    pub fn start_sign_in(&self, svc: &dyn Service) -> Result<DeviceCode> {
+        svc.sign_in(&*self.http)
+    }
+
+    /// Whether the owner has approved the sign-in yet; on approval it is kept.
+    pub fn poll_sign_in(&self, svc: &dyn Service, device_code: &str) -> Result<SignInState> {
+        signin::poll(&self.conn, &*self.secrets, svc, device_code, &*self.http)
+    }
+
+    /// Asks `svc` for the scores or awards of the works that are due. A service that needs a
+    /// sign-in or a key the owner has not given does nothing.
+    pub fn refresh_reception(
+        &self,
+        svc: &dyn Service,
+        on: &mut dyn FnMut(u32),
+    ) -> Result<ReceptionReport> {
+        let info = svc.info();
+        let key = self.service_key(svc)?;
+        if key.is_none()
+            && info
+                .needs
+                .iter()
+                .any(|n| matches!(n, Need::SignIn | Need::Key))
+        {
+            return Ok(ReceptionReport::default());
+        }
+        let username = sync::service_username(&self.conn, info.id)?;
+        let account = Account {
+            username: username.as_deref(),
+            key: key.as_deref(),
+        };
+        reception::refresh(&self.conn, svc, &account, &*self.http, db::now(), on)
+    }
+
+    /// What `svc` is reached with: its sign-in's access token (renewed when due) or its key.
+    fn service_key(&self, svc: &dyn Service) -> Result<Option<String>> {
+        if svc.info().needs.contains(&Need::SignIn) {
+            signin::access(&self.conn, &*self.secrets, svc, &*self.http, db::now())
+        } else {
+            self.secrets.get(svc.info().id)
+        }
     }
 
     /// Asks the service whether `username` is good: how many recent entries it shows, or a
     /// coded error that says what is wrong.
     pub fn check_service(&self, svc: &dyn Service, username: &str) -> Result<u32> {
         let username = normalize_username(username);
-        let key = self.secrets.get(svc.info().id)?;
+        let key = self.service_key(svc)?;
         let account = Account {
             username: Some(&username),
             key: key.as_deref(),
@@ -436,12 +523,12 @@ impl Library {
     ) -> Result<SyncReport> {
         let id = svc.info().id;
         let username = sync::service_username(&self.conn, id)?;
-        let key = self.secrets.get(id)?;
+        let key = self.service_key(svc)?;
         let account = Account {
             username: username.as_deref(),
             key: key.as_deref(),
         };
-        let tmdb = if self.has_secret(TMDB_KEY)? {
+        let tmdb = if self.has_tmdb()? {
             Some(self.provider()?)
         } else {
             None
@@ -451,6 +538,28 @@ impl Library {
             .as_ref()
             .map(|t| (t as &dyn MetadataProvider, images.as_path()));
         sync::sync(&self.conn, svc, &account, input, &*self.http, tmdb, on)
+    }
+
+    /// Fetches TMDB's details of works that are getting old again, at most about `budget`
+    /// requests, `pace` apart. Nothing to do without a TMDB key.
+    pub fn freshen(
+        &self,
+        budget: u32,
+        pace: std::time::Duration,
+        on: &mut dyn FnMut(Id),
+    ) -> Result<FreshenReport> {
+        if !self.has_tmdb()? {
+            return Ok(FreshenReport::default());
+        }
+        freshen::freshen(
+            &self.conn,
+            &self.provider()?,
+            &self.image_dir(),
+            db::now(),
+            budget,
+            pace,
+            on,
+        )
     }
 
     /// The films of `service` left out because no match was sure, by title.
@@ -531,7 +640,9 @@ impl Library {
         Ok(LibraryStatus {
             counts: query::library_counts(&self.conn)?,
             sources: self.list_sources()?,
-            tmdb_key: self.has_secret(TMDB_KEY)?,
+            tmdb_key: self.has_tmdb()?,
+            tmdb_own_key: self.has_secret(TMDB_KEY)?,
+            tmdb_builtin: self.builtin_tmdb.is_some(),
             agent_key: self.has_secret(AGENT_KEY)?,
             intro: self.intro()?,
             language: self.language()?,
@@ -610,6 +721,66 @@ mod tests {
         };
         let r = lib.refresh(None, on, RefreshOptions::default()).unwrap();
         (phases, r)
+    }
+
+    /// Answers like TMDB with nothing found, and keeps every URL asked.
+    #[derive(Clone, Default)]
+    struct Seen(std::sync::Arc<std::sync::Mutex<Vec<String>>>);
+
+    impl Http for Seen {
+        fn get(&self, url: &str, _bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
+            self.0.lock().unwrap().push(url.to_string());
+            Ok((200, br#"{"results":[]}"#.to_vec()))
+        }
+    }
+
+    #[test]
+    fn exhibits_own_key_works_until_the_owner_sets_theirs() {
+        let e = env(200);
+        let seen = Seen::default();
+        let lib = Library::open(
+            e.data.path().to_path_buf(),
+            Box::new(FakeVolumes(vec![(
+                "VOL1".into(),
+                e.drive.path().to_path_buf(),
+            )])),
+            Box::new(MemorySecrets::default()),
+            Env::default(),
+        )
+        .unwrap()
+        .with_http(Box::new(seen.clone()))
+        .with_builtin_tmdb("builtin");
+        let st = lib.status().unwrap();
+        assert_eq!(
+            (st.tmdb_key, st.tmdb_own_key, st.tmdb_builtin),
+            (true, false, true)
+        );
+        // With no key of the owner's, identifying asks with Exhibit's.
+        let (phases, _) = refresh(&lib);
+        assert!(phases.contains(&RefreshPhase::Identifying));
+        let asked = std::mem::take(&mut *seen.0.lock().unwrap());
+        assert!(
+            asked.iter().any(|u| u.contains("api_key=builtin")),
+            "{asked:?}"
+        );
+        // The owner's own key is used instead, and removing it falls back.
+        lib.set_secret(TMDB_KEY, Some("mine")).unwrap();
+        lib.identify(IdentifyScope::Unmatched, &mut |_| {}).unwrap();
+        let asked = std::mem::take(&mut *seen.0.lock().unwrap());
+        assert!(
+            asked.iter().all(|u| u.contains("api_key=mine")),
+            "{asked:?}"
+        );
+        let st = lib.status().unwrap();
+        assert_eq!((st.tmdb_key, st.tmdb_own_key), (true, true));
+        lib.set_secret(TMDB_KEY, None).unwrap();
+        assert!(lib.status().unwrap().tmdb_key);
+        // A build without a key of its own, and no key set: nothing to reach TMDB with.
+        let st = e.lib.status().unwrap();
+        assert_eq!(
+            (st.tmdb_key, st.tmdb_own_key, st.tmdb_builtin),
+            (false, false, false)
+        );
     }
 
     #[test]

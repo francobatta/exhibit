@@ -1,0 +1,35 @@
+[
+  {
+    "id": 2,
+    "title": "Taxi Driver",
+    "year": 1976,
+    "score": 87,
+    "score_average": 87,
+    "ids": {"imdb": "tt0075314", "trakt": 72, "tmdb": 103, "tvdb": 472, "mal": null, "mdblist": "a2q2"},
+    "type": "movie",
+    "ratings": [
+      {"source": "imdb", "value": 8.2, "score": 82, "votes": 1049339, "url": 418},
+      {"source": "metacritic", "value": 94, "score": 94, "votes": 23, "url": "/taxi-driver-1976"},
+      {"source": "metacriticuser", "value": 8.6, "score": 86.0, "votes": 1407, "url": null},
+      {"source": "trakt", "value": 78, "score": 78, "votes": 21687, "url": null},
+      {"source": "tomatoes", "value": 89, "score": 89, "votes": 163, "url": "/m/taxi_driver", "fresh": 1},
+      {"source": "popcorn", "value": 93, "score": 93, "votes": 250000, "url": "/m/taxi_driver"},
+      {"source": "tmdb", "value": 81, "score": 81, "votes": 14033, "url": null},
+      {"source": "letterboxd", "value": 8.2, "score": 82, "votes": 2648328, "url": "/film/taxi-driver/"},
+      {"source": "rogerebert", "value": 4.0, "score": null, "votes": null, "url": "taxi-driver-1976"},
+      {"source": "myanimelist", "value": null, "score": null, "votes": null, "url": null}
+    ]
+  },
+  {
+    "id": 3,
+    "title": "Heat",
+    "year": 1995,
+    "ids": {"imdb": "tt0113277", "tmdb": 949},
+    "type": "movie",
+    "ratings": [
+      {"source": "imdb", "value": 8.3, "score": 83, "votes": 780000, "url": 120},
+      {"source": "tomatoes", "value": null, "score": null, "votes": null, "url": null},
+      {"source": "trakt", "value": 84, "score": 84, "votes": 30000, "url": null}
+    ]
+  }
+]

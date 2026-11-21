@@ -10,6 +10,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/003_reprobe_tracks.sql"),
     include_str!("migrations/004_languages.sql"),
     include_str!("migrations/005_services.sql"),
+    include_str!("migrations/006_reception.sql"),
+    include_str!("migrations/007_fetched_at.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
@@ -171,6 +173,52 @@ mod tests {
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
         assert_eq!(v1, v2);
+    }
+
+    #[test]
+    fn works_already_matched_come_due_spread_across_the_window() {
+        let d = tempfile::tempdir().unwrap();
+        {
+            let c = Connection::open(d.path().join("exhibit.db")).unwrap();
+            for sql in &MIGRATIONS[..6] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 6).unwrap();
+            for i in 0..50 {
+                c.execute(
+                    "INSERT INTO items(kind, title, tmdb_id) VALUES ('movie', 'A', ?1)",
+                    [i + 1],
+                )
+                .unwrap();
+            }
+            c.execute_batch(
+                "INSERT INTO items(kind, title) VALUES ('movie', 'Unmatched');                  INSERT INTO items(kind, title, tmdb_id) VALUES ('episode', 'E', 9)",
+            )
+            .unwrap();
+        }
+        let c = open(d.path()).unwrap();
+        let now = now();
+        let times: Vec<i64> = c
+            .prepare("SELECT fetched_at FROM items WHERE kind = 'movie' AND tmdb_id IS NOT NULL")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(times.len(), 50);
+        let window = 140 * 86_400;
+        assert!(times.iter().all(|t| *t <= now && *t > now - window));
+        // Spread out, not all on one day.
+        let days: std::collections::BTreeSet<i64> = times.iter().map(|t| t / 86_400).collect();
+        assert!(days.len() > 20, "{days:?}");
+        let unstamped: i64 = c
+            .query_row(
+                "SELECT count(*) FROM items WHERE fetched_at IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(unstamped, 2);
     }
 
     #[test]

@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::Id;
 use exhibit_core::scan::ScanEvent;
-use exhibit_core::service::SyncInput;
+use exhibit_core::service::{Provides, SyncInput};
 use exhibit_core::sync::SyncReport;
 use exhibit_core::{Library, RefreshEvent, RefreshOptions, RefreshPhase};
 use serde::Serialize;
@@ -32,6 +32,10 @@ pub enum Job {
     SyncService(String),
     /// A service's export file, read in place of asking the site.
     ImportService(String, PathBuf),
+    /// Scores and awards from every switched-on service, for the works that are due.
+    Reception,
+    /// TMDB's details of the oldest works fetched again, a few at a time.
+    Freshen,
 }
 
 /// What the worker is doing. Idle is `phase: None` with `done: 0` and no message;
@@ -89,6 +93,42 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
             }
             Err(e) => Some(e),
         },
+        Job::Reception => {
+            status.phase = Some(RefreshPhase::Reception);
+            emit(Emit::Status(status.clone()));
+            for svc in exhibit_services::all() {
+                let provides = svc.info().provides;
+                if !provides
+                    .iter()
+                    .any(|p| matches!(p, Provides::Reception | Provides::Awards))
+                {
+                    continue;
+                }
+                let base = status.done;
+                // A service's failure is its own: Settings words it from its state, and no
+                // other screen hears of it.
+                if let Err(e) = lib.refresh_reception(&*svc, &mut |n| {
+                    status.done = base + n;
+                    emit(Emit::Status(status.clone()));
+                }) {
+                    eprintln!("exhibit: {}: {e}", svc.info().id);
+                }
+            }
+            None
+        }
+        Job::Freshen => {
+            status.phase = Some(RefreshPhase::Freshening);
+            emit(Emit::Status(status.clone()));
+            let done = lib.freshen(FRESHEN_BUDGET, FRESHEN_PACE, &mut |_| {
+                status.done += 1;
+                emit(Emit::Status(status.clone()));
+            });
+            // Quiet: what could not be fetched is fetched next time, and no screen asked.
+            if let Err(e) = done {
+                eprintln!("exhibit: freshening: {e}");
+            }
+            None
+        }
         Job::Translate => {
             let phase = RefreshPhase::Translating;
             status.phase = Some(phase);
@@ -123,6 +163,12 @@ pub fn run_job(lib: &Library, job: Job, emit: &mut dyn FnMut(Emit)) {
     }));
     emit(Emit::Changed);
 }
+
+/// TMDB requests one freshening run may make, and the pause before each. With a run every half
+/// hour that is a steady few thousand requests a day at most: a large library is renewed
+/// within days, never in a burst.
+const FRESHEN_BUDGET: u32 = 80;
+const FRESHEN_PACE: Duration = Duration::from_millis(150);
 
 /// One sync of a registered service, its facts landing in the library.
 fn sync_service(lib: &Library, id: &str, input: SyncInput) -> Result<SyncReport, ApiError> {
@@ -263,6 +309,10 @@ impl WorkerHandle {
                     Some(l) => run_caught(&mut |emit| run_job(l, job.clone(), emit), &mut sink),
                     None => true,
                 };
+                // Works just found may want their scores and awards.
+                if matches!(job, Job::Refresh(_) | Job::Identify(_)) {
+                    h.queue.push(Job::Reception);
+                }
                 if !survived {
                     // Its connection may be mid-transaction: the next job opens a fresh one.
                     lib = None;

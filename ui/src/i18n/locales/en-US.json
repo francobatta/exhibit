@@ -43,7 +43,9 @@
     "probing": "Reading file details",
     "rescoring": "Checking matches",
     "translating": "Fetching titles in your language",
-    "thumbnails": "Making thumbnails"
+    "thumbnails": "Making thumbnails",
+    "reception": "Fetching scores and awards",
+    "freshening": "Refreshing details from TMDB"
   },
   "hints": {
     "open": "Open",
@@ -333,7 +335,7 @@
     "toolsNote": "Free programs Exhibit uses to play your files and read them.",
     "setPath": "Set path",
     "tmdbKey": "TMDB key",
-    "tmdbNote": "Names your films and shows and brings their posters. A key is free from themoviedb.org.",
+    "tmdbNote": "The Movie Database (TMDB) names your films and shows and brings their posters, backdrops and cast.",
     "checkingKey": "Looking up titles with the new key",
     "keyRejected": "TMDB rejected the key. Check the key, then save it again.",
     "agentKey": "Agent key",
@@ -347,11 +349,18 @@
     "display": "Display",
     "displayNote": "The intro plays as Exhibit opens.",
     "fullScreen": "Full screen",
-    "intro": "Intro"
+    "intro": "Intro",
+    "tmdb": "TMDB",
+    "tmdbNotice": "This product uses the TMDB API but is not endorsed or certified by TMDB.",
+    "tmdbUsingBuiltin": "Exhibit uses its own key, so there is nothing to set up.",
+    "tmdbUsingOwn": "Exhibit uses your own key. Remove it to go back to Exhibit's.",
+    "tmdbNoKey": "No key yet. A key is free from themoviedb.org.",
+    "tmdbUseOwn": "Use your own key",
+    "tmdbOwnKey": "Your TMDB key"
   },
   "services": {
     "title": "Services",
-    "note": "Bring in what you have rated, reviewed and watched elsewhere. Exhibit only reads it; nothing is sent back.",
+    "note": "Bring in what you have rated, reviewed and watched elsewhere, and what critics, audiences and juries made of your films. Exhibit only reads; nothing is sent back.",
     "on": "On",
     "off": "Off",
     "username": "Username",
@@ -386,7 +395,20 @@
     "watchlistFrom": "Watchlist from {{date}}.",
     "newerExport": "Your watchlist is from {{date}}. Download a new export from {{service}} to bring it up to date.",
     "unmatched_one": "{{count, number}} film from your {{service}} export could not be matched surely and is left out.",
-    "unmatched_other": "{{count, number}} films from your {{service}} export could not be matched surely and are left out."
+    "unmatched_other": "{{count, number}} films from your {{service}} export could not be matched surely and are left out.",
+    "signIn": "Sign in",
+    "signInNote": "Scores from {{origins}} on your films and shows.",
+    "awardsNote": "Laurels and awards on your films.",
+    "signInSteps": "On your phone, scan the code, or go to {{url}} and enter",
+    "waitingApproval": "Waiting for you to approve Exhibit on {{service}}…",
+    "cancel": "Cancel",
+    "signedIn": "Signed in as {{name}}.",
+    "lookupsLeft_one": "{{count, number}} lookup left today.",
+    "lookupsLeft_other": "{{count, number}} lookups left today.",
+    "limitUntil": "Today's lookups are spent. Exhibit carries on at {{time}}.",
+    "signOut": "Sign out of {{service}}",
+    "signOutBody": "The scores from {{service}} are removed, in Exhibit only. Your account on {{service}} is untouched.",
+    "signOutConfirm": "Sign out"
   },
   "activity": {
     "yourRating": "Your rating",
@@ -431,7 +453,10 @@
     "setToolPath": "Set {{tool}} path",
     "tmdbBody": "With a key from TMDB, Exhibit names your films and shows and hangs their posters and backdrops.",
     "tmdbHow": "The key is free: make an account at themoviedb.org, then copy the API key from your account's settings. You can skip this; Exhibit shows everything under its file names, and the key can be added later in Settings.",
-    "saveKey": "Save key"
+    "saveKey": "Save key",
+    "scoresTitle": "What critics and audiences think",
+    "scoresBody": "Sign in to {{service}} to see scores from {{origins}} on your films and shows.",
+    "scoresHow": "Scan the code with your phone and approve Exhibit there. {{service}} is free, and Exhibit only reads. You can skip this and sign in later in Settings."
   },
   "errors": {
     "unknown": "Something went wrong.",
@@ -508,7 +533,11 @@
       "private": "That profile is private. Make it public for a moment, or import your export file instead.",
       "unreachable": "Exhibit could not reach the service. Check the connection and try again.",
       "bad_export": "That file is not an export from the service. Download a fresh one and try again.",
-      "failed": "The last sync did not finish. It is tried again in a while."
+      "failed": "The last sync did not finish. It is tried again in a while.",
+      "limit_reached": "Today's lookups are spent. Exhibit carries on when they renew.",
+      "signed_out": "The sign-in has ended. Sign in again to bring the scores back.",
+      "sign_in_denied": "The sign-in was declined. Sign in again to allow Exhibit.",
+      "sign_in_expired": "The code expired before it was approved. Start the sign-in again."
     },
     "settings": {
       "unknown_language": "Exhibit does not speak that language.",
@@ -547,10 +576,11 @@
       "asc": "Shortest first",
       "desc": "Longest first"
     },
-    "rating": {
+    "score": {
       "asc": "Lowest first",
       "desc": "Highest first"
-    }
+    },
+    "rating": "Rating"
   },
   "filters": {
     "title": "Filters",
@@ -588,5 +618,34 @@
     "audioIn": "{{languages}} audio",
     "subtitlesIn": "{{languages}} subtitles",
     "left": "Left out"
+  },
+  "reception": {
+    "title": "Reception",
+    "scoreOf": "{{origin}} {{score}}",
+    "votes_one": "{{votes}} vote",
+    "votes_other": "{{votes}} votes",
+    "certified": "Certified",
+    "nominated": "nominated",
+    "undated": "Undated"
+  },
+  "laurels": {
+    "label": "Awards won",
+    "wins_one": "{{count, number}} win",
+    "wins_other": "{{count, number}} wins",
+    "more_one": "and {{count, number}} more award",
+    "more_other": "and {{count, number}} more awards"
+  },
+  "awards": {
+    "bodies": {
+      "academy": "Academy Awards",
+      "cannes": "Cannes",
+      "venice": "Venice",
+      "berlin": "Berlin",
+      "globes": "Golden Globes",
+      "bafta": "BAFTA",
+      "cesar": "César",
+      "spirit": "Independent Spirit Awards",
+      "sundance": "Sundance"
+    }
   }
 }

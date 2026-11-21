@@ -8,11 +8,13 @@ use exhibit_core::model::{Id, ItemKind};
 use exhibit_core::query::{SearchQuery, Shelf};
 use exhibit_core::scan::ScanEvent;
 use exhibit_core::service::{Service, SyncInput};
+use exhibit_core::signin::SignInState;
 use exhibit_core::tools::Tool;
 use exhibit_core::{Error, Library, RefreshEvent, RefreshOptions, RefreshPhase, Result};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::io::{BufRead, IsTerminal};
+use std::time::Duration;
 
 use crate::{
     Command, KeyCmd, KindArg, MatchKind, OnOff, ReviewCmd, SearchArgs, ServiceCmd, ShelfArg,
@@ -40,6 +42,11 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
         Command::Status => to_json(lib.status()?),
         Command::Source(c) => source(lib, c),
         Command::Service(c) => service(lib, c),
+        Command::Freshen { budget } => {
+            to_json(lib.freshen(budget, Duration::from_millis(150), &mut |id| {
+                progress(format!("refreshed item {id}"))
+            })?)
+        }
         Command::Scan {
             source,
             no_probe,
@@ -232,6 +239,7 @@ fn service(lib: &Library, cmd: ServiceCmd) -> Result<Value> {
                         "name": i.name,
                         "provides": i.provides,
                         "needs": i.needs,
+                        "origins": i.origins.iter().map(|o| o.id).collect::<Vec<_>>(),
                         "state": state,
                     })
                 })
@@ -265,6 +273,36 @@ fn service(lib: &Library, cmd: ServiceCmd) -> Result<Value> {
         ServiceCmd::Sync { id } => {
             let svc = find_service(&id)?;
             sync(lib, &*svc, SyncInput::Since(None))
+        }
+        ServiceCmd::SignIn { id } => {
+            let svc = find_service(&id)?;
+            let code = lib.start_sign_in(&*svc)?;
+            progress(format!(
+                "Go to {} and enter {} (good for {} minutes)",
+                code.verify_url,
+                code.user_code,
+                code.expires_in / 60
+            ));
+            let mut wait = code.interval;
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(wait));
+                match lib.poll_sign_in(&*svc, &code.device_code)? {
+                    SignInState::Pending => {}
+                    SignInState::SlowDown => wait += 5,
+                    SignInState::Done => break,
+                }
+            }
+            let report =
+                lib.refresh_reception(&*svc, &mut |n| progress(format!("asked about {n} works")))?;
+            Ok(
+                json!({"signed_in": lib.service_states()?.into_iter().find(|s| s.service == id).and_then(|s| s.username), "report": report}),
+            )
+        }
+        ServiceCmd::Refresh { id } => {
+            let svc = find_service(&id)?;
+            to_json(
+                lib.refresh_reception(&*svc, &mut |n| progress(format!("asked about {n} works")))?,
+            )
         }
         ServiceCmd::Unmatched { id } => {
             find_service(&id)?;

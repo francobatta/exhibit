@@ -15,7 +15,7 @@ import { Shelf } from "@/components/Shelf";
 import { Empty, ErrorState, Loading } from "@/components/states";
 import { jobLine } from "@/components/TopBar";
 import { t, useT } from "@/i18n";
-import { hasActivity, mainHint, runMain, useActionContext } from "@/lib/actions";
+import { hasActivity, hasReception, mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus } from "@/lib/queries";
@@ -91,7 +91,7 @@ export function Home() {
       />
     );
   }
-  return <Spotlight rows={rows} verdicts={activity} />;
+  return <Spotlight rows={rows} verdicts={activity || hasReception(services.data)} />;
 }
 
 /**

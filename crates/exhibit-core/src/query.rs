@@ -11,6 +11,7 @@ use crate::error::{Detail, Error, Result};
 use crate::filter::{self, Filters};
 use crate::lang;
 use crate::model::{Id, Item, ItemKind, MatchState, MediaFile, PlayState, WATCHED_FRACTION};
+use crate::reception::{self, AwardEntry, SourcedScore, public_rating_sql};
 use crate::rows::{
     FILE_COLUMNS, LOCAL_GENRES, LOCAL_POSTER, LOCAL_TITLE, PLAY_STATE_COLUMNS, SUMMARY_COLUMNS,
     enum_str, item_from_row, local_item_columns, media_file_from_row, play_state_from_row,
@@ -65,6 +66,10 @@ pub struct ItemDetail {
     /// For a show, the episode to play next; `None` for other kinds or when all are watched.
     pub next_episode: Option<ItemSummary>,
     pub activity: Activity,
+    /// The public's scores, from switched-on services.
+    pub reception: Vec<SourcedScore>,
+    /// Wins first, the most prominent first.
+    pub awards: Vec<AwardEntry>,
 }
 
 /// A listing's order. Works without the value sorted by (no year) come last either way; ties go
@@ -80,6 +85,8 @@ pub enum Sort {
     Played,
     /// The owner's newest rating from a switched-on service, over its scale.
     MyRating,
+    /// The public's: the mean of the scores switched-on services hold, from 0 to 100.
+    Rating,
 }
 
 impl Sort {
@@ -88,7 +95,7 @@ impl Sort {
     pub fn descending(self) -> bool {
         matches!(
             self,
-            Sort::Year | Sort::Added | Sort::Played | Sort::MyRating
+            Sort::Year | Sort::Added | Sort::Played | Sort::MyRating | Sort::Rating
         )
     }
 }
@@ -320,6 +327,12 @@ pub fn search(c: &Connection, v: &dyn Volumes, q: &SearchQuery) -> Result<Vec<It
         Sort::Runtime => format!("b.runtime_min IS NULL, b.runtime_min {dir}, {by_title}"),
         Sort::Played => format!("b.played_at IS NULL, b.played_at {dir}, {by_title}"),
         Sort::MyRating => format!("b.my_rating IS NULL, b.my_rating {dir}, {by_title}"),
+        // Unrated last either way; the rating is read only when sorting by it.
+        Sort::Rating => format!(
+            "coalesce({}, {}) {dir}, {by_title}",
+            public_rating_sql("b"),
+            if dir == "DESC" { "-1" } else { "1000" }
+        ),
     };
     // Films the owner does not have come after the ones they do.
     let wanted = q.with_wanted || q.filters.watchlist == Some(true);
@@ -395,6 +408,16 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         _ => None,
     };
     let activity = activity::of_item(c, id)?.unwrap_or_default();
+    let (reception, awards) = match (item.tmdb_id, item.kind) {
+        (Some(tmdb_id), ItemKind::Movie | ItemKind::Show) => {
+            let kind = enum_str(item.kind);
+            (
+                reception::scores_of(c, &kind, tmdb_id)?,
+                reception::awards_of(c, &kind, tmdb_id)?,
+            )
+        }
+        _ => (Vec::new(), Vec::new()),
+    };
     Ok(ItemDetail {
         item,
         files,
@@ -403,6 +426,8 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         available,
         next_episode,
         activity,
+        reception,
+        awards,
     })
 }
 
@@ -1821,6 +1846,45 @@ mod tests {
             serde_json::from_str(r#"{"with_wanted":true,"watchlist":true}"#).unwrap();
         assert!(q.with_wanted);
         assert_eq!(q.filters.watchlist, Some(true));
+    }
+
+    #[test]
+    fn rating_sort_averages_public_scores_over_their_scales_unrated_last() {
+        let e = env();
+        e.service("svc", true);
+        e.service("off", false);
+        let a = e.movie_with_tmdb("Alien", 1);
+        e.movie_with_tmdb("Brazil", 2);
+        e.movie_with_tmdb("Casablanca", 3);
+        e.movie_with_tmdb("Dune", 4);
+        let score = |svc: &str, id: i64, origin: &str, value: f32, scale: f32| {
+            e.c.execute(
+                "INSERT INTO service_scores(service, kind, tmdb_id, origin, value, scale)                  VALUES (?1, 'movie', ?2, ?3, ?4, ?5)",
+                params![svc, id, origin, value, scale],
+            )
+            .unwrap();
+        };
+        // Alien: (84 + 90) / 2 = 87. Brazil: 98. Casablanca: only a switched-off service.
+        score("svc", 1, "a", 8.4, 10.0);
+        score("svc", 1, "b", 90.0, 100.0);
+        score("svc", 2, "a", 4.9, 5.0);
+        score("off", 3, "a", 10.0, 10.0);
+        let q = |descending: Option<bool>| {
+            e.search(&SearchQuery {
+                sort: Some(Sort::Rating),
+                descending,
+                ..SearchQuery::default()
+            })
+        };
+        assert_eq!(q(None), ["Brazil", "Alien", "Casablanca", "Dune"]);
+        assert_eq!(q(Some(false)), ["Alien", "Brazil", "Casablanca", "Dune"]);
+        assert_eq!(serde_json::to_string(&Sort::Rating).unwrap(), "\"rating\"");
+        // Details carries the scores of switched-on services only.
+        let d = item(&e.c, &e.v, a).unwrap();
+        assert_eq!(d.reception.len(), 2);
+        assert_eq!(d.reception[0].origin, "a");
+        e.exec("UPDATE service_state SET enabled = 0");
+        assert!(item(&e.c, &e.v, a).unwrap().reception.is_empty());
     }
 
     #[test]

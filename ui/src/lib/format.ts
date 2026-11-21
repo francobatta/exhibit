@@ -2,7 +2,7 @@
 // or "" rather than a broken string.
 
 import { currentDateFormat, language, t, type DateFormat } from "@/i18n";
-import type { ItemSummary, ServiceView, Sourced, WatchFact } from "./api";
+import type { ItemSummary, ScoreStyle, ServiceView, Sourced, WatchFact } from "./api";
 
 const finite = (n: number | null | undefined): n is number =>
   typeof n === "number" && Number.isFinite(n);
@@ -250,4 +250,26 @@ export function loggedLine(watch: Sourced<WatchFact>, services: ServiceView[] | 
   // A service's day is midnight UTC: read as that day wherever the window is.
   const date = watch.on === null ? null : shortDay(watch.on, { utc: true });
   return date ? t("activity.loggedOn", { service, date }) : t("activity.loggedOnUndated", { service });
+}
+
+/** A public score as its origin writes it: "8.2" (on ten or five), "89%" (a meter), "94" (a badge). */
+export function scoreText(value: number, style: ScoreStyle): string {
+  if (!finite(value)) return "";
+  if (style === "percent") return new Intl.NumberFormat(language(), { style: "percent", maximumFractionDigits: 0 }).format(value / 100);
+  if (style === "badge") return new Intl.NumberFormat(language(), { maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat(language(), { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value);
+}
+
+/** "1.2M votes", "163 votes": how many people a score speaks for, compact past ten thousand. */
+export function votesText(n: number | null): string | null {
+  if (n === null || !finite(n) || n <= 0) return null;
+  const count = n >= 10_000 ? new Intl.NumberFormat(language(), { notation: "compact", maximumFractionDigits: 1 }).format(n) : number(n);
+  return t("reception.votes", { count: n, votes: count });
+}
+
+/** "21:00" today, "Sat 21:00" on another day: when something resumes. */
+export function timeOfDay(unixSeconds: number): string {
+  const date = new Date(unixSeconds * 1000);
+  const today = date.toDateString() === new Date().toDateString();
+  return new Intl.DateTimeFormat(language(), { weekday: today ? undefined : "short", hour: "numeric", minute: "2-digit" }).format(date);
 }

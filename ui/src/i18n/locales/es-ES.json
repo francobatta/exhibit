@@ -24,7 +24,8 @@
   },
   "firstRun": {
     "addAnother": "Añadir otra carpeta",
-    "tmdbHow": "La clave es gratuita: crea una cuenta en themoviedb.org y copia la clave de la API desde los ajustes de tu cuenta. Puedes omitir este paso; Exhibit lo muestra todo con el nombre de sus archivos, y la clave se puede añadir más tarde en Ajustes."
+    "tmdbHow": "La clave es gratuita: crea una cuenta en themoviedb.org y copia la clave de la API desde los ajustes de tu cuenta. Puedes omitir este paso; Exhibit lo muestra todo con el nombre de sus archivos, y la clave se puede añadir más tarde en Ajustes.",
+    "scoresHow": "Escanea el código con tu móvil y aprueba Exhibit allí. {{service}} es gratuito y Exhibit solo lee. Puedes saltarte este paso e iniciar sesión más tarde en Ajustes."
   },
   "match": {
     "noKey": "Para corregir la coincidencia se busca en TMDB, y para eso hace falta una clave. Añade una en Ajustes y vuelve a corregirla."

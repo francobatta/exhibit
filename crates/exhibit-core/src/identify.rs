@@ -30,7 +30,7 @@ const RUNTIME_LOOKUPS: usize = 3;
 pub(crate) const POSTER_SIZE: &str = "w780";
 /// The small poster, for walls of many works; stored beside the large one with `-s`.
 pub(crate) const POSTER_SMALL_SIZE: &str = "w342";
-const BACKDROP_SIZE: &str = "original";
+pub(crate) const BACKDROP_SIZE: &str = "original";
 /// Candidate posters downloaded at once by `lookup`, which the owner waits on.
 const LOOKUP_POSTER_THREADS: usize = 5;
 /// An episode's still, kept as the episode's backdrop: it is the episode's frame on the show
@@ -700,7 +700,8 @@ fn fill_item(c: &Connection, id: Id, f: &Fill, how: How) -> Result<()> {
     c.prepare_cached(
         "UPDATE items SET kind=?2, parent_id=?3, title=?4, year=?5, season=?6, episode=?7, \
          overview=?8, runtime_min=?9, genres=?10, people=?11, poster=?12, backdrop=?13, \
-         tmdb_id=?14, match_state=?15, match_source=?16, confidence=?17, candidates='[]' \
+         tmdb_id=?14, match_state=?15, match_source=?16, confidence=?17, candidates='[]', \
+         fetched_at = CASE WHEN ?14 IS NULL THEN NULL ELSE unixepoch() END \
          WHERE id=?1",
     )?
     .execute(params![
@@ -870,6 +871,22 @@ pub(crate) fn download(
         std::fs::write(&part, bytes)?;
         std::fs::rename(&part, &dest)?;
     }
+    Ok(())
+}
+
+/// Saves TMDB image `path` at `size` as `cache_dir/name`, replacing the file there.
+pub(crate) fn download_again(
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    path: &str,
+    size: &str,
+    name: &str,
+) -> Result<()> {
+    let bytes = p.image(path, size)?;
+    std::fs::create_dir_all(cache_dir)?;
+    let part = cache_dir.join(format!("{name}.part"));
+    std::fs::write(&part, bytes)?;
+    std::fs::rename(&part, cache_dir.join(name))?;
     Ok(())
 }
 
@@ -2757,5 +2774,215 @@ mod tests {
             )
             .unwrap();
         assert_eq!(left, 0);
+    }
+
+    // Freshening: TMDB's data fetched again before it is six months old.
+
+    const LATER: i64 = 4_000_000_000;
+
+    fn freshen_now(e: &Env, p: &Fake, budget: u32) -> crate::freshen::FreshenReport {
+        crate::freshen::freshen(
+            &e.c,
+            p,
+            &e.cache(),
+            LATER,
+            budget,
+            std::time::Duration::ZERO,
+            &mut |_| {},
+        )
+        .unwrap()
+    }
+
+    fn fetched_at(c: &Connection, id: Id) -> Option<i64> {
+        c.query_row("SELECT fetched_at FROM items WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
+        .unwrap()
+    }
+
+    fn movie_id(c: &Connection, tmdb_id: i64) -> Id {
+        find_item(c, ItemKind::Movie, tmdb_id).unwrap().unwrap()
+    }
+
+    #[test]
+    fn identifying_stamps_when_the_details_were_fetched() {
+        let e = env(&["The Matrix (1999).mkv"]);
+        let before = db::now();
+        run(&e, &matrix(), IdentifyScope::Unmatched);
+        let at = fetched_at(&e.c, movie_id(&e.c, 603)).unwrap();
+        assert!(at >= before && at <= db::now() + 1);
+    }
+
+    #[test]
+    fn a_due_movie_is_fetched_again_and_keeps_its_match_and_the_owners_choices() {
+        let e = env(&["The Matrix (1999).mkv"]);
+        run(&e, &matrix(), IdentifyScope::Unmatched);
+        let id = movie_id(&e.c, 603);
+        e.c.execute_batch(&format!(
+            "UPDATE items SET loved_choice = 1, match_source = 'manual' WHERE id = {id}; \
+             INSERT INTO item_texts(item_id, lang, title) VALUES ({id}, 'es-ES', 'Matrix');"
+        ))
+        .unwrap();
+        let state = item(&e.c, id).match_state;
+
+        // Not due yet: nothing is asked.
+        let p = matrix();
+        let r = crate::freshen::freshen(
+            &e.c,
+            &p,
+            &e.cache(),
+            db::now(),
+            100,
+            Default::default(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!((r.refreshed, r.requests), (0, 0));
+
+        // TMDB has changed it since.
+        let mut changed = movie(603, "The Matrix", 1999, 138);
+        changed.overview = "Newer words".into();
+        let p = Fake {
+            movies: vec![changed],
+            ..Default::default()
+        };
+        let r = freshen_now(&e, &p, 100);
+        assert_eq!(r.refreshed, 1);
+        let it = item(&e.c, id);
+        assert_eq!(it.runtime_min, Some(138));
+        assert_eq!(it.overview.as_deref(), Some("Newer words"));
+        assert_eq!(it.match_state, state);
+        let (loved, source): (Option<i64>, String) =
+            e.c.query_row(
+                "SELECT loved_choice, match_source FROM items WHERE id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!((loved, source.as_str()), (Some(1), "manual"));
+        // The artwork was fetched afresh, not taken from the cache.
+        assert_eq!(p.count("image w780/p603.jpg"), 1);
+        assert_eq!(p.count("image original/b603.jpg"), 1);
+        // Text kept for another language goes with the old details.
+        let texts: i64 =
+            e.c.query_row(
+                "SELECT count(*) FROM item_texts WHERE item_id=?1",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(texts, 0);
+        assert_eq!(fetched_at(&e.c, id), Some(LATER));
+        // Done: not due again.
+        assert_eq!(freshen_now(&e, &p, 100).refreshed, 0);
+    }
+
+    #[test]
+    fn a_run_stops_at_its_budget_oldest_first() {
+        let e = env(&["The Matrix (1999).mkv", "Heat (1995).mkv"]);
+        let p = Fake {
+            movies: vec![
+                movie(603, "The Matrix", 1999, 136),
+                movie(949, "Heat", 1995, 170),
+            ],
+            movie_hits: vec![
+                (
+                    "The Matrix",
+                    vec![hit(603, Movie, "The Matrix", Some(1999))],
+                ),
+                ("Heat", vec![hit(949, Movie, "Heat", Some(1995))]),
+            ],
+            ..Default::default()
+        };
+        run(&e, &p, IdentifyScope::Unmatched);
+        let (matrix_id, heat_id) = (movie_id(&e.c, 603), movie_id(&e.c, 949));
+        e.c.execute_batch(&format!(
+            "UPDATE items SET fetched_at = 20 WHERE id = {matrix_id}; \
+             UPDATE items SET fetched_at = 10 WHERE id = {heat_id};"
+        ))
+        .unwrap();
+        // One request's budget: the oldest is finished, the other waits.
+        let r = freshen_now(&e, &p, 1);
+        assert_eq!(r.refreshed, 1);
+        assert!(r.requests > 1, "a work under way is finished");
+        assert_eq!(fetched_at(&e.c, heat_id), Some(LATER));
+        assert_eq!(fetched_at(&e.c, matrix_id), Some(20));
+        assert_eq!(freshen_now(&e, &p, 100).refreshed, 1);
+        assert_eq!(fetched_at(&e.c, matrix_id), Some(LATER));
+    }
+
+    #[test]
+    fn tmdb_out_of_reach_ends_the_run_and_a_work_it_lost_keeps_what_it_has() {
+        let e = env(&["The Matrix (1999).mkv"]);
+        run(&e, &matrix(), IdentifyScope::Unmatched);
+        let id = movie_id(&e.c, 603);
+        e.c.execute("UPDATE items SET fetched_at = 0", []).unwrap();
+        let p = matrix();
+        p.fail.lock().unwrap().push("movie 603".into());
+        let r = freshen_now(&e, &p, 100);
+        assert_eq!(r.refreshed, 0);
+        assert_eq!(r.errors.len(), 1);
+        assert_eq!(fetched_at(&e.c, id), Some(0));
+        // TMDB no longer knows it: what is held stays, asked again next window.
+        let gone = Fake::default();
+        assert_eq!(freshen_now(&e, &gone, 100).refreshed, 0);
+        assert_eq!(item(&e.c, id).title, "The Matrix");
+        assert_eq!(fetched_at(&e.c, id), Some(LATER));
+    }
+
+    #[test]
+    fn a_due_show_renews_its_episodes_and_their_text_in_the_library_language() {
+        let e = env(&["Severance/Season 02/Severance.S02E01.mkv"]);
+        run(&e, &severance(), IdentifyScope::Unmatched);
+        crate::lang::set_language(&e.c, "es-MX").unwrap();
+        let show_id = find_item(&e.c, ItemKind::Show, 95396).unwrap().unwrap();
+        e.c.execute("UPDATE items SET fetched_at = 0", []).unwrap();
+
+        let mut s2 = season(2, 10);
+        s2.episodes[0].title = "Hello, Ms. Cobel".into();
+        let p = Fake {
+            seasons: vec![(95396, s2)],
+            texts: vec![(
+                95396,
+                "es-MX",
+                Texts {
+                    title: "Separación".into(),
+                    ..Texts::default()
+                },
+            )],
+            season_texts: vec![(
+                95396,
+                2,
+                "es-MX",
+                SeasonTexts {
+                    poster: None,
+                    episodes: vec![(1, "Hola, Sra. Cobel".into(), "Palabras".into())],
+                },
+            )],
+            ..severance()
+        };
+        let r = freshen_now(&e, &p, 100);
+        assert_eq!(r.refreshed, 1);
+        assert_eq!(p.count("season 95396 2"), 1);
+        assert_eq!(p.count("image original/s2e1.jpg"), 1);
+        let ep: (Id, String) =
+            e.c.query_row(
+                "SELECT id, title FROM items WHERE kind = 'episode' AND season = 2 AND episode = 1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(ep.1, "Hello, Ms. Cobel");
+        let text = |id: Id| -> String {
+            e.c.query_row(
+                "SELECT title FROM item_texts WHERE item_id = ?1 AND lang = 'es-MX'",
+                [id],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(text(show_id), "Separación");
+        assert_eq!(text(ep.0), "Hola, Sra. Cobel");
+        assert_eq!(fetched_at(&e.c, show_id), Some(LATER));
     }
 }

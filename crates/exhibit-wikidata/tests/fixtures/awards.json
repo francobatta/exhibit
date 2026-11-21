@@ -1,0 +1,221 @@
+{
+ "head": {
+  "vars": [
+   "tmdb",
+   "award",
+   "won",
+   "time",
+   "family",
+   "l0",
+   "l1"
+  ]
+ },
+ "results": {
+  "bindings": [
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q102427"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Óscar a la mejor película"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Academy Award for Best Picture"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "496243"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q19020"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "0"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "2020-02-09T00:00:00Z"
+    }
+   },
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q102427"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Óscar a la mejor película"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Academy Award for Best Picture"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "496243"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q19020"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "1"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "2020-01-01T00:00:00Z"
+    }
+   },
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q102427"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Óscar a la mejor película"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Academy Award for Best Picture"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "103"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q19020"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "0"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "1977-02-10T00:00:00Z"
+    }
+   },
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q103916"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Óscar al mejor actor"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Academy Award for Best Actor"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "103"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q19020"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "0"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "1977-02-10T00:00:00Z"
+    }
+   },
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q179808"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Palma de Oro"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Palme d'Or"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "103"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q28444913"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "1"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "1976-01-01T00:00:00Z"
+    }
+   },
+   {
+    "award": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q179808"
+    },
+    "l1": {
+     "xml:lang": "es",
+     "type": "literal",
+     "value": "Palma de Oro"
+    },
+    "l0": {
+     "xml:lang": "en",
+     "type": "literal",
+     "value": "Palme d'Or"
+    },
+    "tmdb": {
+     "type": "literal",
+     "value": "496243"
+    },
+    "family": {
+     "type": "uri",
+     "value": "http://www.wikidata.org/entity/Q28444913"
+    },
+    "won": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#integer",
+     "type": "literal",
+     "value": "1"
+    },
+    "time": {
+     "datatype": "http://www.w3.org/2001/XMLSchema#dateTime",
+     "type": "literal",
+     "value": "2019-01-01T00:00:00Z"
+    }
+   }
+  ]
+ }
+}

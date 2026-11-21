@@ -1,7 +1,8 @@
-// First run: three steps, each one screen with one main action and Skip. A folder (added at
+// First run: a few steps, each one screen with one main action and Skip. A folder (added at
 // once, so the library fills in behind the next steps); the media tools that were not found (a
-// step only when one is missing, led by downloading both); the TMDB key. Finishing, or skipping
-// the last step, goes Home.
+// step only when one is missing, led by downloading both); the TMDB key, only for a build without
+// one of its own; and signing in for the public's scores, with a QR code, while a service that
+// brings them waits for it. Finishing, or skipping the last step, goes Home.
 // B goes back a step.
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -12,25 +13,33 @@ import { FocusButton } from "@/components/FocusButton";
 import { useT } from "@/i18n";
 import { useBrowse } from "@/components/FolderBrowser";
 import { SecretForm } from "@/components/SecretForm";
+import { SignIn } from "@/components/SignIn";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
 import { DownloadButton, DownloadNote } from "@/components/ToolsDownload";
 import { toast } from "@/components/ui/toast";
 import { FocusGroup, FocusScope } from "@/focus/react";
 import * as api from "@/lib/api";
-import { plain, type Source, type Tool, type ToolStatus } from "@/lib/api";
+import { isConnected } from "@/lib/actions";
+import { plain, type ServiceView, type Source, type Tool, type ToolStatus } from "@/lib/api";
+import { listed } from "@/lib/format";
 import { easeOut, length, seconds } from "@/lib/motion";
-import { keys, useTools, useToolsDownload } from "@/lib/queries";
+import { keys, useServices, useStatus, useTools, useToolsDownload } from "@/lib/queries";
 import { toolFound } from "@/lib/tools";
 import { useNav } from "@/nav/stack";
 
-type Step = "folder" | "tools" | "tmdb";
+type Step = "folder" | "tools" | "tmdb" | "scores";
 
 /** Where focus lands as each step opens: its main action, or the key's field. */
 const LANDING: Record<Step, string> = {
   folder: "first:folder:main",
   tools: "first:tools:main",
   tmdb: "first:tmdb:field",
+  scores: "first:scores:sign-in",
 };
+
+/** The service that brings the public's scores and waits for the owner to sign in, if any. */
+const awaitingSignIn = (services: ServiceView[]): ServiceView | null =>
+  services.find((s) => s.needs.includes("sign_in") && s.provides.includes("reception") && !isConnected(s)) ?? null;
 
 /** The tools not found. */
 const missingOf = (tools: ToolStatus[]): Tool[] => tools.filter((t) => !toolFound(t)).map((t) => t.tool);
@@ -44,17 +53,33 @@ export function FirstRun() {
   const [missing, setMissing] = useState<Tool[] | null>(null);
   if (missing === null && tools !== undefined) setMissing(missingOf(tools));
   const [added, setAdded] = useState<Source[]>([]);
+  // Whether the key and sign-in steps are wanted, fixed once known like the tools.
+  const status = useStatus();
+  const services = useServices();
+  const [later, setLater] = useState<{ tmdb: boolean; scores: ServiceView | null } | null>(null);
+  const servicesKnown = services.data !== undefined || services.isError;
+  if (later === null && status.data !== undefined && servicesKnown) {
+    setLater({ tmdb: !status.data.tmdb_key, scores: awaitingSignIn(services.data ?? []) });
+  }
 
-  const steps: Step[] = (missing?.length ?? 0) > 0 ? ["folder", "tools", "tmdb"] : ["folder", "tmdb"];
+  const steps: Step[] = [
+    "folder",
+    ...((missing?.length ?? 0) > 0 ? (["tools"] as const) : []),
+    ...(later?.tmdb ? (["tmdb"] as const) : []),
+    ...(later?.scores ? (["scores"] as const) : []),
+  ];
   const finish = () => useNav.getState().replaceRoot({ screen: "home" });
   const go = (delta: 1 | -1) => setStep(steps[steps.indexOf(step) + delta] ?? step);
+  const next = () => (steps.indexOf(step) + 1 < steps.length ? go(1) : finish());
+  const known = missing !== null && later !== null;
 
   return (
     <FocusScope key={step} id={`first-run-${step}`} restoreKey={LANDING[step]} onBack={step === "folder" ? undefined : () => go(-1)}>
-      <Stage at={steps.indexOf(step) + 1} of={missing === null ? null : steps.length} onBack={step === "folder" ? undefined : () => go(-1)}>
-        {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={() => go(1)} />}
-        {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={() => go(1)} />}
-        {step === "tmdb" && <TmdbStep onDone={finish} />}
+      <Stage at={steps.indexOf(step) + 1} of={known ? steps.length : null} onBack={step === "folder" ? undefined : () => go(-1)}>
+        {step === "folder" && <FolderStep added={added} onAdded={(s) => setAdded((a) => [...a, s])} onNext={next} />}
+        {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={next} />}
+        {step === "tmdb" && <TmdbStep onDone={next} />}
+        {step === "scores" && later?.scores && <ScoresStep service={later.scores} onNext={next} />}
       </Stage>
     </FocusScope>
   );
@@ -228,6 +253,28 @@ function TmdbStep({ onDone }: { onDone: () => void }) {
       <SecretForm name="tmdb" label={t("settings.tmdbKey")} isSet={false} paste removable={false} saveLabel={t("firstRun.saveKey")} focusPrefix="first:tmdb" onSaved={saved} />
       <Actions step="tmdb">
         <FocusButton focusKey="first:tmdb:skip" variant="plain" onSelect={onDone} className="-ml-4">
+          {t("common.skip")}
+        </FocusButton>
+      </Actions>
+    </>
+  );
+}
+
+/**
+ * What critics and audiences think, on every film: signing in to the service that brings it, by
+ * scanning a code with a phone. Approving it, or skipping, goes on.
+ */
+function ScoresStep({ service, onNext }: { service: ServiceView; onNext: () => void }) {
+  const t = useT();
+  return (
+    <>
+      <Heading title={t("firstRun.scoresTitle")}>
+        <p>{t("firstRun.scoresBody", { origins: listed(service.origins.map((o) => o.name)), service: service.name })}</p>
+        <p>{t("firstRun.scoresHow", { service: service.name })}</p>
+      </Heading>
+      <SignIn id={service.id} name={service.name} focusKey="first:scores:sign-in" onDone={onNext} />
+      <Actions step="scores">
+        <FocusButton focusKey="first:scores:skip" variant="plain" onSelect={onNext} className="-ml-4">
           {t("common.skip")}
         </FocusButton>
       </Actions>

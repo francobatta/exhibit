@@ -1,5 +1,6 @@
 //! What every command reaches: the quick-call library, the worker, the playing flag.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc;
@@ -21,6 +22,9 @@ pub struct AppState {
     pub playing: AtomicBool,
     pub image_dir: PathBuf,
     pub changed: Changed,
+    /// The device code of each sign-in under way, by service id. It stays here, never in the
+    /// window.
+    pub sign_ins: Mutex<HashMap<String, String>>,
 }
 
 impl AppState {

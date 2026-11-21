@@ -1259,6 +1259,7 @@ dependencies = [
  "exhibit-core",
  "exhibit-services",
  "notify",
+ "qrcode",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1313,11 +1314,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "exhibit-mdblist"
+version = "0.0.1"
+dependencies = [
+ "exhibit-core",
+ "serde_json",
+]
+
+[[package]]
 name = "exhibit-services"
 version = "0.0.1"
 dependencies = [
  "exhibit-core",
  "exhibit-letterboxd",
+ "exhibit-mdblist",
+ "exhibit-wikidata",
+]
+
+[[package]]
+name = "exhibit-wikidata"
+version = "0.0.1"
+dependencies = [
+ "exhibit-core",
+ "serde_json",
 ]
 
 [[package]]
@@ -3511,6 +3530,12 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
+
+[[package]]
+name = "qrcode"
+version = "0.15.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ace1a365f55004297f2cf24acfd96d02966246ca423385273b58a7dc873ee14d"
 
 [[package]]
 name = "quick-error"

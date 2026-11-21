@@ -7,7 +7,7 @@ pub type Id = i64;
 /// Position over duration at which an item counts as watched.
 pub const WATCHED_FRACTION: f64 = 0.90;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum ItemKind {
     Movie,

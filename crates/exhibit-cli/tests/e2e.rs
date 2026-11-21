@@ -15,6 +15,7 @@ impl Cli<'_> {
         let out = Command::new(env!("CARGO_BIN_EXE_exhibit"))
             .args(args)
             .env("EXHIBIT_DATA_DIR", self.data)
+            .env("EXHIBIT_TMDB_BUILTIN", "off")
             .env(
                 "EXHIBIT_KEYRING_SERVICE",
                 format!("exhibit-test-{}", std::process::id()),
@@ -100,6 +101,7 @@ fn key_set_reads_the_value_from_stdin_never_from_arguments() {
         Command::new(env!("CARGO_BIN_EXE_exhibit"))
             .args(args)
             .env("EXHIBIT_DATA_DIR", data.path())
+            .env("EXHIBIT_TMDB_BUILTIN", "off")
             .env("EXHIBIT_KEYRING_SERVICE", "exhibit-test-never-written")
             .stdin(std::process::Stdio::null())
             .output()
@@ -170,6 +172,7 @@ fn play_prints_only_its_own_json() {
         let out = Command::new(env!("CARGO_BIN_EXE_exhibit"))
             .args(["play", &id])
             .env("EXHIBIT_DATA_DIR", data.path())
+            .env("EXHIBIT_TMDB_BUILTIN", "off")
             .env("EXHIBIT_KEYRING_SERVICE", "exhibit-test-never-written")
             .output()
             .expect("run exhibit");

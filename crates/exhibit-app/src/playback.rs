@@ -256,6 +256,8 @@ mod tests {
             available: true,
             next_episode: next.map(summary),
             activity: Default::default(),
+            reception: Vec::new(),
+            awards: Vec::new(),
         }
     }
 

@@ -33,6 +33,12 @@ enum Command {
     Source(SourceCmd),
     #[command(subcommand)]
     Service(ServiceCmd),
+    /// Fetch TMDB's details of the oldest works again (TMDB's data is kept six months at most)
+    Freshen {
+        /// At most about this many requests
+        #[arg(long, default_value_t = 80)]
+        budget: u32,
+    },
     /// Scan sources, identify (when a TMDB key is set), probe, retry items in review, then
     /// make thumbnails for other items
     Scan {
@@ -136,6 +142,14 @@ enum ServiceCmd {
     },
     /// Films the matcher could not place surely: their key and year
     Unmatched {
+        id: String,
+    },
+    /// Sign in with a code you approve on the site, from any device
+    SignIn {
+        id: String,
+    },
+    /// Ask the service for the scores or awards of the works that are due
+    Refresh {
         id: String,
     },
 }
@@ -253,7 +267,7 @@ struct SearchArgs {
     audio: Vec<String>,
     #[arg(long)]
     subtitles: Vec<String>,
-    /// title, year, added, runtime, played or my-rating
+    /// title, year, added, runtime, played, my-rating or rating (the public's)
     #[arg(long, value_parser = sort_named)]
     sort: Option<Sort>,
     /// Against the sort's own direction (titles A to Z, runtimes shortest first, the rest newest first)
@@ -327,6 +341,9 @@ mod tests {
         assert!(parse(&["service", "user", "letterboxd", "x", "--clear"]).is_err());
         assert!(parse(&["service", "import", "letterboxd", "a.zip"]).is_ok());
         assert!(parse(&["service", "list"]).is_ok());
+        assert!(parse(&["service", "sign-in", "mdblist"]).is_ok());
+        assert!(parse(&["service", "refresh", "wikidata"]).is_ok());
+        assert!(parse(&["search", "--sort", "rating"]).is_ok());
     }
 }
 

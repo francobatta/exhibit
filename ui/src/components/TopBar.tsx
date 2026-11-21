@@ -39,6 +39,8 @@ const PHASE = {
   rescoring: "jobs.rescoring",
   translating: "jobs.translating",
   thumbnails: "jobs.thumbnails",
+  reception: "jobs.reception",
+  freshening: "jobs.freshening",
 } as const satisfies Record<RefreshPhase, string>;
 
 /** "Scanning, 214 files", "Looking up titles", or the last error; null when there is nothing to say. */

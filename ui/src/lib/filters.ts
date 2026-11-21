@@ -17,9 +17,10 @@ const ACTIVITY_NAME = { rated: "activity.rated", reviewed: "activity.reviewed", 
 export const activityName = (f: ActivityFilter) => t(ACTIVITY_NAME[f]);
 
 /** The direction a sort takes first: titles A to Z, runtimes shortest first, dates newest first. */
-export const descends = (sort: Sort) => sort === "year" || sort === "added" || sort === "played" || sort === "my_rating";
+export const descends = (sort: Sort) =>
+  sort === "year" || sort === "added" || sort === "played" || sort === "my_rating" || sort === "rating";
 
-const ORDER = { title: "alpha", year: "time", added: "time", played: "time", runtime: "length", my_rating: "rating" } as const;
+const ORDER = { title: "alpha", year: "time", added: "time", played: "time", runtime: "length", my_rating: "score", rating: "score" } as const;
 
 /** "Oldest first", "Z to A": the order `sort` takes `descending` or not. */
 export function direction(sort: Sort, descending: boolean): string {
@@ -147,6 +148,10 @@ export function wallQuery(kind: ItemKind, view: View, sorted = true): SearchQuer
  * `view` without what a service that is now off gave it: its filters, and the sort by the owner's
  * rating (back to the wall's own order). Null when it holds none of them.
  */
+export function withoutReception(view: View): View | null {
+  return view.sort === "rating" ? { ...view, sort: null, descending: false } : null;
+}
+
 export function withoutActivity(view: View): View | null {
   const held = ACTIVITY.filter((k) => view.filters[k] !== null && view.filters[k] !== undefined);
   const sorted = view.sort === "my_rating";

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { useState } from "react";
-import { films, service, summary } from "../../test/fixtures";
+import { films, scoresService, service, summary } from "../../test/fixtures";
 import { until } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { ItemMenuHost, useItemMenu } from "@/components/ItemMenu";
@@ -281,4 +281,22 @@ test("turning_off_drops_hidden_filters_from_the_view", async () => {
   expect(shownView).toEqual({ sort: null, descending: false, filters: { loved: true } });
   expect(searches().at(-1)).toEqual({ kind: "movie", loved: true, limit: 500, offset: 0 });
   expect(document.querySelector("[data-focus-key='wall:sort:my_rating']")).toBeNull();
+});
+
+test("rating_sort_only_while_a_service_brings_scores", async () => {
+  tauri.handle("services", () => [scoresService()]);
+  wall(films(3), DEFAULT_VIEW, "show");
+  await settle();
+  const rating = () => document.querySelector("[data-focus-key='wall:sort:rating']");
+  expect(rating()?.textContent).toBe("Rating");
+  await click(rating());
+  expect(searches().at(-1)).toEqual({ kind: "show", sort: "rating", limit: 500, offset: 0 });
+  cleanup();
+  document.body.innerHTML = "";
+  // Signed out, there is no rating to sort by, and a view sorted by it goes back to the wall's own order.
+  tauri.handle("services", () => [scoresService({ username: null })]);
+  wall(films(3), { sort: "rating", descending: true, filters: {} });
+  await settle();
+  expect(rating()).toBeNull();
+  expect(searches().at(-1)).toEqual({ kind: "movie", limit: 500, offset: 0 });
 });

@@ -9,13 +9,16 @@ Builds, checks, smoke-tests, tags and publishes an Exhibit release for Windows.
 
 Steps, in order; any failure stops the run:
   1. Preflight: tag is x.y.z and newer than every earlier tag; on main, clean, not behind origin;
-     the tag and its release do not exist yet; gh is signed in; no Exhibit is running.
+     the tag and its release do not exist yet; gh is signed in; no Exhibit is running; Exhibit's
+     own TMDB key is at hand (EXHIBIT_TMDB_KEY, or the git-ignored file tmdb-app-key).
   2. Version: writes the tag into Cargo.toml (workspace), the two exhibit-core pins,
      tauri.conf.json and ui/package.json.
   3. Checks: cargo fmt, clippy, cargo test, bun install, bun test, tsc.
-  4. Build: `bun run tauri build` (release exe + NSIS installer), then checks the exe's version.
+  4. Build: `bun run tauri build` (release exe + NSIS installer) with the TMDB key baked in, then
+     checks the exe's version.
   5. Smoke test: starts the release exe on an empty temp library with its own keyring name,
-     waits for the first-run screen over CDP, screenshots it, closes it, deletes the temp library.
+     waits for the first-run screen over CDP, checks the build carries its TMDB key, screenshots
+     it, closes it, deletes the temp library.
   6. Publish: commits the version, makes an annotated tag, pushes main and the tag, and creates
      the GitHub release with the installer and a portable exe.
 
@@ -107,6 +110,17 @@ if ($previous -and ([version]$Tag -le [version]$previous)) {
 }
 Write-Host "  Previous tag: $(if ($previous) { $previous } else { 'none' })"
 
+# Exhibit's own TMDB key is baked into the build (crates/exhibit-core/build.rs), so nobody has to
+# find one. It never goes into git: it comes from EXHIBIT_TMDB_KEY or the git-ignored file.
+$tmdbKey = $env:EXHIBIT_TMDB_KEY
+$tmdbKeyFile = Join-Path $repo "tmdb-app-key"
+if (-not $tmdbKey -and (Test-Path $tmdbKeyFile)) { $tmdbKey = (Get-Content -Raw $tmdbKeyFile).Trim() }
+if (-not $tmdbKey) {
+    throw "No TMDB key to build in. Put Exhibit's key in tmdb-app-key at the repo root (git-ignored), " +
+        "or set EXHIBIT_TMDB_KEY. A release without one would ask every owner for a key."
+}
+Write-Host "  TMDB key to build in: found"
+
 # Exhibit is single-instance: a second one hands itself to the first and exits, so the smoke
 # test needs none running. Checked here and again just before the smoke test, after the build.
 function Assert-NoExhibitRunning {
@@ -149,7 +163,13 @@ try {
     # ------------------------------------------------------------ 4. Build
     Write-Step "Build"
     Push-Location ui
-    try { Invoke-Checked "tauri build" { bun run tauri build } } finally { Pop-Location }
+    # Set for the build only, so the key is baked in even over a build made without one.
+    $savedKey = $env:EXHIBIT_TMDB_KEY
+    $env:EXHIBIT_TMDB_KEY = $tmdbKey
+    try { Invoke-Checked "tauri build" { bun run tauri build } } finally {
+        $env:EXHIBIT_TMDB_KEY = $savedKey
+        Pop-Location
+    }
 
     $exe = Join-Path $repo "target\release\exhibit-app.exe"
     $setup = Join-Path $repo "target\release\bundle\nsis\Exhibit_${Tag}_x64-setup.exe"
@@ -170,7 +190,7 @@ try {
     $savedEnv = @{}
     foreach ($n in $envNames) { $savedEnv[$n] = [Environment]::GetEnvironmentVariable($n) }
     $env:EXHIBIT_DATA_DIR = $data                          # empty library: never the owner's
-    $env:EXHIBIT_KEYRING_SERVICE = "exhibit-release-check" # no TMDB key: never the owner's
+    $env:EXHIBIT_KEYRING_SERVICE = "exhibit-release-check" # no keys of the owner's: only the build's own
     $env:EXHIBIT_WINDOWED = "1"                            # also skips saving window state
     $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$CdpPort"
     $env:CDP_PORT = "$CdpPort"
@@ -203,6 +223,12 @@ try {
             $text = "$(Get-Output { bun scripts/cdp.ts eval 'document.body.innerText' })"
             throw "The release window never showed first run with the intro finished. Its text: $text"
         }
+        # The build carries its own TMDB key: first run asks for none.
+        $builtIn = "window.__TAURI_INTERNALS__.invoke('status').then((s) => s.tmdb_builtin)"
+        if ("$(Get-Output { bun scripts/cdp.ts eval $builtIn })".Trim() -ne "true") {
+            throw "The release exe carries no TMDB key of its own."
+        }
+        Write-Host "  The build carries its own TMDB key."
         Invoke-Checked "screenshot" { bun scripts/cdp.ts shot $shot | Out-Null }
         Write-Host "  First run showed. Screenshot: $shot"
     } finally {
@@ -239,7 +265,7 @@ Exhibit $Tag for Windows 11 (x64).
 **Needs**
 - WebView2, which ships with Windows 11. If it is missing, the installer fetches it.
 - mpv and ffmpeg. First run can download both in one press.
-- A TMDB key (optional), for titles, artwork and matching.
+- Nothing else: Exhibit brings its own TMDB key. You can use your own in Settings.
 
 The builds are not code-signed, so SmartScreen may warn on first launch: choose **More info**, then **Run anyway**.
 "@

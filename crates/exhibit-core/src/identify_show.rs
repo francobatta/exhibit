@@ -395,7 +395,7 @@ fn still(
     Some(name)
 }
 
-fn still_name(show_id: i64, season: i32, episode: i32) -> String {
+pub(crate) fn still_name(show_id: i64, season: i32, episode: i32) -> String {
     format!("tv-{show_id}-s{season}e{episode}-backdrop.jpg")
 }
 

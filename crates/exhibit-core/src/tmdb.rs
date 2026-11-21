@@ -103,16 +103,135 @@ pub struct SeasonTexts {
     pub episodes: Vec<(i32, String, String)>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Method {
+    Get,
+    Post,
+}
+
+/// A request with what `get` cannot say: a method, a body and a client name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Request<'a> {
+    pub method: Method,
+    pub url: &'a str,
+    pub bearer: Option<&'a str>,
+    /// The content type and the body.
+    pub body: Option<(&'static str, Vec<u8>)>,
+    /// Some sites ask automated clients to name themselves.
+    pub user_agent: Option<&'a str>,
+}
+
+impl<'a> Request<'a> {
+    pub fn get(url: &'a str) -> Self {
+        Request {
+            method: Method::Get,
+            url,
+            bearer: None,
+            body: None,
+            user_agent: None,
+        }
+    }
+
+    /// A form post (`application/x-www-form-urlencoded`).
+    pub fn form(url: &'a str, fields: &[(&str, &str)]) -> Self {
+        let body = fields
+            .iter()
+            .map(|(k, v)| format!("{}={}", url_encode(k), url_encode(v)))
+            .collect::<Vec<_>>()
+            .join("&");
+        Request {
+            method: Method::Post,
+            body: Some(("application/x-www-form-urlencoded", body.into_bytes())),
+            ..Request::get(url)
+        }
+    }
+
+    pub fn json(url: &'a str, body: &serde_json::Value) -> Self {
+        Request {
+            method: Method::Post,
+            body: Some(("application/json", body.to_string().into_bytes())),
+            ..Request::get(url)
+        }
+    }
+
+    pub fn bearer(mut self, token: Option<&'a str>) -> Self {
+        self.bearer = token;
+        self
+    }
+}
+
+/// A response of any status, with its headers (names lowercased) and its body.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Response {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+}
+
+impl Response {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        let name = name.to_ascii_lowercase();
+        self.headers
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.as_str())
+    }
+}
+
 pub trait Http {
     /// GET `url`, optionally with a Bearer token; returns the status and body. Only a request
     /// that got no response is an error (`Error::Provider`).
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)>;
+
+    /// Any request, answered whatever its status, never retried. Only a request that got no
+    /// response is an error. Clients that only `get` serve GETs here, without headers.
+    fn send(&self, req: &Request) -> Result<Response> {
+        match req.method {
+            Method::Get => {
+                let (status, body) = self.get(req.url, req.bearer)?;
+                Ok(Response {
+                    status,
+                    headers: Vec::new(),
+                    body,
+                })
+            }
+            Method::Post => Err(Error::Provider(Detail::coded(
+                "service.unreachable",
+                "this client cannot post",
+            ))),
+        }
+    }
 }
 
 impl<H: Http + ?Sized> Http for &H {
     fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
         (**self).get(url, bearer)
     }
+
+    fn send(&self, req: &Request) -> Result<Response> {
+        (**self).send(req)
+    }
+}
+
+/// Must match `build.rs`.
+const PAD: &[u8] = b"exhibit-gallery";
+
+/// Exhibit's own TMDB key, when the build baked one in (`build.rs`).
+pub fn builtin_key() -> Option<String> {
+    unscramble(env!("EXHIBIT_TMDB_BUILTIN"))
+}
+
+fn unscramble(hex: &str) -> Option<String> {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
+        return None;
+    }
+    let bytes = (0..hex.len() / 2)
+        .map(|i| {
+            let b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).ok()?;
+            Some(b ^ PAD[i % PAD.len()])
+        })
+        .collect::<Option<Vec<u8>>>()?;
+    String::from_utf8(bytes).ok().filter(|k| !k.is_empty())
 }
 
 /// The error for HTTP 401 or 403: retrying with the same key cannot succeed.
@@ -138,12 +257,12 @@ impl<H: Http> Tmdb<H> {
         let base = [("language", lang::BASE)];
         let named = params.iter().any(|(k, _)| *k == "language");
         for (k, v) in params.iter().chain(base.iter().filter(|_| !named)) {
-            url.push_str(&format!("{sep}{k}={}", encode(v)));
+            url.push_str(&format!("{sep}{k}={}", url_encode(v)));
             sep = '&';
         }
         let bearer = self.key.starts_with("eyJ");
         if !bearer {
-            url.push_str(&format!("{sep}api_key={}", encode(&self.key)));
+            url.push_str(&format!("{sep}api_key={}", url_encode(&self.key)));
         }
         let body = self.fetch(&url, bearer.then_some(self.key.as_str()))?;
         serde_json::from_slice(&body).map_err(|e| {
@@ -186,7 +305,7 @@ impl<H: Http> Tmdb<H> {
         let hide = |mut m: Detail| {
             m.text = m
                 .text
-                .replace(&encode(&self.key), "***")
+                .replace(&url_encode(&self.key), "***")
                 .replace(&self.key, "***");
             m
         };
@@ -266,7 +385,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
             ExternalId::Tvdb(n) => (n.to_string(), "tvdb_id"),
         };
         let v = self.json(
-            &format!("/find/{}", encode(&ext)),
+            &format!("/find/{}", url_encode(&ext)),
             &[("external_source", source)],
         )?;
         let movies = hits(&v["movie_results"], ItemKind::Movie);
@@ -482,7 +601,7 @@ fn hits(results: &Value, kind: ItemKind) -> Vec<SearchHit> {
 }
 
 /// Percent-encode everything except RFC 3986 unreserved characters.
-fn encode(s: &str) -> String {
+pub fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
@@ -554,7 +673,72 @@ impl Http for UreqHttp {
             return Ok((status, body));
         }
     }
+
+    fn send(&self, req: &Request) -> Result<Response> {
+        let unreachable = |why: String| Error::Provider(Detail::coded("service.unreachable", why));
+        let mut headers = vec![("Accept", "application/json".to_string())];
+        if let Some(token) = req.bearer {
+            headers.push(("Authorization", format!("Bearer {token}")));
+        }
+        if let Some(ua) = req.user_agent {
+            headers.push(("User-Agent", ua.to_string()));
+        }
+        let sent = if req.method == Method::Get {
+            let mut r = self
+                .agent
+                .get(req.url)
+                .config()
+                .timeout_global(Some(SEND_TIMEOUT))
+                .build();
+            for (k, v) in &headers {
+                r = r.header(*k, v);
+            }
+            r.call()
+        } else {
+            let mut r = self
+                .agent
+                .post(req.url)
+                .config()
+                .timeout_global(Some(SEND_TIMEOUT))
+                .build();
+            for (k, v) in &headers {
+                r = r.header(*k, v);
+            }
+            match &req.body {
+                Some((ty, bytes)) => r.header("Content-Type", *ty).send(&bytes[..]),
+                None => r.send_empty(),
+            }
+        };
+        let mut resp = sent.map_err(|e| unreachable(format!("request failed: {e}")))?;
+        let status = resp.status().as_u16();
+        let headers = resp
+            .headers()
+            .iter()
+            .filter_map(|(k, v)| {
+                Some((
+                    k.as_str().to_ascii_lowercase(),
+                    v.to_str().ok()?.to_string(),
+                ))
+            })
+            .collect();
+        let body = resp
+            .body_mut()
+            .with_config()
+            .limit(SEND_LIMIT)
+            .read_to_vec()
+            .map_err(|e| unreachable(format!("reading response failed: {e}")))?;
+        Ok(Response {
+            status,
+            headers,
+            body,
+        })
+    }
 }
+
+/// Batched lookups take longer than a TMDB call.
+const SEND_TIMEOUT: Duration = Duration::from_secs(40);
+/// A batch of a hundred films runs to a few hundred kilobytes.
+const SEND_LIMIT: u64 = 32 * 1024 * 1024;
 
 #[cfg(test)]
 mod tests {
@@ -654,6 +838,21 @@ mod tests {
         assert_eq!(hits[0].title, "Severance");
         assert_eq!(hits[0].year, Some(2022));
         assert!(last_url(&f).contains("first_air_date_year=2022"));
+    }
+
+    #[test]
+    fn a_baked_key_unscrambles_and_a_missing_one_is_none() {
+        let key = "abc123";
+        let hex: String = key
+            .bytes()
+            .enumerate()
+            .map(|(i, b)| format!("{:02x}", b ^ PAD[i % PAD.len()]))
+            .collect();
+        assert_ne!(hex, "616263313233", "the key is not stored as plain text");
+        assert_eq!(unscramble(&hex).as_deref(), Some(key));
+        assert_eq!(unscramble(""), None);
+        assert_eq!(unscramble("zz"), None);
+        assert_eq!(unscramble("abc"), None);
     }
 
     #[test]

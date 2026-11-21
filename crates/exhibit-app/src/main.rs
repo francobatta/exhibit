@@ -80,6 +80,8 @@ fn main() {
             services::open_export_page,
             services::find_service_export,
             services::service_unmatched,
+            services::start_sign_in,
+            services::poll_sign_in,
             commands::play,
             commands::window_fullscreen,
             commands::window_is_fullscreen,
@@ -116,6 +118,7 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
         playing: AtomicBool::new(false),
         image_dir,
         changed,
+        sign_ins: Default::default(),
     });
 
     let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())

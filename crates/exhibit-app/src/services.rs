@@ -6,7 +6,8 @@ use std::thread;
 use std::time::{Duration, UNIX_EPOCH};
 
 use exhibit_core::Library;
-use exhibit_core::service::{Need, Provides, Service, ServiceInfo};
+use exhibit_core::service::{BodyInfo, Need, OriginInfo, Provides, Service, ServiceInfo};
+use exhibit_core::signin::SignInState;
 use exhibit_core::sync::ServiceState;
 use serde::Serialize;
 use tauri::State;
@@ -25,7 +26,25 @@ pub struct ServiceView {
     provides: &'static [Provides],
     needs: &'static [Need],
     export_page: Option<&'static str>,
+    /// Whose scores it reports, in the order they are shown.
+    origins: &'static [OriginInfo],
+    /// The award bodies it reports, most prominent first.
+    bodies: &'static [BodyInfo],
     state: ServiceState,
+}
+
+/// A sign-in under way, as the window shows it: the code, where to enter it, and the address
+/// that carries it drawn as a QR code for a phone.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignInView {
+    user_code: String,
+    verify_url: String,
+    qr_svg: String,
+    /// Seconds between asks.
+    interval: u64,
+    /// Seconds the code stays good.
+    expires_in: u64,
 }
 
 /// An export file found in Downloads.
@@ -55,6 +74,8 @@ fn view(info: &ServiceInfo, states: &[ServiceState]) -> ServiceView {
         provides: info.provides,
         needs: info.needs,
         export_page: info.export.as_ref().map(|e| e.page),
+        origins: info.origins,
+        bodies: info.bodies,
         state,
     }
 }
@@ -69,6 +90,8 @@ fn blank_state(id: &str) -> ServiceState {
         synced_at: None,
         error: None,
         unmatched: 0,
+        remaining: None,
+        paused_until: None,
     }
 }
 
@@ -100,6 +123,67 @@ pub fn connect_service(state: State<'_, AppState>, id: String, username: String)
     state.worker.enqueue(Job::SyncService(id));
     state.changed.notify();
     Ok(seen)
+}
+
+/// Starts signing in to the service (on its own connection: this waits on the network).
+#[tauri::command(async)]
+pub fn start_sign_in(state: State<'_, AppState>, id: String) -> ApiResult<SignInView> {
+    let svc = registered(&id)?;
+    let code = Library::open_default()?.start_sign_in(&*svc)?;
+    let link = code.verify_url_full.as_deref().unwrap_or(&code.verify_url);
+    let view = SignInView {
+        qr_svg: qr_svg(link),
+        user_code: code.user_code,
+        verify_url: code.verify_url,
+        interval: code.interval,
+        expires_in: code.expires_in,
+    };
+    state
+        .sign_ins
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id, code.device_code);
+    Ok(view)
+}
+
+/// Whether the owner has approved the sign-in yet. On approval the scores are fetched.
+#[tauri::command(async)]
+pub fn poll_sign_in(state: State<'_, AppState>, id: String) -> ApiResult<SignInState> {
+    let svc = registered(&id)?;
+    let device_code = state
+        .sign_ins
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| unknown_service(&id))?;
+    let done = Library::open_default()?.poll_sign_in(&*svc, &device_code);
+    if !matches!(done, Ok(SignInState::Pending | SignInState::SlowDown)) {
+        state
+            .sign_ins
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&id);
+    }
+    if let Ok(SignInState::Done) = done {
+        state.worker.enqueue(Job::Reception);
+        state.changed.notify();
+    }
+    Ok(done?)
+}
+
+/// `text` as a QR code: an SVG of dark modules on nothing, drawn in the text colour.
+fn qr_svg(text: &str) -> String {
+    use qrcode::render::svg;
+    match qrcode::QrCode::new(text.as_bytes()) {
+        Ok(code) => code
+            .render::<svg::Color>()
+            .quiet_zone(false)
+            .dark_color(svg::Color("currentColor"))
+            .light_color(svg::Color("transparent"))
+            .build(),
+        Err(_) => String::new(),
+    }
 }
 
 #[tauri::command(async)]
@@ -285,8 +369,9 @@ const EVERY: Duration = Duration::from_secs(30 * 60);
 /// The first refresh gets the worker to itself for a moment.
 const FIRST: Duration = Duration::from_secs(20);
 
-/// Queues a sync of every enabled activity service that has a username, a little after the
-/// first refresh and then every half hour. The queue drops one already waiting.
+/// Queues a sync of every enabled activity service that has a username, a lookup of scores
+/// and awards, and a freshening of TMDB's oldest details, a little after the first refresh and
+/// then every half hour. The queue drops one already waiting.
 pub fn spawn(worker: WorkerHandle) {
     thread::spawn(move || {
         thread::sleep(FIRST);
@@ -296,6 +381,8 @@ pub fn spawn(worker: WorkerHandle) {
                     for id in due(&states) {
                         worker.enqueue(Job::SyncService(id));
                     }
+                    worker.enqueue(Job::Reception);
+                    worker.enqueue(Job::Freshen);
                 }
                 Err(e) => eprintln!("exhibit: cannot list the services: {e}"),
             }

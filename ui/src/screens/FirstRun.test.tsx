@@ -1,6 +1,7 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, screens, select, settle } from "../../test/app";
+import { awardsService, scoresService } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
@@ -11,7 +12,7 @@ let uninstall: () => void = () => {};
 const found = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: `C:\\tools\\${tool}.exe`, version: `${tool} 1.0`, source: "detected", release: null, downloaded: false });
 const missing = (tool: ToolStatus["tool"]): ToolStatus => ({ tool, path: null, version: null, source: null, release: null, downloaded: false });
 
-const STATUS: LibraryStatus = { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, agent_key: false, intro: true, language: "en-US", date_format: "auto" };
+const STATUS: LibraryStatus = { movies: 0, shows: 0, other: 0, needs_review: 0, unprobed: 0, sources: [], tmdb_key: false, tmdb_own_key: false, tmdb_builtin: false, agent_key: false, intro: true, language: "en-US", date_format: "auto" };
 
 beforeEach(() => {
   uninstall = installBridge();
@@ -116,4 +117,67 @@ test("the tools step leads with the download, shows its progress, and goes on on
   expect(document.body.textContent).toContain("Downloaded by Exhibit, version 1.0, built November 11, 2026");
   await choose("first:tools:main");
   expect(heading()).toBe("TMDB key");
+});
+
+const BUILT_IN: LibraryStatus = { ...STATUS, tmdb_key: true, tmdb_builtin: true };
+
+test("with exhibits own tmdb key there is no key step, and signing in for scores ends at Home", async () => {
+  let approved = false;
+  tauri.handle("status", () => BUILT_IN);
+  tauri.handle("detect_tools", () => [found("mpv"), found("ffmpeg")]);
+  tauri.handle("services", () => [scoresService({ username: approved ? "someone" : null })]);
+  tauri.handle("start_sign_in", () => ({
+    userCode: "7EFVV31O",
+    verifyUrl: "https://example.test/device/",
+    qrSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><path d="M0 0h1v1H0z"/></svg>',
+    interval: 0.05,
+    expiresIn: 1800,
+  }));
+  tauri.handle("poll_sign_in", () => (approved ? "done" : "pending"));
+  screens({ screen: "firstRun" });
+  await settle(120);
+  expect(document.body.textContent).toContain("Step 1 of 2");
+
+  await choose("first:folder:skip");
+  expect(heading()).toBe("What critics and audiences think");
+  expect(activeKey()).toBe("first:scores:sign-in");
+  expect(document.body.textContent).toContain("Sign in to Scores to see scores from IMDb, Tomatometer, Metacritic, and Letterboxd");
+
+  await choose("first:scores:sign-in");
+  await settle(60);
+  const panel = document.querySelector("[data-sign-in]")!;
+  expect(panel.querySelector("[data-user-code]")?.textContent).toBe("7EFVV31O");
+  expect(panel.querySelector("svg")).not.toBeNull();
+  // The button gave way to the code; focus is on Cancel, never lost.
+  expect(activeKey()).toBe("first:scores:sign-in:cancel");
+  approved = true;
+  await settle(300);
+  expect(useNav.getState().current).toEqual({ screen: "home" });
+});
+
+test("a service already signed in, or none to sign in to, adds no step", async () => {
+  tauri.handle("status", () => BUILT_IN);
+  tauri.handle("detect_tools", () => [found("mpv"), found("ffmpeg")]);
+  tauri.handle("services", () => [scoresService(), awardsService()]);
+  screens({ screen: "firstRun" });
+  await settle(120);
+  expect(document.body.textContent).toContain("Step 1 of 1");
+  await choose("first:folder:skip");
+  expect(useNav.getState().current).toEqual({ screen: "home" });
+});
+
+test("the scores step can be skipped", async () => {
+  tauri.handle("status", () => STATUS);
+  tauri.handle("detect_tools", () => [found("mpv"), found("ffmpeg")]);
+  tauri.handle("services", () => [scoresService({ username: null })]);
+  screens({ screen: "firstRun" });
+  await settle(120);
+  expect(document.body.textContent).toContain("Step 1 of 3");
+  await choose("first:folder:skip");
+  expect(heading()).toBe("TMDB key");
+  await choose("first:tmdb:skip");
+  expect(heading()).toBe("What critics and audiences think");
+  await choose("first:scores:skip");
+  expect(useNav.getState().current).toEqual({ screen: "home" });
+  expect(tauri.calls().some((c) => c.cmd === "start_sign_in")).toBe(false);
 });

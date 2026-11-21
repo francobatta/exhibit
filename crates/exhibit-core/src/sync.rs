@@ -35,6 +35,10 @@ pub struct ServiceState {
     pub error: Option<String>,
     /// Films the matcher could not place surely; they are left out.
     pub unmatched: u32,
+    /// Lookups left today, as the service last said.
+    pub remaining: Option<u32>,
+    /// The allowance is spent: no asking before this (unix seconds).
+    pub paused_until: Option<i64>,
 }
 
 /// What the service holds after a sync, counted in films.
@@ -54,7 +58,8 @@ pub fn service_states(c: &Connection) -> Result<Vec<ServiceState>> {
     let mut s = c.prepare_cached(
         "SELECT s.service, s.enabled, s.username, s.export_name, s.export_at, s.synced_at, \
          s.error, (SELECT count(*) FROM service_films f \
-                   WHERE f.service = s.service AND f.tmdb_id IS NULL AND f.tried = 1) \
+                   WHERE f.service = s.service AND f.tmdb_id IS NULL AND f.tried = 1), \
+         s.remaining, s.paused_until \
          FROM service_state s ORDER BY s.service",
     )?;
     let rows = s.query_map([], |r| {
@@ -67,6 +72,8 @@ pub fn service_states(c: &Connection) -> Result<Vec<ServiceState>> {
             synced_at: r.get(5)?,
             error: r.get(6)?,
             unmatched: r.get(7)?,
+            remaining: r.get(8)?,
+            paused_until: r.get(9)?,
         })
     })?;
     Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -164,7 +171,7 @@ pub fn sync(
 }
 
 /// The code the window words a failure from: the error's own, else `service.failed`.
-fn code(e: &Error) -> &'static str {
+pub(crate) fn code(e: &Error) -> &'static str {
     e.detail().and_then(|d| d.code).unwrap_or("service.failed")
 }
 
@@ -417,6 +424,9 @@ fn forget(c: &Connection, service: &str) -> Result<()> {
     for sql in [
         "DELETE FROM service_facts WHERE service = ?1",
         "DELETE FROM service_films WHERE service = ?1",
+        "DELETE FROM service_scores WHERE service = ?1",
+        "DELETE FROM service_awards WHERE service = ?1",
+        "DELETE FROM service_lookups WHERE service = ?1",
     ] {
         c.prepare_cached(sql)?.execute([service])?;
     }
@@ -524,6 +534,9 @@ mod tests {
         provides: &[Provides::Activity],
         needs: &[Need::Username],
         export: None,
+        origins: &[],
+        bodies: &[],
+        batch: 0,
     };
     /// 2026-01-01 and 2026-03-03, midnight UTC.
     const JAN_1: i64 = 1_767_225_600;

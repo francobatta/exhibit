@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { FocusGroup, useFocusItem } from "@/focus/react";
 import { t, useT } from "@/i18n";
-import { hasActivity } from "@/lib/actions";
+import { hasActivity, hasReception } from "@/lib/actions";
 import type { Sort } from "@/lib/api";
 import { SORTS, describe, descends, direction, filterCount, sortName } from "@/lib/filters";
 import { facts } from "@/lib/format";
@@ -21,11 +21,12 @@ import type { WallKind, WallView } from "@/nav/stack";
 
 /**
  * The orders a wall offers: none on Other, which hangs by folder; on Movies also the owner's own
- * rating, while a service brings it (`activity`).
+ * rating, while a service brings it (`activity`); on Movies and Shows the public's, while a
+ * service brings scores (`reception`).
  */
-export function sorts(kind: WallKind, activity = false): Sort[] {
+export function sorts(kind: WallKind, activity = false, reception = false): Sort[] {
   if (kind === "other") return [];
-  return kind === "movie" && activity ? [...SORTS, "my_rating"] : SORTS;
+  return [...SORTS, ...(kind === "movie" && activity ? (["my_rating"] as const) : []), ...(reception ? (["rating"] as const) : [])];
 }
 
 export const clearFilters = (view: WallView): WallView => ({ ...view, filters: {} });
@@ -139,7 +140,8 @@ export interface WallControlsProps {
 export function WallControls({ kind, view, onView, total, wanted = 0, selection, className }: WallControlsProps) {
   const t = useT();
   const [open, setOpen] = useState(false);
-  const offered = sorts(kind, hasActivity(useServices().data));
+  const services = useServices().data;
+  const offered = sorts(kind, hasActivity(services), hasReception(services));
   // The last count holds, dimmed, while a changed view is counted, so the number never blinks out.
   const line =
     total === null ? null : kind === "movie" && view.filters.watchlist ? watchlistLine(total, wanted) : countLine(kind, total);

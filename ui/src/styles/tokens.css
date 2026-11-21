@@ -33,6 +33,8 @@
 
   /* Text: the paper of a wall label. */
   --label: #ece8df;
+  /* Pure white, for a brand whose rules allow only white on dark (TMDB). */
+  --brand-white: #ffffff;
   --label-dim: #a09b90;
   --label-faint: #6b675f;
   /* Running text over artwork (a description): brighter than dim, softer than a title. */
@@ -144,6 +146,16 @@
   --details-portrait: 12rem;
   --details-cast-gap: 2rem;
   --details-term: 8.5rem;
+  /* Laurels above the title: a wreath's height, the measure of its words, the space between wreaths. */
+  --laurel-height: 5.25rem;
+  --laurel-words: 11rem;
+  --laurel-gap: 2.5rem;
+  /* A score set as a badge (Metacritic): its square's least width. */
+  --score-badge: 1.9em;
+  /* A sign-in's QR code, sized for a phone across the room. */
+  --sign-in-qr: 11rem;
+  /* TMDB's logo beside its notice in Settings. */
+  --tmdb-logo: 1.4rem;
   /* The owner's review, in the reading face: a comfortable line for running text. */
   --details-review-measure: 44rem;
   /* A review longer than the window reads in pages: each Down glides this share of the window. */

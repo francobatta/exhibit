@@ -41,7 +41,9 @@
     "probing": "Leyendo los detalles de los archivos",
     "rescoring": "Comprobando las coincidencias",
     "translating": "Trayendo los títulos en español",
-    "thumbnails": "Creando miniaturas"
+    "thumbnails": "Creando miniaturas",
+    "reception": "Trayendo puntuaciones y premios",
+    "freshening": "Actualizando los datos de TMDB"
   },
   "hints": {
     "open": "Abrir",
@@ -325,7 +327,7 @@
     "toolsNote": "Programas gratuitos que Exhibit usa para reproducir y leer tus archivos.",
     "setPath": "Indicar la ruta",
     "tmdbKey": "Clave de TMDB",
-    "tmdbNote": "Da nombre a tus películas y series y trae sus pósteres. La clave es gratuita en themoviedb.org.",
+    "tmdbNote": "The Movie Database (TMDB) da nombre a tus películas y series y trae sus pósters, fondos y reparto.",
     "checkingKey": "Buscando los títulos con la nueva clave",
     "keyRejected": "TMDB rechazó la clave. Revísala y vuelve a guardarla.",
     "agentKey": "Clave del agente",
@@ -339,11 +341,18 @@
     "display": "Pantalla",
     "displayNote": "La introducción se reproduce al abrir Exhibit.",
     "fullScreen": "Pantalla completa",
-    "intro": "Introducción"
+    "intro": "Introducción",
+    "tmdb": "TMDB",
+    "tmdbNotice": "Este producto usa la API de TMDB, pero TMDB no lo respalda ni lo certifica.",
+    "tmdbUsingBuiltin": "Exhibit usa su propia clave, así que no hay nada que configurar.",
+    "tmdbUsingOwn": "Exhibit usa tu propia clave. Quítala para volver a la de Exhibit.",
+    "tmdbNoKey": "Todavía no hay clave. Es gratuita en themoviedb.org.",
+    "tmdbUseOwn": "Usar tu propia clave",
+    "tmdbOwnKey": "Tu clave de TMDB"
   },
   "services": {
     "title": "Servicios",
-    "note": "Trae lo que has puntuado, reseñado y visto en otros sitios. Exhibit solo lo lee; no envía nada de vuelta.",
+    "note": "Trae lo que calificaste, reseñaste y viste en otros sitios, y lo que la crítica, el público y los jurados pensaron de tus películas. Exhibit solo lee; no se envía nada.",
     "on": "Activado",
     "off": "Desactivado",
     "username": "Nombre de usuario",
@@ -384,7 +393,21 @@
     "newerExport": "Tu lista por ver es del {{date}}. Descarga una exportación nueva de {{service}} para ponerla al día.",
     "unmatched_one": "{{count, number}} película de tu exportación de {{service}} no se pudo identificar con seguridad y se dejó fuera.",
     "unmatched_many": "{{count, number}} películas de tu exportación de {{service}} no se pudieron identificar con seguridad y se dejaron fuera.",
-    "unmatched_other": "{{count, number}} películas de tu exportación de {{service}} no se pudieron identificar con seguridad y se dejaron fuera."
+    "unmatched_other": "{{count, number}} películas de tu exportación de {{service}} no se pudieron identificar con seguridad y se dejaron fuera.",
+    "signIn": "Iniciar sesión",
+    "signInNote": "Puntuaciones de {{origins}} en tus películas y series.",
+    "awardsNote": "Laureles y premios en tus películas.",
+    "signInSteps": "En tu teléfono, escanea el código o entra en {{url}} y escribe",
+    "waitingApproval": "Esperando a que apruebes Exhibit en {{service}}…",
+    "cancel": "Cancelar",
+    "signedIn": "Sesión iniciada como {{name}}.",
+    "lookupsLeft_one": "Queda {{count, number}} consulta hoy.",
+    "lookupsLeft_other": "Quedan {{count, number}} consultas hoy.",
+    "limitUntil": "Se acabaron las consultas de hoy. Exhibit sigue a las {{time}}.",
+    "signOut": "Cerrar sesión en {{service}}",
+    "signOutBody": "Las puntuaciones de {{service}} se quitan, solo en Exhibit. Tu cuenta de {{service}} no cambia.",
+    "signOutConfirm": "Cerrar sesión",
+    "lookupsLeft_many": "Quedan {{count, number}} consultas hoy."
   },
   "activity": {
     "yourRating": "Tu puntuación",
@@ -431,7 +454,9 @@
     "mpvNeeded": "No se puede reproducir nada hasta que mpv esté aquí.",
     "setToolPath": "Indicar la ruta de {{tool}}",
     "tmdbBody": "Con una clave de TMDB, Exhibit da nombre a tus películas y series y cuelga sus pósteres y fondos.",
-    "saveKey": "Guardar la clave"
+    "saveKey": "Guardar la clave",
+    "scoresTitle": "Lo que piensan la crítica y el público",
+    "scoresBody": "Inicia sesión en {{service}} para ver las puntuaciones de {{origins}} en tus películas y series."
   },
   "errors": {
     "unknown": "Algo salió mal.",
@@ -507,7 +532,11 @@
       "private": "Ese perfil es privado. Hazlo público un momento o importa tu archivo de exportación.",
       "unreachable": "Exhibit no pudo conectar con el servicio. Revisa la conexión y vuelve a intentarlo.",
       "bad_export": "Ese archivo no es una exportación del servicio. Descarga una nueva y vuelve a intentarlo.",
-      "failed": "La última sincronización no terminó. Se vuelve a intentar en un rato."
+      "failed": "La última sincronización no terminó. Se vuelve a intentar en un rato.",
+      "limit_reached": "Se acabaron las consultas de hoy. Exhibit sigue cuando se renueven.",
+      "signed_out": "La sesión terminó. Vuelve a iniciar sesión para recuperar las puntuaciones.",
+      "sign_in_denied": "Se rechazó el inicio de sesión. Vuelve a iniciarla para permitir a Exhibit.",
+      "sign_in_expired": "El código caducó antes de aprobarlo. Vuelve a iniciar sesión."
     },
     "settings": {
       "unknown_language": "Exhibit no habla ese idioma.",
@@ -545,10 +574,11 @@
       "asc": "Lo más corto primero",
       "desc": "Lo más largo primero"
     },
-    "rating": {
+    "score": {
       "asc": "Las más bajas primero",
       "desc": "Las más altas primero"
-    }
+    },
+    "rating": "Puntuación"
   },
   "filters": {
     "title": "Filtros",
@@ -586,5 +616,37 @@
     "audioIn": "Audio en {{languages}}",
     "subtitlesIn": "Subtítulos en {{languages}}",
     "left": "Excluido"
+  },
+  "reception": {
+    "title": "Recepción",
+    "scoreOf": "{{origin}} {{score}}",
+    "votes_one": "{{votes}} voto",
+    "votes_other": "{{votes}} votos",
+    "certified": "Certificado",
+    "nominated": "nominación",
+    "undated": "Sin fecha",
+    "votes_many": "{{votes}} votos"
+  },
+  "laurels": {
+    "label": "Premios ganados",
+    "wins_one": "{{count, number}} premio",
+    "wins_other": "{{count, number}} premios",
+    "more_one": "y {{count, number}} premio más",
+    "more_other": "y {{count, number}} premios más",
+    "more_many": "y {{count, number}} premios más",
+    "wins_many": "{{count, number}} premios"
+  },
+  "awards": {
+    "bodies": {
+      "academy": "Premios Óscar",
+      "cannes": "Cannes",
+      "venice": "Venecia",
+      "berlin": "Berlín",
+      "globes": "Globos de Oro",
+      "bafta": "BAFTA",
+      "cesar": "César",
+      "spirit": "Premios Independent Spirit",
+      "sundance": "Sundance"
+    }
   }
 }

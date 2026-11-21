@@ -1,19 +1,22 @@
 // The wall label, read in clusters: the title; then "year, director", "runtime, watched state" with
-// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), the owner's verdict
-// (their rating as stars, with the mark of the service it came from), and the languages it can be
+// the marks of the formats the file is in (4K Ultra HD, HDR10, Dolby Atmos), the verdicts (the
+// owner's rating as stars, with the mark of the service it came from, then up to three public
+// scores, each with its origin's mark), and the languages it can be
 // heard and read in; then a line or two of description. Plain text, commas between facts,
 // every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
 // say is left out, except on Home, where the placard keeps its shape (see `hold`).
 
 import { t, useT } from "@/i18n";
-import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, TechInfo } from "@/lib/api";
+import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, SourcedScore, TechInfo } from "@/lib/api";
+import { useServices } from "@/lib/queries";
 import { episodeLabel, facts, languageName, listed, number, runtime, started, stars, titleOf } from "@/lib/format";
 import { pictureMarks, soundMark, type Mark } from "@/lib/marks";
 import { cn } from "@/lib/utils";
 import type { Progress } from "./ActionLine";
 import { FitTitle } from "./FitTitle";
 import { FormatMark } from "./FormatMark";
-import { ServiceMark } from "./ServiceMark";
+import { orderedScores, ScoreValue } from "./Reception";
+import { OriginMark, ServiceMark } from "./ServiceMark";
 
 export interface PlacardLines {
   title: string;
@@ -28,9 +31,12 @@ export interface PlacardLines {
   /** How far a started, unwatched work has got; shown beside its action. */
   progress: Progress | null;
   overview: string | null;
-  /** What the owner made of it: their own rating, from the newest service that has one. */
-  verdicts: { mine: Sourced<RatingFact> | null };
+  /** What the owner made of it (their own rating, from the newest service that has one), and what the public did. */
+  verdicts: { mine: Sourced<RatingFact> | null; public: SourcedScore[] };
 }
+
+/** Public scores on a placard, after the owner's rating. */
+const PUBLIC_SCORES = 3;
 
 /** Languages named before the rest are counted. */
 const NAMED = 3;
@@ -118,7 +124,10 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
     ...trackLines(tech),
     progress,
     overview: full?.overview?.trim() || null,
-    verdicts: { mine: detail?.activity.ratings.find((r) => stars(r.value, r.scale) !== "") ?? null },
+    verdicts: {
+      mine: detail?.activity.ratings.find((r) => stars(r.value, r.scale) !== "") ?? null,
+      public: detail?.reception ?? [],
+    },
   };
 }
 
@@ -188,8 +197,9 @@ export interface PlacardProps {
    */
   hold?: boolean;
   /**
-   * A service with the owner's activity is on: a held placard keeps a line for their verdict too,
-   * so a rating arriving with the record moves nothing. Without one the line does not exist.
+   * A service with the owner's activity or the public's scores is on: a held placard keeps a line
+   * for the verdicts too, so a rating arriving with the record moves nothing. Without one the line
+   * does not exist.
    */
   holdVerdicts?: boolean;
   className?: string;
@@ -206,7 +216,9 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
   // upward, changes its height. Its full description (the details screen) is not held.
   const hold = holdProp ?? (hero && !full);
   const mine = lines.verdicts.mine;
-  const verdicts = mine !== null || (hold && holdVerdicts);
+  const services = useServices().data;
+  const scores = orderedScores(lines.verdicts.public, services).slice(0, PUBLIC_SCORES);
+  const verdicts = mine !== null || scores.length > 0 || (hold && holdVerdicts);
   return (
     <div className={cn("flex w-full flex-col", hero ? "max-w-measure gap-5" : "gap-3", className)}>
       <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
@@ -255,12 +267,22 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
             <p
               data-line="verdicts"
               className={cn(
-                "flex items-center gap-3",
+                "flex items-center gap-x-3 whitespace-nowrap",
                 hero ? "min-h-(--verdict-star) text-(length:--verdict-star)" : "min-h-(--verdict-star-panel) text-(length:--verdict-star-panel)",
               )}
             >
               {mine && <Stars rating={mine} />}
               {mine && <ServiceMark service={mine.service} size={size} />}
+              {scores.map(({ score, origin }, i) => (
+                <span
+                  key={score.origin}
+                  data-score={score.origin}
+                  className={cn("flex items-center gap-2", (i > 0 || mine) && "ml-(--mark-gap)")}
+                >
+                  <OriginMark origin={origin} size={size} />
+                  <ScoreValue score={score} origin={origin} className="text-[0.8em]" />
+                </span>
+              ))}
             </p>
           )}
           {after.map((l) => (

@@ -6,3 +6,5 @@ edition.workspace = true
 [dependencies]
 exhibit-core = { version = "0.0.1", path = "../exhibit-core" }
 exhibit-letterboxd = { path = "../exhibit-letterboxd" }
+exhibit-mdblist = { path = "../exhibit-mdblist" }
+exhibit-wikidata = { path = "../exhibit-wikidata" }

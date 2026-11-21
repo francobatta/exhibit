@@ -1,12 +1,13 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { screens, select, settle } from "../../test/app";
+import { activeKey, screens, select, settle } from "../../test/app";
 import { tauri } from "../../test/setup";
 import { useBackdrop } from "@/components/Backdrop";
 import { focusItem, installBridge } from "@/focus/bridge";
 import type { LibraryStatus, ToolStatus } from "@/lib/api";
 import { useNav } from "@/nav/stack";
 import { keyError } from "./Settings";
+import { awardsService, scoresService } from "../../test/fixtures";
 import { t } from "@/i18n";
 
 let uninstall: () => void = () => {};
@@ -23,6 +24,8 @@ function status(over: Partial<LibraryStatus> = {}): LibraryStatus {
     unprobed: 0,
     sources: [{ id: 4, path: "D:\\Films", volume_id: "a", online: true }],
     tmdb_key: false,
+    tmdb_own_key: false,
+    tmdb_builtin: false,
     agent_key: false,
     intro: true,
     language: "en-US",
@@ -210,7 +213,7 @@ test("with_no_services_registered_the_part_is_absent", async () => {
   screens({ screen: "settings" });
   await settle(120);
   expect(servicesPart()).toBeNull();
-  expect(document.querySelector('section[aria-label="TMDB key"]')).not.toBeNull();
+  expect(document.querySelector('section[aria-label="TMDB"]')).not.toBeNull();
 });
 
 test("saving_a_username_says_what_was_found", async () => {
@@ -291,4 +294,112 @@ test("an_old_export_says_to_download_a_new_one", async () => {
   expect(text).toContain("Download a new export from Letterboxd");
   expect(text).not.toContain("Watchlist from");
   expect(calls("find_service_export")).toEqual([]);
+});
+
+test("signing_in_shows_the_code_and_asks_until_approved", async () => {
+  let approved = false;
+  tauri.handle("services", () => [scoresService({ username: approved ? "someone" : null, remaining: approved ? 996 : null })]);
+  tauri.handle("start_sign_in", () => ({
+    userCode: "7EFVV31O",
+    verifyUrl: "https://example.test/device/",
+    qrSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 21"><path d="M0 0h1v1H0z"/></svg>',
+    interval: 0.05,
+    expiresIn: 1800,
+  }));
+  tauri.handle("poll_sign_in", () => (approved ? "done" : "pending"));
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = servicesPart()!;
+  expect(part.textContent).toContain("Scores from IMDb, Tomatometer, Metacritic, and Letterboxd on your films and shows.");
+  await focusAndSelect("service:scores:sign-in");
+  expect(calls("start_sign_in")).toEqual([{ id: "scores" }]);
+  const panel = part.querySelector("[data-sign-in]")!;
+  expect(panel.querySelector("[data-user-code]")?.textContent).toBe("7EFVV31O");
+  expect(panel.textContent).toContain("go to example.test/device and enter");
+  expect(panel.querySelector("svg")).not.toBeNull();
+  await settle(150);
+  expect(calls("poll_sign_in").length).toBeGreaterThan(0);
+  approved = true;
+  await settle(300);
+  expect(part.querySelector("[data-sign-in]")).toBeNull();
+  expect(part.textContent).toContain("Signed in as someone. 996 lookups left today.");
+  expect(button(part, "Sign out of Scores")).toBeDefined();
+  // The code gave way to Sign out, which has the focus.
+  expect(activeKey()).toBe("service:scores:forget");
+});
+
+test("a_declined_sign_in_says_so_and_offers_it_again", async () => {
+  tauri.handle("services", () => [scoresService({ username: null })]);
+  tauri.handle("start_sign_in", () => ({ userCode: "X", verifyUrl: "https://example.test/", qrSvg: "", interval: 0.05, expiresIn: 60 }));
+  tauri.handle("poll_sign_in", () => {
+    throw { kind: "provider", code: "service.sign_in_denied", params: {}, message: "declined" };
+  });
+  screens({ screen: "settings" });
+  await settle(120);
+  await focusAndSelect("service:scores:sign-in");
+  await settle(200);
+  const part = servicesPart()!;
+  expect(part.querySelector("[data-sign-in]")).toBeNull();
+  expect(part.textContent).toContain("The sign-in was declined.");
+  expect(part.querySelector('[data-focus-key="service:scores:sign-in"]')).not.toBeNull();
+});
+
+test("a_spent_allowance_says_when_it_carries_on", async () => {
+  const until = Math.floor(Date.now() / 1000) + 3600;
+  tauri.handle("services", () => [scoresService({ remaining: 0, paused_until: until })]);
+  screens({ screen: "settings" });
+  await settle(120);
+  expect(servicesPart()!.textContent).toContain("Today's lookups are spent. Exhibit carries on at");
+});
+
+test("a_service_that_needs_nothing_has_only_its_switch", async () => {
+  tauri.handle("services", () => [awardsService()]);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = servicesPart()!;
+  expect(part.textContent).toContain("Laurels and awards on your films.");
+  expect(part.querySelector('[data-focus-key="service:awards:enabled"]')).not.toBeNull();
+  expect(part.querySelectorAll("button:not([role=switch])").length).toBe(0);
+});
+
+const tmdbPart = () => document.querySelector('section[aria-label="TMDB"]')!;
+
+test("with exhibits own key tmdb needs nothing, shows its logo and notice, and your own key waits behind one press", async () => {
+  tauri.handle("status", () => status({ tmdb_key: true, tmdb_builtin: true }));
+  tauri.handle("services", () => []);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = tmdbPart();
+  expect(part.querySelector("[data-brand=tmdb]")?.getAttribute("aria-label")).toBe("The Movie Database (TMDB)");
+  expect(part.textContent).toContain("This product uses the TMDB API but is not endorsed or certified by TMDB.");
+  expect(part.textContent).toContain("themoviedb.org");
+  expect(part.textContent).toContain("Exhibit uses its own key, so there is nothing to set up.");
+  expect(part.querySelector('[data-focus-key="tmdb:field"]')).toBeNull();
+  await focusAndSelect("tmdb:own");
+  await settle(60);
+  const field = part.querySelector<HTMLInputElement>('[data-focus-key="tmdb:field"]')!;
+  expect(field.getAttribute("placeholder")).toBe("Your TMDB key");
+  expect(activeKey()).toBe("tmdb:field");
+  // Nothing of the owner's to remove yet.
+  expect(part.querySelector('[data-focus-key="tmdb:remove"]')).toBeNull();
+});
+
+test("the owners own key is used instead and can be removed", async () => {
+  tauri.handle("status", () => status({ tmdb_key: true, tmdb_own_key: true, tmdb_builtin: true }));
+  tauri.handle("services", () => []);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = tmdbPart();
+  expect(part.querySelector("[data-tmdb-key]")?.textContent).toBe("Exhibit uses your own key. Remove it to go back to Exhibit's.");
+  expect(part.querySelector('[data-focus-key="tmdb:remove"]')).not.toBeNull();
+});
+
+test("a build without a key of its own asks for one as before", async () => {
+  tauri.handle("status", () => status());
+  tauri.handle("services", () => []);
+  screens({ screen: "settings" });
+  await settle(120);
+  const part = tmdbPart();
+  expect(part.querySelector("[data-tmdb-key]")?.textContent).toBe("No key yet. A key is free from themoviedb.org.");
+  expect(part.querySelector<HTMLInputElement>('[data-focus-key="tmdb:field"]')?.getAttribute("placeholder")).toBe("TMDB key");
 });

@@ -1,7 +1,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { activeKey, press, screens, select, settle, until } from "../../test/app";
-import { activity, audioTrack, detail, service, subTrack } from "../../test/fixtures";
+import { activity, audioTrack, award, awardsService, detail, score, scoresService, service, subTrack } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { installBridge } from "@/focus/bridge";
 import type { LibraryStatus, MediaFile, TechInfo } from "@/lib/api";
@@ -37,6 +37,8 @@ function status(online: boolean): LibraryStatus {
       { id: 2, path: "E:\\Films", volume_id: "b", online: true },
     ],
     tmdb_key: true,
+    tmdb_own_key: true,
+    tmdb_builtin: false,
     agent_key: false,
     intro: true,
     language: "en-US",
@@ -226,4 +228,50 @@ test("a_film_not_in_the_library_has_no_play_cue", async () => {
   expect(document.querySelector("[data-line=facts]")?.textContent).toBe("Not in your library");
   // Nothing beside the row speaks for a play that is not there.
   expect(document.querySelector("[data-line=action]")?.textContent).not.toContain("not connected");
+});
+
+test("laurels_crown_the_title_and_reception_sits_beside_the_file", async () => {
+  tauri.handle("status", () => status(true));
+  tauri.handle("services", () => [scoresService(), awardsService()]);
+  tauri.handle("item", () =>
+    detail(
+      {
+        files: [file(1, 1, "Taxi Driver.mkv")],
+        reception: [
+          score("tomatometer", 89, { votes: 163, url: "https://www.rottentomatoes.com/m/taxi_driver", certified: true }),
+          score("imdb", 8.2, { votes: 1_049_339 }),
+        ],
+        awards: [award("cannes", "Palme d'Or", 1976, true, 10), award("academy", "Best Actor", 1977, false, 2)],
+      },
+      { id: 7, title: "Taxi Driver" },
+    ),
+  );
+  screens({ screen: "details", id: 7 });
+  await settle();
+  // One wreath, above the title, for the one win.
+  const laurels = document.querySelector("[data-line=laurels]")!;
+  expect([...laurels.querySelectorAll("[data-laurel]")].map((l) => l.textContent)).toEqual(["Palme d'OrCannes 1976"]);
+  const title = document.querySelector("[data-line=title]")!;
+  expect(laurels.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  // Reception, between the file and the history, scores in the origins' order, then the awards by year.
+  expect(sectionNames().filter((n) => n !== null && ["The file", "Reception", "History"].includes(n))).toEqual(["The file", "Reception", "History"]);
+  const reception = document.querySelector("section[aria-label='Reception']")!;
+  expect([...reception.querySelectorAll("[data-score]")].map((s) => s.getAttribute("data-score"))).toEqual(["imdb", "tomatometer"]);
+  expect(reception.textContent).toContain("1M votes");
+  expect(reception.textContent).toContain("Certified");
+  expect(reception.textContent).toContain("163 votes, rottentomatoes.com/m/taxi_driver");
+  expect([...reception.querySelectorAll("[data-award]")].map((a) => a.textContent)).toEqual([
+    "Palme d'Or, Cannes",
+    "Best Actor, Academy Awards (nominated)",
+  ]);
+});
+
+test("without_reception_there_are_no_laurels_and_no_part", async () => {
+  tauri.handle("status", () => status(true));
+  tauri.handle("services", () => [service()]);
+  tauri.handle("item", () => detail({ files: [file(1, 1, "Heat.mkv")] }, { id: 7 }));
+  screens({ screen: "details", id: 7 });
+  await settle();
+  expect(document.querySelector("[data-line=laurels]")).toBeNull();
+  expect(sectionNames()).not.toContain("Reception");
 });

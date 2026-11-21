@@ -11,7 +11,7 @@ export type ItemKind = "movie" | "show" | "season" | "episode" | "other";
 export type MatchState = "unmatched" | "matched" | "needsreview" | "manual";
 export type MatchSource = "nfo" | "lookup" | "agent" | "manual";
 /** A listing's order; `descending` unset takes the sort's own direction (`SORT_DESCENDS`). */
-export type Sort = "title" | "year" | "added" | "runtime" | "played" | "my_rating";
+export type Sort = "title" | "year" | "added" | "runtime" | "played" | "my_rating" | "rating";
 export type Seen = "unwatched" | "started" | "watched";
 export type Resolution = "uhd" | "full_hd" | "hd" | "sd";
 export type Picture = "dolby_vision" | "hdr10" | "hlg" | "sdr";
@@ -23,7 +23,15 @@ export type Tool = "mpv" | "ffmpeg";
 export type ToolSource = "manual" | "downloaded" | "detected";
 export type SecretName = "tmdb" | "agent";
 export type IdentifyScope = "unmatched" | "review" | "unmatched_and_review" | { item: Id };
-export type RefreshPhase = "scanning" | "identifying" | "probing" | "rescoring" | "translating" | "thumbnails";
+export type RefreshPhase =
+  | "scanning"
+  | "identifying"
+  | "probing"
+  | "rescoring"
+  | "translating"
+  | "thumbnails"
+  | "reception"
+  | "freshening";
 
 export interface Person {
   name: string;
@@ -162,6 +170,34 @@ export interface ItemDetail {
   /** For a show, the episode to play next. */
   next_episode: ItemSummary | null;
   activity: Activity;
+  /** The public's scores, from switched-on services. */
+  reception: SourcedScore[];
+  /** Wins first, the most prominent first. */
+  awards: AwardEntry[];
+}
+
+/** A public score: `origin` is whose it is (an id in some service's `origins`), `service` the one that fetched it. */
+export interface SourcedScore {
+  service: string;
+  origin: string;
+  value: number;
+  scale: number;
+  votes: number | null;
+  url: string | null;
+  /** The origin's own seal on the score. */
+  certified: boolean;
+}
+
+/** A win or nomination, named in the library's language. `body` is an id in its service's `bodies`. */
+export interface AwardEntry {
+  service: string;
+  body: string;
+  award: string;
+  name: string;
+  year: number | null;
+  won: boolean;
+  /** Lower is more prominent: the body's standing first. */
+  rank: number;
 }
 
 /** A fact and the service that said it; `on` is the unix seconds of its day, UTC. `exhibit` is Exhibit itself. */
@@ -310,7 +346,12 @@ export interface LibraryStatus {
   needs_review: number;
   unprobed: number;
   sources: Source[];
+  /** Exhibit can reach TMDB: with the owner's own key, or with Exhibit's. */
   tmdb_key: boolean;
+  /** The owner set their own key; it is used instead of Exhibit's. */
+  tmdb_own_key: boolean;
+  /** This build carries a TMDB key of its own. */
+  tmdb_builtin: boolean;
   agent_key: boolean;
   /** Whether the window plays the intro as it opens. */
   intro: boolean;
@@ -335,7 +376,22 @@ export interface Folder {
 }
 
 export type Provides = "activity" | "reception" | "awards";
-export type Need = "username" | "key" | "export_file";
+export type Need = "username" | "key" | "export_file" | "sign_in";
+export type ScoreStyle = "decimal" | "percent" | "badge";
+
+/** Whose scores a service reports, with the mark the window draws for them. */
+export interface OriginInfo {
+  id: string;
+  name: string;
+  mark_svg: string;
+  style: ScoreStyle;
+}
+
+/** An award body; `name` is English, the catalogue words it in the owner's language. */
+export interface BodyInfo {
+  id: string;
+  name: string;
+}
 
 /** What a service holds after a sync, counted in films. */
 export interface SyncReport {
@@ -361,6 +417,10 @@ export interface ServiceState {
   error: string | null;
   /** Films the matcher could not place surely; they are left out. */
   unmatched: number;
+  /** Lookups left today, as the service last said. */
+  remaining: number | null;
+  /** The allowance is spent until then (unix seconds). */
+  paused_until: number | null;
 }
 
 /** What a service is and how the owner stands with it. The adapter supplies the name, the mark and the page. */
@@ -372,8 +432,23 @@ export interface ServiceView {
   provides: Provides[];
   needs: Need[];
   exportPage: string | null;
+  origins: OriginInfo[];
+  bodies: BodyInfo[];
   state: ServiceState;
 }
+
+/** A sign-in under way: the owner enters `userCode` at `verifyUrl`, or scans `qrSvg` with a phone. */
+export interface SignInView {
+  userCode: string;
+  verifyUrl: string;
+  qrSvg: string;
+  /** Seconds between asks. */
+  interval: number;
+  /** Seconds the code stays good. */
+  expiresIn: number;
+}
+
+export type SignInState = "pending" | "slow_down" | "done";
 
 /** An export file found in Downloads. */
 export interface FoundExport {
@@ -516,6 +591,9 @@ export const openExportPage = (id: string) => invoke<void>("open_export_page", {
 export const findServiceExport = (id: string) => invoke<FoundExport | null>("find_service_export", { id });
 /** Films the service named that could not be placed surely: title and year. */
 export const serviceUnmatched = (id: string) => invoke<Array<[string, number | null]>>("service_unmatched", { id });
+/** Starts signing in to a service; the window shows the code until the owner approves. */
+export const startSignIn = (id: string) => invoke<SignInView>("start_sign_in", { id });
+export const pollSignIn = (id: string) => invoke<SignInState>("poll_sign_in", { id });
 /** Resolves once the player has started; the end arrives as `play-ended`. */
 export const play = (id: Id, resume: boolean) => invoke<void>("play", { id, resume });
 /** Takes effect from the next launch. */

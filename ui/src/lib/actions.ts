@@ -254,7 +254,18 @@ export function useActionContext(): ActionContext {
   );
 }
 
-/** Whether the owner has a service that brings their activity in: switched on, providing it, with a name. */
-export function hasActivity(services: ServiceView[] | undefined): boolean {
-  return (services ?? []).some((s) => s.state.enabled && s.provides.includes("activity") && s.state.username !== null && s.state.username !== "");
+/** Set up: a service that needs a name or a sign-in has one; a service that needs nothing is ready as it is. */
+export function isConnected(s: ServiceView): boolean {
+  const named = s.state.username !== null && s.state.username !== "";
+  return named || !(s.needs.includes("username") || s.needs.includes("sign_in"));
 }
+
+const serving = (services: ServiceView[] | undefined, what: ServiceView["provides"][number]) =>
+  (services ?? []).some((s) => s.state.enabled && s.provides.includes(what) && isConnected(s));
+
+/** Whether the owner has a service that brings their activity in: switched on, providing it, with a name. */
+export const hasActivity = (services: ServiceView[] | undefined) => serving(services, "activity");
+/** Whether a service set up and switched on brings the public's scores. */
+export const hasReception = (services: ServiceView[] | undefined) => serving(services, "reception");
+/** Whether a service set up and switched on brings the awards. */
+export const hasAwards = (services: ServiceView[] | undefined) => serving(services, "awards");

@@ -1,15 +1,17 @@
-// A work's own room, in two movements. The first is the work: its backdrop, its placard in full,
-// and its row of cues as on Home (components/Cues). The rest of what can be done waits in the
-// item menu (X). Below, peeking in, the second: the owner's own review when they wrote one, who is
-// in it, as portraits, then its record, the file and its history (every watch, from Exhibit and
-// from each service). Down glides from one movement to the other; the backdrop darkens as it goes.
+// A work's own room, in two movements. The first is the work: its backdrop, the laurels it won,
+// its placard in full, and its row of cues as on Home (components/Cues). The rest of what can be
+// done waits in the item menu (X). Below, peeking in, the second: the owner's own review when they
+// wrote one, who is in it, as portraits, then its record: the file, its reception (the public's
+// scores and every award) and its history (every watch, from Exhibit and from each service).
+// Down glides from one movement to the other; the backdrop darkens as it goes.
 
 import { motion } from "motion/react";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { useScreenBackdrop } from "@/components/Backdrop";
 import { Cues } from "@/components/Cues";
 import { Placard, placardLines, Stars, trackLines } from "@/components/Placard";
-import { ServiceMark } from "@/components/ServiceMark";
+import { awardsByYear, bodyName, Laurels, orderedScores, pageOf, ScoreValue } from "@/components/Reception";
+import { OriginMark, ServiceMark } from "@/components/ServiceMark";
 import { ErrorState, Loading } from "@/components/states";
 import { buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -30,7 +32,7 @@ import {
   type Sourced,
   type WatchFact,
 } from "@/lib/api";
-import { EXHIBIT, bytes, clock, facts, initials, languageName, listed, loggedLine, resolution, serviceName, shortDay } from "@/lib/format";
+import { EXHIBIT, bytes, clock, facts, initials, languageName, listed, loggedLine, resolution, serviceName, shortDay, votesText } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
 import { useCast, useItem, useItemSources, useServices } from "@/lib/queries";
@@ -66,6 +68,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
     item.poster ?? parent?.poster ?? show?.poster ?? null,
   );
 
+  const services = useServices().data;
   const review = detail.activity.reviews[0] ?? null;
   // The stars beside the review are the rating its own service gave.
   const reviewRating = review === null ? null : (detail.activity.ratings.find((r) => r.service === review.service) ?? null);
@@ -202,6 +205,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
           className="flex h-[calc(100%-var(--details-peek))] flex-col justify-end px-edge pt-bar pb-(--details-foot)"
         >
           <div className="flex max-w-measure flex-col gap-5">
+            <Laurels awards={detail.awards} services={services} />
             <Placard item={item} detail={detail} size="hero" full more={[facts(item.genres)]} />
             <Cues
               id="details-cues"
@@ -610,8 +614,14 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
     };
   };
 
+  const reception = detail.reception.length > 0 || detail.awards.length > 0;
   return (
-    <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] gap-x-(--details-part-gap)">
+    <div
+      className={cn(
+        "grid gap-x-(--details-part-gap)",
+        reception ? "grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1fr)]" : "grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]",
+      )}
+    >
       {files.length > 0 && (
         <Part title={files.length === 1 ? t("details.theFile") : t("details.theFiles")}>
           <Terms>
@@ -636,6 +646,7 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
           </Terms>
         </Part>
       )}
+      {reception && <Reception detail={detail} />}
       <Part title={t("activity.history")}>
         <Terms>
           <Watches detail={detail} />
@@ -644,5 +655,59 @@ function Record({ detail, sources }: { detail: ItemDetail; sources: Source[] }) 
         </Terms>
       </Part>
     </div>
+  );
+}
+
+/**
+ * What the public made of the work: each score with its origin's mark, its number and how many
+ * voted, and the page it comes from written out (the TV opens no browser, so the source is named
+ * where it is shown); then every award kept, by year, wins before nominations.
+ */
+function Reception({ detail }: { detail: ItemDetail }) {
+  const t = useT();
+  const services = useServices().data;
+  const scores = orderedScores(detail.reception, services);
+  const years = awardsByYear(detail.awards);
+  return (
+    <Part title={t("reception.title")}>
+      {scores.length > 0 && (
+        <Terms>
+          {scores.map(({ score, origin }) => (
+            <div key={score.origin} data-score={score.origin} className="contents">
+              <dt className="flex items-center gap-2 pt-0.5 font-display text-body text-label-faint">
+                <OriginMark origin={origin} size="line" />
+                <span className="truncate">{origin.name}</span>
+              </dt>
+              <dd className="flex min-w-0 flex-col gap-1 font-display">
+                <span className="flex items-center gap-3 text-lead">
+                  <ScoreValue score={score} origin={origin} />
+                  {score.certified && <span className="text-body text-label-dim">{t("reception.certified")}</span>}
+                </span>
+                {(score.votes !== null || score.url !== null) && (
+                  <span className="truncate text-body text-label-dim">{facts([votesText(score.votes), pageOf(score.url)])}</span>
+                )}
+              </dd>
+            </div>
+          ))}
+        </Terms>
+      )}
+      {years.length > 0 && (
+        <Terms>
+          {years.map(({ year, awards }) => (
+            <div key={year ?? "undated"} className="contents">
+              <dt className="pt-0.5 font-display text-body text-label-faint tabular-nums">{year ?? t("reception.undated")}</dt>
+              <dd className="flex min-w-0 flex-col gap-1.5 font-display text-body">
+                {awards.map((a) => (
+                  <span key={`${a.award}:${a.year}`} data-award={a.won ? "won" : "nominated"} className={a.won ? "text-label" : "text-label-dim"}>
+                    {facts([a.name, bodyName(a.body, services)])}
+                    {!a.won && <span className="text-label-faint">{` (${t("reception.nominated")})`}</span>}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          ))}
+        </Terms>
+      )}
+    </Part>
   );
 }

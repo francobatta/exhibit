@@ -291,6 +291,11 @@ export function useForgetService() {
   return useServiceMutation(({ id }: { id: string }) => api.forgetService(id));
 }
 
+/** Starts a sign-in: the code and where the owner approves it. Nothing changes until they do. */
+export function useStartSignIn() {
+  return useMutation<api.SignInView, ApiError, string>({ mutationFn: api.startSignIn });
+}
+
 export function useImportServiceExport() {
   return useServiceMutation(({ id, path }: { id: string; path: string }) => api.importServiceExport(id, path));
 }

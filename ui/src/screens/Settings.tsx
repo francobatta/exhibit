@@ -12,6 +12,8 @@ import { FocusButton } from "@/components/FocusButton";
 import { useBrowse } from "@/components/FolderBrowser";
 import { Lamp } from "@/components/Lamp";
 import { ServiceMark } from "@/components/ServiceMark";
+import { SignIn } from "@/components/SignIn";
+import { TmdbLogo } from "@/components/TmdbLogo";
 import { SecretForm } from "@/components/SecretForm";
 import { TextField } from "@/components/TextField";
 import { line, ToolLines, useSetToolPath } from "@/components/ToolLines";
@@ -35,8 +37,17 @@ import {
   type Language,
 } from "@/i18n";
 import * as api from "@/lib/api";
-import { keyRejected, plain, type ApiError, type LibraryStatus, type ServiceView, type SyncReport, type Source, type ToolStatus } from "@/lib/api";
-import { facts, writeDate } from "@/lib/format";
+import {
+  keyRejected,
+  plain,
+  type ApiError,
+  type LibraryStatus,
+  type ServiceView,
+  type SyncReport,
+  type Source,
+  type ToolStatus,
+} from "@/lib/api";
+import { facts, listed, timeOfDay, writeDate } from "@/lib/format";
 import {
   keys,
   useConnectService,
@@ -101,7 +112,7 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
         <div className="wall-fade min-h-0 flex-1 overflow-y-auto px-edge pb-edge">
           <Folders sources={status.sources} />
           <Tools tools={tools} />
-          <TmdbKey status={status} />
+          <Tmdb status={status} />
           <ServicesPart />
           <Part title={t("settings.agentKey")} note={t("settings.agentNote")}>
             <SetLine set={status.agent_key} />
@@ -268,17 +279,36 @@ export function keyError(e: ApiError, t: ReturnType<typeof useT>): string {
   return keyRejected(e) ? t("settings.keyRejected") : plain(e);
 }
 
-function TmdbKey({ status }: { status: LibraryStatus }) {
+/**
+ * TMDB, where the library's details come from: its logo and the notice its terms ask for, which
+ * key is in use, and the owner's own key. A build with a key of its own needs nothing here; the
+ * owner's key, when set, is used instead, and removing it goes back to Exhibit's.
+ */
+function Tmdb({ status }: { status: LibraryStatus }) {
   const t = useT();
   const check = useKeyCheck();
+  const own = status.tmdb_own_key;
+  const builtin = status.tmdb_builtin;
+  // Exhibit's key is enough: the owner's field waits behind one press.
+  const [overriding, setOverriding] = useState(false);
   const saved = () => {
     check.start();
     api.identify("unmatched_and_review").catch((e: unknown) => toast(plain(e)));
   };
+  const using = own ? t("settings.tmdbUsingOwn") : builtin ? t("settings.tmdbUsingBuiltin") : t("settings.tmdbNoKey");
+  const showForm = own || !builtin || overriding;
   return (
-    <Part title={t("settings.tmdbKey")} note={t("settings.tmdbNote")}>
+    <Part title={t("settings.tmdb")} note={t("settings.tmdbNote")}>
+      <div className="flex flex-col gap-3">
+        <TmdbLogo />
+        <p className="font-reading text-body leading-reading text-label-dim">
+          {t("settings.tmdbNotice")} <span className="font-display text-label-soft">themoviedb.org</span>
+        </p>
+      </div>
       <div className="flex flex-col gap-1">
-        <SetLine set={status.tmdb_key} />
+        <p data-tmdb-key={own ? "own" : builtin ? "builtin" : "none"} className={line}>
+          {using}
+        </p>
         {check.checking && <p className={line}>{t("settings.checkingKey")}</p>}
         {check.error !== null && (
           <p role="alert" className="font-display text-body text-label">
@@ -286,7 +316,31 @@ function TmdbKey({ status }: { status: LibraryStatus }) {
           </p>
         )}
       </div>
-      <SecretForm name="tmdb" label={t("settings.tmdbKey")} isSet={status.tmdb_key} paste onSaved={saved} />
+      {showForm ? (
+        <SecretForm
+          name="tmdb"
+          label={builtin ? t("settings.tmdbOwnKey") : t("settings.tmdbKey")}
+          isSet={own}
+          paste
+          onSaved={() => {
+            setOverriding(false);
+            saved();
+          }}
+        />
+      ) : (
+        <FocusGroup id="tmdb-own" orientation="horizontal" className="flex">
+          <FocusButton
+            focusKey="tmdb:own"
+            variant="plain"
+            onSelect={() => {
+              setOverriding(true);
+              requestAnimationFrame(() => focusItem("tmdb:field"));
+            }}
+          >
+            {t("settings.tmdbUseOwn")}
+          </FocusButton>
+        </FocusGroup>
+      )}
     </Part>
   );
 }
@@ -324,9 +378,11 @@ function ServicesPart() {
   if (!services.data || services.data.length === 0) return null;
   return (
     <Part title={t("services.title")} note={t("services.note")}>
-      {services.data.map((view) => (
-        <ServiceLine key={view.id} view={view} />
-      ))}
+      <div className="flex flex-col gap-12">
+        {services.data.map((view) => (
+          <ServiceLine key={view.id} view={view} />
+        ))}
+      </div>
     </Part>
   );
 }
@@ -349,6 +405,14 @@ function ServiceLine({ view }: { view: ServiceView }) {
   const [unmatchedShown, setUnmatchedShown] = useState(false);
 
   const wantsUsername = view.needs.includes("username");
+  const wantsSignIn = view.needs.includes("sign_in");
+  const signedIn = state.username !== null && state.username !== "";
+  // Just signed in: the code gives way to Sign out, which takes the focus.
+  const wasSignedIn = useRef(signedIn);
+  useEffect(() => {
+    if (wantsSignIn && signedIn && !wasSignedIn.current) focusItem(key("forget"));
+    wasSignedIn.current = signedIn;
+  });
   const canExport = view.needs.includes("export_file") && view.exportPage !== null && state.username !== null;
   const stale = state.export_at !== null && Date.now() / 1000 - state.export_at > NEWER_AFTER_S;
 
@@ -388,11 +452,19 @@ function ServiceLine({ view }: { view: ServiceView }) {
     );
   };
   const forgetIt = async () => {
-    const go = await confirm({
-      title: t("services.forgetTitle", { service: name }),
-      body: t("services.forgetBody", { service: name }),
-      confirm: t("services.forgetConfirm"),
-    });
+    const go = await confirm(
+      wantsSignIn
+        ? {
+            title: t("services.signOut", { service: name }),
+            body: t("services.signOutBody", { service: name }),
+            confirm: t("services.signOutConfirm"),
+          }
+        : {
+            title: t("services.forgetTitle", { service: name }),
+            body: t("services.forgetBody", { service: name }),
+            confirm: t("services.forgetConfirm"),
+          },
+    );
     if (!go) return;
     forget.mutate(
       { id },
@@ -423,6 +495,23 @@ function ServiceLine({ view }: { view: ServiceView }) {
     const date = writeDate(new Date(state.export_at * 1000));
     status.push(stale ? t("services.newerExport", { date, service: name }) : t("services.watchlistFrom", { date }));
   }
+  // A signed-in service says whose account it reads and what is left of the day's lookups.
+  if (wantsSignIn && signedIn && state.error === null) {
+    const paused = state.paused_until !== null && state.paused_until * 1000 > Date.now();
+    const allowance = paused
+      ? t("services.limitUntil", { time: timeOfDay(state.paused_until!) })
+      : state.remaining !== null
+        ? t("services.lookupsLeft", { count: state.remaining })
+        : null;
+    status.push([t("services.signedIn", { name: state.username }), allowance].filter(Boolean).join(" "));
+  }
+  // What a service that brings the public's verdict is for, until it is set up.
+  const what =
+    wantsSignIn && !signedIn
+      ? t("services.signInNote", { origins: listed(view.origins.map((o) => o.name)) })
+      : view.needs.length === 0 && view.provides.includes("awards") && status.length === 0
+        ? t("services.awardsNote")
+        : null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -441,11 +530,22 @@ function ServiceLine({ view }: { view: ServiceView }) {
         />
       </FocusGroup>
 
+      {what && <p className={line}>{what}</p>}
       {status.map((text, i) => (
         <p key={i} role={failed ? "alert" : undefined} className={failed ? "font-display text-body text-label" : line}>
           {text}
         </p>
       ))}
+      {wantsSignIn &&
+        (signedIn ? (
+          <FocusGroup id={`service-${id}-account`} orientation="horizontal" className="flex">
+            <FocusButton focusKey={key("forget")} variant="plain" onSelect={() => void forgetIt()}>
+              {t("services.signOut", { service: name })}
+            </FocusButton>
+          </FocusGroup>
+        ) : (
+          <SignIn id={id} name={name} focusKey={key("sign-in")} />
+        ))}
       {state.unmatched > 0 && (
         <div className="flex flex-col gap-2">
           <p className={line}>{t("services.unmatched", { count: state.unmatched, service: name })}</p>

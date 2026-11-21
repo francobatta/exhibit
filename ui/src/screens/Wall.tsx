@@ -15,8 +15,8 @@ import { WallControls, clearFilters, sorts } from "@/components/WallControls";
 import { WallGrid, wallColumns, type WallHeading } from "@/components/WallGrid";
 import { focusItem } from "@/focus/bridge";
 import { useLanguage, useT } from "@/i18n";
-import { facetsOf, hasActivity, mainAction, mainHint, runAction, runMain, useActionContext, type Action } from "@/lib/actions";
-import { filterCount, wallQuery, withoutActivity } from "@/lib/filters";
+import { facetsOf, hasActivity, hasReception, mainAction, mainHint, runAction, runMain, useActionContext, type Action } from "@/lib/actions";
+import { filterCount, wallQuery, withoutActivity, withoutReception } from "@/lib/filters";
 import { imageUrl, plain, type CastMember, type Id, type ItemSummary } from "@/lib/api";
 import { facts, initials } from "@/lib/format";
 import { seconds } from "@/lib/motion";
@@ -108,11 +108,12 @@ export function Wall({ kind, view, onView }: WallProps) {
   // is switched off. Only once the services are known: a failure to say keeps the view.
   const services = useServices();
   const off = services.data !== undefined && !hasActivity(services.data);
+  const unscored = services.data !== undefined && !hasReception(services.data);
   useEffect(() => {
-    if (!off) return;
-    const kept = withoutActivity(view);
-    if (kept !== null) onView(kept);
-  }, [off, view, onView]);
+    let kept = off ? (withoutActivity(view) ?? view) : view;
+    if (unscored) kept = withoutReception(kept) ?? kept;
+    if (kept !== view) onView(kept);
+  }, [off, unscored, view, onView]);
   const query = useMemo(() => wallQuery(kind, view, sorts(kind).length > 0), [kind, view]);
   const result = useItems(query);
   const job = jobLine(useJobStatus());

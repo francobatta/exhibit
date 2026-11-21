@@ -7,7 +7,9 @@
 
 use crate::db;
 use crate::error::{Error, Result};
-use crate::identify::{POSTER_SIZE, POSTER_SMALL_SIZE, download, poster_name, small_poster};
+use crate::identify::{
+    POSTER_SIZE, POSTER_SMALL_SIZE, download, download_again, poster_name, small_poster,
+};
 use crate::lang;
 use crate::model::{Id, ItemKind};
 use crate::rows::enum_str;
@@ -81,10 +83,8 @@ fn works(
         } else {
             ItemKind::Movie
         };
-        let texts = match p.texts(kind, tmdb_id, lang) {
+        let (texts, poster) = match work_texts(p, cache_dir, kind, tmdb_id, lang, false) {
             Ok(t) => t,
-            // TMDB no longer knows it: nothing to translate.
-            Err(Error::NotFound(_)) => Texts::default(),
             Err(e) => {
                 if keep_going(e, format!("{} {tmdb_id} in {lang}", enum_str(kind)), report)? {
                     continue;
@@ -92,40 +92,92 @@ fn works(
                 return Ok(false);
             }
         };
-        let tag = if kind == ItemKind::Show {
-            "tv"
-        } else {
-            "movie"
-        };
-        let poster = texts
-            .poster
-            .as_deref()
-            .and_then(|path| poster(p, cache_dir, path, &poster_name(tag, tmdb_id, lang)));
-        c.prepare_cached(
-            "INSERT INTO item_texts(item_id, lang, title, overview, genres, poster) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
-             ON CONFLICT(item_id, lang) DO UPDATE SET title=excluded.title, \
-             overview=excluded.overview, genres=excluded.genres, poster=excluded.poster",
-        )?
-        .execute(params![
-            id,
-            lang,
-            texts.title,
-            texts.overview,
-            serde_json::to_string(&texts.genres).unwrap_or_else(|_| "[]".into()),
-            poster,
-        ])?;
+        store_work_texts(c, id, lang, &texts, poster.as_deref())?;
         report.translated += 1;
         on(id);
     }
     Ok(true)
 }
 
+/// A movie's or show's text in `lang`, and its poster in that language saved (afresh with
+/// `again`, else only when not cached yet). A work TMDB no longer knows has empty text.
+pub(crate) fn work_texts(
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    kind: ItemKind,
+    tmdb_id: i64,
+    lang: &str,
+    again: bool,
+) -> Result<(Texts, Option<String>)> {
+    let texts = match p.texts(kind, tmdb_id, lang) {
+        Ok(t) => t,
+        Err(Error::NotFound(_)) => Texts::default(),
+        Err(e) => return Err(e),
+    };
+    let tag = if kind == ItemKind::Show {
+        "tv"
+    } else {
+        "movie"
+    };
+    let poster = texts
+        .poster
+        .as_deref()
+        .and_then(|path| poster(p, cache_dir, path, &poster_name(tag, tmdb_id, lang), again));
+    Ok((texts, poster))
+}
+
+pub(crate) fn store_work_texts(
+    c: &Connection,
+    id: Id,
+    lang: &str,
+    texts: &Texts,
+    poster: Option<&str>,
+) -> Result<()> {
+    c.prepare_cached(
+        "INSERT INTO item_texts(item_id, lang, title, overview, genres, poster) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6) \
+         ON CONFLICT(item_id, lang) DO UPDATE SET title=excluded.title, \
+         overview=excluded.overview, genres=excluded.genres, poster=excluded.poster",
+    )?
+    .execute(params![
+        id,
+        lang,
+        texts.title,
+        texts.overview,
+        serde_json::to_string(&texts.genres).unwrap_or_else(|_| "[]".into()),
+        poster,
+    ])?;
+    Ok(())
+}
+
+pub(crate) fn store_episode_text(
+    c: &Connection,
+    id: Id,
+    lang: &str,
+    title: &str,
+    overview: &str,
+) -> Result<()> {
+    c.prepare_cached(
+        "INSERT INTO item_texts(item_id, lang, title, overview) VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(item_id, lang) DO UPDATE SET title=excluded.title, \
+         overview=excluded.overview",
+    )?
+    .execute(params![id, lang, title, overview])?;
+    Ok(())
+}
+
 /// Downloads a poster large and small; its file name, or `None` when the download failed, in
 /// which case the base poster shows.
-fn poster(p: &dyn MetadataProvider, cache_dir: &Path, path: &str, name: &str) -> Option<String> {
-    download(p, cache_dir, path, POSTER_SIZE, name).ok()?;
-    download(p, cache_dir, path, POSTER_SMALL_SIZE, &small_poster(name)).ok()?;
+fn poster(
+    p: &dyn MetadataProvider,
+    cache_dir: &Path,
+    path: &str,
+    name: &str,
+    again: bool,
+) -> Option<String> {
+    let get = if again { download_again } else { download };
+    get(p, cache_dir, path, POSTER_SIZE, name).ok()?;
+    get(p, cache_dir, path, POSTER_SMALL_SIZE, &small_poster(name)).ok()?;
     Some(name.to_string())
 }
 
@@ -181,12 +233,7 @@ fn episodes(
                 .find(|(n, _, _)| *n == episode)
                 .map(|(_, t, o)| (t.as_str(), o.as_str()))
                 .unwrap_or_default();
-            tx.prepare_cached(
-                "INSERT INTO item_texts(item_id, lang, title, overview) VALUES (?1, ?2, ?3, ?4) \
-                 ON CONFLICT(item_id, lang) DO UPDATE SET title=excluded.title, \
-                 overview=excluded.overview",
-            )?
-            .execute(params![id, lang, title, overview])?;
+            store_episode_text(&tx, id, lang, title, overview)?;
             done.push(id);
         }
         tx.commit()?;

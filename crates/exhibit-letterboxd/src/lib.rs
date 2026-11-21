@@ -25,6 +25,9 @@ static INFO: ServiceInfo = ServiceInfo {
         file_prefix: "letterboxd-",
         file_ext: "zip",
     }),
+    origins: &[],
+    bodies: &[],
+    batch: 0,
 };
 
 impl Service for Letterboxd {

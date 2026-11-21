@@ -1,7 +1,7 @@
 // Library records for tests: a plain matched film unless told otherwise.
 
 import { expect } from "bun:test";
-import type { Activity, AudioTrack, Item, ItemDetail, ItemSummary, MediaFile, ServiceView, SubTrack } from "@/lib/api";
+import type { Activity, AudioTrack, AwardEntry, Item, ItemDetail, ItemSummary, MediaFile, ServiceView, SourcedScore, SubTrack } from "@/lib/api";
 
 export function summary(over: Partial<ItemSummary> = {}): ItemSummary {
   return {
@@ -65,6 +65,8 @@ export function detail(over: Partial<ItemDetail> = {}, item: Partial<Item> = {})
     available: true,
     next_episode: null,
     activity: activity(),
+    reception: [],
+    awards: [],
     ...over,
   };
 }
@@ -134,6 +136,8 @@ export function service(state: Partial<ServiceView["state"]> = {}, over: Partial
     provides: ["activity"],
     needs: ["username", "export_file"],
     exportPage: "https://letterboxd.com/settings/data/",
+    origins: [],
+    bodies: [],
     state: {
       service: "letterboxd",
       enabled: true,
@@ -143,8 +147,59 @@ export function service(state: Partial<ServiceView["state"]> = {}, over: Partial
       synced_at: null,
       error: null,
       unmatched: 0,
+      remaining: null,
+      paused_until: null,
       ...state,
     },
     ...over,
   };
+}
+
+const MARK = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+
+/** A service with the public's scores, signed in unless told otherwise: IMDb, Tomatometer and Metacritic, in that order. */
+export function scoresService(state: Partial<ServiceView["state"]> = {}): ServiceView {
+  return service(
+    { service: "scores", username: "someone", ...state },
+    {
+      id: "scores",
+      name: "Scores",
+      provides: ["reception"],
+      needs: ["sign_in"],
+      exportPage: null,
+      origins: [
+        { id: "imdb", name: "IMDb", mark_svg: MARK, style: "decimal" },
+        { id: "tomatometer", name: "Tomatometer", mark_svg: MARK, style: "percent" },
+        { id: "metacritic", name: "Metacritic", mark_svg: MARK, style: "badge" },
+        { id: "letterboxd", name: "Letterboxd", mark_svg: MARK, style: "decimal" },
+      ],
+    },
+  );
+}
+
+/** A service with the awards, needing nothing. */
+export function awardsService(state: Partial<ServiceView["state"]> = {}): ServiceView {
+  return service(
+    { service: "awards", username: null, ...state },
+    {
+      id: "awards",
+      name: "Awards",
+      provides: ["awards"],
+      needs: [],
+      exportPage: null,
+      bodies: [
+        { id: "cannes", name: "Cannes" },
+        { id: "academy", name: "Academy Awards" },
+        { id: "nowhere", name: "Nowhere Fest" },
+      ],
+    },
+  );
+}
+
+export function score(origin: string, value: number, over: Partial<SourcedScore> = {}): SourcedScore {
+  return { service: "scores", origin, value, scale: origin === "imdb" ? 10 : 100, votes: null, url: null, certified: false, ...over };
+}
+
+export function award(body: string, name: string, year: number, won: boolean, rank: number): AwardEntry {
+  return { service: "awards", body, award: `${body}:${name}`, name, year, won, rank };
 }

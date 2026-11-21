@@ -1,0 +1,8 @@
+[package]
+name = "exhibit-wikidata"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+exhibit-core = { path = "../exhibit-core" }
+serde_json = "1.0.154"

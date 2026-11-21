@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test } from "bun:test";
 import type { ReactNode } from "react";
-import { CJK, LONG, activity, audioTrack, clean, detail, fullItem, service, subTrack, summary } from "../../test/fixtures";
+import { CJK, LONG, activity, audioTrack, clean, detail, fullItem, score, scoresService, service, subTrack, summary } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { stars } from "@/lib/format";
 import { Placard, placardLines, splitTitle, trackLines } from "./Placard";
@@ -10,8 +10,8 @@ import { Placard, placardLines, splitTitle, trackLines } from "./Placard";
 afterEach(cleanup);
 
 /** The placard as the app holds it: the services are asked for through the query client. */
-function withServices(node: ReactNode) {
-  tauri.handle("services", () => [service()]);
+function withServices(node: ReactNode, services = [service()]) {
+  tauri.handle("services", () => services);
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{node}</QueryClientProvider>,
   );
@@ -24,7 +24,7 @@ const lineNames = (root: ParentNode) => [...root.querySelectorAll("[data-line]")
 describe("verdicts", () => {
   test("the_verdicts_line_shows_my_rating_with_its_mark", async () => {
     const d = rated(4.5);
-    expect(placardLines(d.item, d).verdicts).toEqual({ mine: { service: "letterboxd", on: 1_551_571_200, value: 4.5, scale: 5 } });
+    expect(placardLines(d.item, d).verdicts).toEqual({ mine: { service: "letterboxd", on: 1_551_571_200, value: 4.5, scale: 5 }, public: [] });
     for (const size of ["hero", "panel"] as const) {
       const view = withServices(<Placard item={d.item} detail={d} size={size} />);
       const line = view.container.querySelector("[data-line=verdicts]")!;
@@ -41,20 +41,42 @@ describe("verdicts", () => {
 
   test("no_verdicts_line_without_activity", () => {
     const d = detail();
-    expect(placardLines(d.item, d).verdicts).toEqual({ mine: null });
+    expect(placardLines(d.item, d).verdicts).toEqual({ mine: null, public: [] });
     // No rating: no line, beside a wall or on Details.
     for (const props of [{ size: "panel" as const }, { size: "hero" as const, full: true }]) {
-      const view = render(<Placard item={d.item} detail={d} {...props} />);
+      const view = withServices(<Placard item={d.item} detail={d} {...props} />);
       expect(lineNames(view.container)).not.toContain("verdicts");
       view.unmount();
     }
     // Home's held placard keeps the line only while a service with the owner's activity is on.
-    const off = render(<Placard item={summary()} size="hero" />);
+    const off = withServices(<Placard item={summary()} size="hero" />);
     expect(lineNames(off.container)).not.toContain("verdicts");
     off.unmount();
-    const on = render(<Placard item={summary()} size="hero" holdVerdicts />);
+    const on = withServices(<Placard item={summary()} size="hero" holdVerdicts />);
     expect(lineNames(on.container)).toContain("verdicts");
     expect(on.container.querySelector("[data-line=verdicts]")?.textContent).toBe("");
+  });
+
+  test("public_scores_follow_the_rating_in_the_origins_order_at_most_three", async () => {
+    const d = detail({
+      activity: activity({ ratings: [{ service: "letterboxd", on: 1, value: 4, scale: 5 }] }),
+      reception: [score("letterboxd", 4.1, { scale: 5 }), score("metacritic", 94), score("imdb", 8.2), score("tomatometer", 89), score("unknown", 1)],
+    });
+    const view = withServices(<Placard item={d.item} detail={d} size="hero" />, [service(), scoresService()]);
+    const line = view.container.querySelector("[data-line=verdicts]")!;
+    await waitFor(() => expect(line.querySelectorAll("[data-score]").length).toBe(3));
+    const order = [...line.querySelectorAll("[data-score]")].map((e) => e.getAttribute("data-score"));
+    expect(order).toEqual(["imdb", "tomatometer", "metacritic"]);
+    expect(view.getByRole("img", { name: "IMDb 8.2" }).textContent).toBe("8.2");
+    expect(view.getByRole("img", { name: "Tomatometer 89%" })).not.toBeNull();
+    expect(view.getByRole("img", { name: "Metacritic 94" }).hasAttribute("data-badge")).toBe(true);
+    // The rating comes first.
+    expect(line.firstElementChild?.getAttribute("aria-label")).toBe("Rated 4 out of 5");
+    // Without the service that describes them, scores are not shown.
+    view.unmount();
+    const bare = withServices(<Placard item={d.item} detail={d} size="panel" />, [service()]);
+    await waitFor(() => expect(bare.getByRole("img", { name: "Letterboxd" })).not.toBeNull());
+    expect(bare.container.querySelectorAll("[data-score]").length).toBe(0);
   });
 
   test("stars_for_4_5_of_5_are_four_and_a_half", () => {
@@ -123,7 +145,7 @@ describe("placardLines", () => {
       subtitles: "None",
       progress: null,
       overview: "A mentally unstable veteran works as a night-time taxi driver.",
-      verdicts: { mine: null },
+      verdicts: { mine: null, public: [] },
     });
   });
 
@@ -157,7 +179,7 @@ describe("Placard", () => {
     ];
     for (const size of ["hero", "panel"] as const) {
       for (const c of cases) {
-        const { container, unmount } = render(<Placard item={c.item} detail={c.detail} size={size} />);
+        const { container, unmount } = withServices(<Placard item={c.item} detail={c.detail} size={size} />);
         for (const line of container.querySelectorAll("[data-line]")) clean(line.textContent ?? "");
         clean(container.textContent ?? "");
         unmount();
@@ -166,7 +188,7 @@ describe("Placard", () => {
   });
 
   test("empty lines are left out, not drawn blank", () => {
-    const { container } = render(
+    const { container } = withServices(
       <Placard item={summary({ year: null, runtime_min: null, width: null, height: null })} size="panel" />,
     );
     const lines = [...container.querySelectorAll("[data-line]")].map((l) => l.getAttribute("data-line"));

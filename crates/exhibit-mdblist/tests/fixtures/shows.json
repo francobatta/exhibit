@@ -1,0 +1,16 @@
+[
+  {
+    "id": 9,
+    "title": "Severance",
+    "year": 2022,
+    "ids": {"imdb": "tt11280740", "trakt": 154997, "tmdb": 95396, "tvdb": 371980, "mal": null, "mdblist": "9n25"},
+    "type": "show",
+    "ratings": [
+      {"source": "imdb", "value": 8.6, "score": 86, "votes": 416306, "url": 76},
+      {"source": "metacritic", "value": 85, "score": 85, "votes": 82, "url": "/severance"},
+      {"source": "tomatoes", "value": 95, "score": 95, "votes": 242, "url": "/tv/severance", "fresh": 1},
+      {"source": "popcorn", "value": 80, "score": 80, "votes": 5000, "url": "/tv/severance"},
+      {"source": "letterboxd", "value": null, "score": null, "votes": null, "url": null}
+    ]
+  }
+]
