@@ -50,6 +50,8 @@
   --size-title: 2.4rem;
   --size-display: 4rem;
   --size-hero: 8rem;
+  /* The hero's description, read from across the room. */
+  --size-reading-hero: 1.4rem;
   --weight-text: 450;
   --weight-ui: 600;
   --weight-title: 680;
@@ -82,7 +84,7 @@
   --verdict-figure-stars: 2.25rem;
   /* A badge (Metacritic) is a filled square: a size down, so it stands no taller than a figure's digits. */
   --verdict-badge: 2.25rem;
-  --mark-caption: 1.75rem;
+  --mark-caption: 2.25rem;
   --verdict-caption-gap: 0.625rem;
   --verdict-figure-gap: 2.25rem;
   --verdict-row: calc(var(--verdict-figure) + var(--verdict-caption-gap) + var(--mark-caption));

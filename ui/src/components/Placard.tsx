@@ -208,10 +208,10 @@ export function Stars({ rating, className }: { rating: RatingFact; className?: s
 /** A verdict on the hero, set as a figure: the value large, what it is small beneath it. */
 function Figure({ value, caption, ...data }: { value: ReactNode; caption: ReactNode } & Record<`data-${string}`, string>) {
   return (
-    <span {...data} className="flex flex-col items-start gap-(--verdict-caption-gap)">
+    <span {...data} className="flex flex-col items-center gap-(--verdict-caption-gap)">
       {/* A fixed slot: the stars' glyphs come from a font with a taller line than the figures'. */}
       <span className="flex h-(--verdict-figure) items-end">{value}</span>
-      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label-soft">{caption}</span>
+      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label">{caption}</span>
     </span>
   );
 }
@@ -280,7 +280,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
         "font-reading leading-reading text-label-soft",
         full ? "line-clamp-8" : hero ? "line-clamp-3" : "line-clamp-2",
         hold && (hero ? "min-h-[3lh]" : "min-h-[2lh]"),
-        hero ? "text-lead" : "text-body",
+        hero ? "text-(length:--size-reading-hero)" : "text-body",
       )}
     >
       {lines.overview}
@@ -289,9 +289,8 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
 
   if (hero) {
     // A wall label: the title, then the story (the byline, bright, over the description) beside the
-    // verdicts as figures with the file under them. The byline stands level with the figures and the
-    // description ends on the file's line. Where the placard is narrow (Show, a small window) the
-    // two stack.
+    // verdicts as figures with the file under them, set off by a rule. Both columns start level with
+    // the byline. Where the placard is narrow (Show, a small window) the two stack.
     const credit = (hold || lines.credit) && (
       <p data-line="credit" className="min-h-[1lh] truncate font-display font-ui text-heading tracking-title text-label">
         {lines.credit}
@@ -303,7 +302,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
         {title}
         <div
           data-line="body"
-          className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-end @placard-split:gap-x-(--placard-split-gap)"
+          className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-start @placard-split:gap-x-(--placard-split-gap)"
         >
           {story && (
             <div data-line="story" className="flex min-w-0 flex-col gap-3">
@@ -320,7 +319,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               )}
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-5 font-display text-body text-label-dim @placard-split:border-l @placard-split:border-line @placard-split:pl-(--placard-rule-pad)">
+          <div className="flex min-w-0 flex-col gap-5 self-stretch font-display text-body text-label-dim @placard-split:border-l @placard-split:border-line @placard-split:pl-(--placard-rule-pad)">
             {verdicts && (
               <div
                 data-line="verdicts"
@@ -352,10 +351,10 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               // The file, then what it is heard and read in on a line of its own: a longer language
               // (Spanish) never cuts the other short.
               <div data-line="facts" className="flex flex-col gap-1">
-                <p className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
-                  {lines.facts && <span className="min-w-0 truncate">{lines.facts}</span>}
+                <p className="flex min-h-(--mark-hero-tall) items-center gap-(--mark-gap) text-label">
+                  {lines.facts && <span className="min-w-0 truncate font-ui text-lead">{lines.facts}</span>}
                   {lines.marks.map((m) => (
-                    <FormatMark key={m.id} mark={m} size="panel" />
+                    <FormatMark key={m.id} mark={m} size="hero" />
                   ))}
                 </p>
                 {(hold || lines.languages) && <p className="min-h-[1lh] truncate">{lines.languages}</p>}
