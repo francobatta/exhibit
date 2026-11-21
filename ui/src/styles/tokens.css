@@ -98,6 +98,9 @@
 
   /* Space and shape. */
   --space-edge: 4.5rem;
+  /* The column at the window's right edge that the search field and settings, a section's views and
+     the wall's panel share, so all three start on one line. */
+  --rail: 27rem;
   /* The top bar, read from across the room: its height, the size of its sections, the mark and the
      search field's words, a control's height (a section, the field, settings), settings' icon, and
      the field's width. Pages start --space-bar down: the bar, and under a section's views their row. */
@@ -108,7 +111,8 @@
   --size-bar-field: 1.25rem;
   --bar-control: 3.5rem;
   --bar-icon: 2.25rem;
-  --bar-field: 26rem;
+  --bar-gap: 1.5rem;
+  --bar-field: calc(var(--rail) - var(--bar-control) - var(--bar-gap));
   /* The row naming a section's views (Movies: Spotlight, All movies) under the bar: its height, the
      size of its names and the space between them. */
   --views-row: 3.5rem;
@@ -179,7 +183,7 @@
   --home-peek: 3.5rem;
   /* The wall: the details panel's share of the window beside the grid, a portrait's width in its
      cast, and the room under the cast for the hint line. */
-  --wall-panel: 26%;
+  --wall-panel: calc(var(--rail) + var(--space-edge));
   --wall-portrait: 7rem;
   --wall-panel-foot: 5.5rem;
   /* The row of controls above a wall: its height, and the size of its words (sort, filters, the count). */

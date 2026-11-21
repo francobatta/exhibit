@@ -197,7 +197,7 @@ export function TopBar() {
           })}
         </nav>
 
-        <div className="ml-auto flex items-center gap-6">
+        <div className="ml-auto flex items-center gap-(--bar-gap)">
           {job !== null && (
             <p
               role="status"

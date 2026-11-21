@@ -36,7 +36,7 @@ function ViewButton({ view, on }: { view: SectionView; on: boolean }) {
       type="button"
       aria-current={on ? "page" : undefined}
       className={cn(
-        "relative flex h-full items-center font-display text-(length:--size-views) font-ui outline-none transition-colors",
+        "relative flex h-full flex-1 items-center justify-center font-display text-(length:--size-views) font-ui outline-none transition-colors",
         on ? "text-label" : "text-label-dim hover:text-label",
         focused && "text-label",
       )}
@@ -84,10 +84,10 @@ export function SectionViews({
         aria-label={t("sections.label")}
         className="flex h-(--views-row) px-edge"
       >
-        <div className="relative flex items-stretch gap-(--views-gap) px-(--views-pad)">
+        <div className="relative flex w-(--rail) items-stretch gap-(--views-gap) px-(--views-pad)">
           <span aria-hidden className="views-ring" />
           {mode !== "pointer" && (
-            <span aria-hidden className="flex items-center gap-1 self-center">
+            <span aria-hidden className="flex shrink-0 items-center gap-1 self-center">
               <Glyph action="views" mode={mode} />
             </span>
           )}
