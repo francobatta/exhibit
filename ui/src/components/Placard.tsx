@@ -6,6 +6,7 @@
 // every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
 // say is left out, except on Home, where the placard keeps its shape (see `hold`).
 
+import type { ReactNode } from "react";
 import { language, t, useT } from "@/i18n";
 import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, SourcedScore, TechInfo } from "@/lib/api";
 import { useServices } from "@/lib/queries";
@@ -200,12 +201,12 @@ export function Stars({ rating, className }: { rating: RatingFact; className?: s
   );
 }
 
-/** One kind of track and its languages, named quietly before them. */
-function Tracks({ name, value }: { name: string; value: string }) {
+/** A verdict on the hero, set as a figure: the value large, what it is small beneath it. */
+function Figure({ value, caption, ...data }: { value: ReactNode; caption: ReactNode } & Record<`data-${string}`, string>) {
   return (
-    <span className="min-w-0 truncate">
-      <span className="text-label-faint">{name} </span>
+    <span {...data} className="flex flex-col items-start gap-(--verdict-caption-gap)">
       {value}
+      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label-dim">{caption}</span>
     </span>
   );
 }
@@ -247,44 +248,121 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
   const services = useServices().data;
   const scores = orderedScores(lines.verdicts.public, services).slice(0, PUBLIC_SCORES);
   const verdicts = mine !== null || scores.length > 0 || (hold && holdVerdicts);
-  return (
-    <div className={cn("flex w-full flex-col", hero ? "max-w-measure gap-5" : "gap-3", className)}>
-      <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
-        <FitTitle
-          text={name.main}
-          maxLines={2}
-          className={cn(
-            "font-display text-label",
-            hero ? "text-hero font-title tracking-display" : "text-title font-title tracking-title",
-          )}
-        />
-        {name.sub !== null && (
-          <p
-            data-line="subtitle"
-            className={cn(
-              "font-display font-ui text-balance text-label",
-              hero ? "text-heading tracking-title" : "text-lead",
-            )}
-          >
-            {name.sub}
+  const title = (
+    <hgroup data-line="title" className={cn("flex flex-col", hero ? "gap-3" : "gap-1.5")}>
+      <FitTitle
+        text={name.main}
+        maxLines={2}
+        className={cn(
+          "font-display text-label",
+          hero ? "text-hero font-title tracking-display" : "text-title font-title tracking-title",
+        )}
+      />
+      {name.sub !== null && (
+        <p
+          data-line="subtitle"
+          className={cn("font-display font-ui text-balance text-label", hero ? "text-heading tracking-title" : "text-lead")}
+        >
+          {name.sub}
+        </p>
+      )}
+    </hgroup>
+  );
+  const overview = (hold || lines.overview) && (
+    <p
+      data-line="overview"
+      className={cn(
+        "font-reading leading-reading text-label-soft",
+        full ? "line-clamp-8" : "line-clamp-2",
+        hold && "min-h-[2lh]",
+        hero ? "text-lead" : "text-body",
+      )}
+    >
+      {lines.overview}
+    </p>
+  );
+
+  if (hero) {
+    // A wall label: the title, a bright byline, then the story beside the verdicts as figures, with
+    // the file under them. Where the placard is narrow (Show, a small window) the two stack.
+    const story = Boolean(overview) || after.length > 0;
+    return (
+      <div className={cn("@container flex w-full flex-col gap-6", className)}>
+        {title}
+        {(hold || lines.credit) && (
+          <p data-line="credit" className="min-h-[1lh] truncate font-display font-ui text-heading tracking-title text-label">
+            {lines.credit}
           </p>
         )}
-      </hgroup>
+        <div
+          data-line="body"
+          className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-end @placard-split:gap-x-(--placard-split-gap)"
+        >
+          {story && (
+            <div data-line="story" className="flex min-w-0 flex-col gap-3">
+              {overview}
+              {after.map((l) => (
+                <p key={l} className="line-clamp-2 font-display text-body text-label-dim">
+                  {l}
+                </p>
+              ))}
+            </div>
+          )}
+          <div className="flex min-w-0 flex-col gap-5 font-display text-body text-label-dim">
+            {verdicts && (
+              <div
+                data-line="verdicts"
+                className={cn("flex items-end gap-x-(--verdict-figure-gap) whitespace-nowrap", hold && holdVerdicts && "min-h-(--verdict-row)")}
+              >
+                {mine && (
+                  <Figure
+                    data-figure="mine"
+                    value={<Stars rating={mine} className="text-(length:--verdict-figure-stars)" />}
+                    caption={
+                      <>
+                        <ServiceMark service={mine.service} size="caption" />
+                        <span>{t("placard.yours")}</span>
+                      </>
+                    }
+                  />
+                )}
+                {scores.map(({ score, origin }) => (
+                  <Figure
+                    key={score.origin}
+                    data-score={score.origin}
+                    value={<ScoreValue score={score} origin={origin} className="text-(length:--verdict-figure) font-title" />}
+                    caption={<OriginMark origin={origin} size="caption" />}
+                  />
+                ))}
+              </div>
+            )}
+            {(hold || lines.facts || lines.marks.length > 0 || lines.languages) && (
+              <p data-line="facts" className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
+                {lines.facts && <span className="shrink-0 whitespace-nowrap">{lines.facts}</span>}
+                {lines.marks.map((m) => (
+                  <FormatMark key={m.id} mark={m} size="panel" />
+                ))}
+                {lines.languages && <span className="min-w-0 truncate">{lines.languages}</span>}
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn("flex w-full flex-col gap-3", className)}>
+      {title}
       {(hold || lines.credit || lines.facts || verdicts || after.length > 0) && (
-        <div className={cn("flex flex-col font-display text-label-dim", hero ? "gap-1 text-lead" : "gap-0.5 text-body")}>
+        <div className="flex flex-col gap-0.5 font-display text-body text-label-dim">
           {(hold || lines.credit) && (
             <p data-line="credit" className="min-h-[1lh] truncate font-ui text-label">
               {lines.credit}
             </p>
           )}
           {(hold || lines.facts || lines.marks.length > 0) && (
-            <p
-              data-line="facts"
-              className={cn(
-                "flex items-center gap-(--mark-gap)",
-                hero ? "min-h-(--mark-hero-tall)" : "min-h-(--mark-panel-tall)",
-              )}
-            >
+            <p data-line="facts" className="flex min-h-(--mark-panel-tall) items-center gap-(--mark-gap)">
               {lines.facts && <span className="min-w-0 truncate">{lines.facts}</span>}
               {lines.marks.map((m) => (
                 <FormatMark key={m.id} mark={m} size={size} />
@@ -294,10 +372,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           {verdicts && (
             <p
               data-line="verdicts"
-              className={cn(
-                "flex items-center gap-x-3 whitespace-nowrap",
-                hero ? "min-h-(--verdict-star) text-(length:--verdict-star)" : "min-h-(--verdict-star-panel) text-(length:--verdict-star-panel)",
-              )}
+              className="flex min-h-(--verdict-star-panel) items-center gap-x-3 text-(length:--verdict-star-panel) whitespace-nowrap"
             >
               {mine && <Stars rating={mine} />}
               {mine && <ServiceMark service={mine.service} size={size} />}
@@ -318,28 +393,9 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               {l}
             </p>
           ))}
-          {/* Beside a wall, the panel lists the tracks in full below the placard. */}
-          {hero && (hold || lines.sound || lines.subtitles) && (
-            <p data-line="tracks" className="mt-1.5 flex min-h-[1lh] gap-8 text-body">
-              {lines.sound && <Tracks name={t("placard.sound")} value={lines.sound} />}
-              {lines.subtitles && <Tracks name={t("placard.subtitles")} value={lines.subtitles} />}
-            </p>
-          )}
         </div>
       )}
-      {(hold || lines.overview) && (
-        <p
-          data-line="overview"
-          className={cn(
-            "font-reading leading-reading text-label-soft",
-            full ? "line-clamp-8" : "line-clamp-2",
-            hold && "min-h-[2lh]",
-            hero ? "text-lead" : "text-body",
-          )}
-        >
-          {lines.overview}
-        </p>
-      )}
+      {overview}
     </div>
   );
 }

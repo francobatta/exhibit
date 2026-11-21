@@ -75,6 +75,15 @@
      it: on the hero (Home, Details) and on the wall's panel. */
   --verdict-star: 1.5rem;
   --verdict-star-panel: 1.2rem;
+  /* The hero's verdicts, set as figures: a score's value, the owner's stars, the mark naming each
+     beneath it and the space above that mark, the space between figures, and the row's height, held
+     on Home so a work without verdicts moves nothing. */
+  --verdict-figure: 3rem;
+  --verdict-figure-stars: 2.25rem;
+  --mark-caption: 1rem;
+  --verdict-caption-gap: 0.625rem;
+  --verdict-figure-gap: 2.5rem;
+  --verdict-row: calc(var(--verdict-figure) + var(--verdict-caption-gap) + var(--mark-caption));
   --stretch-poster: 75%;
   --stretch-mark: 112%;
   --track-title: -0.02em;
@@ -96,6 +105,10 @@
   --hint-pad: 1rem;
   --hint-scrim: color-mix(in oklch, var(--wall) 78%, transparent);
   --placard-measure: 46rem;
+  /* The hero placard: the right column holding its verdicts and file, and the gap before it. It
+     stands beside the story once the placard is as wide as --container-placard-split. */
+  --placard-side: 36rem;
+  --placard-split-gap: 4rem;
   /* Between works on a shelf or a wall, and the room a scroller keeps above works for their light. */
   --space-work-gap: 1.75rem;
   --space-light: 4rem;
@@ -350,4 +363,10 @@
   --ease-out: var(--curve-out);
   --default-transition-duration: var(--dur-control);
   --default-transition-timing-function: var(--curve-out);
+}
+
+/* A container query cannot read a variable, so the hero placard's split is a plain theme value:
+   the `@placard-split:` variant. */
+@theme {
+  --container-placard-split: 60rem;
 }

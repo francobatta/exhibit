@@ -29,9 +29,13 @@ describe("verdicts", () => {
       const view = withServices(<Placard item={d.item} detail={d} size={size} />);
       const line = view.container.querySelector("[data-line=verdicts]")!;
       expect(line).not.toBeNull();
-      // After the facts.
+      // Beside a wall, after the facts; on the hero, beside the story and above the file line.
       const names = lineNames(view.container);
-      expect(names.indexOf("verdicts")).toBeGreaterThan(names.indexOf("facts"));
+      if (size === "panel") expect(names.indexOf("verdicts")).toBeGreaterThan(names.indexOf("facts"));
+      else {
+        expect(names.indexOf("verdicts")).toBeGreaterThan(names.indexOf("story"));
+        expect(names.indexOf("verdicts")).toBeLessThan(names.indexOf("facts"));
+      }
       expect(line.querySelector("[aria-label='Rated 4.5 out of 5']")?.textContent).toBe("★★★★½");
       const mark = await waitFor(() => view.getByRole("img", { name: "Letterboxd" }));
       expect(line.contains(mark)).toBe(true);
@@ -71,12 +75,61 @@ describe("verdicts", () => {
     expect(view.getByRole("img", { name: "Tomatometer 89%" })).not.toBeNull();
     expect(view.getByRole("img", { name: "Metacritic 94" }).hasAttribute("data-badge")).toBe(true);
     // The rating comes first.
-    expect(line.firstElementChild?.getAttribute("aria-label")).toBe("Rated 4 out of 5");
+    expect(line.firstElementChild?.querySelector("[role=img]")?.getAttribute("aria-label")).toBe("Rated 4 out of 5");
     // Without the service that describes them, scores are not shown.
     view.unmount();
     const bare = withServices(<Placard item={d.item} detail={d} size="panel" />, [service()]);
     await waitFor(() => expect(bare.getByRole("img", { name: "Letterboxd" })).not.toBeNull());
     expect(bare.container.querySelectorAll("[data-score]").length).toBe(0);
+  });
+
+  test("the_hero_sets_the_story_beside_the_verdicts", async () => {
+    const d = detail(
+      {
+        activity: activity({ ratings: [{ service: "letterboxd", on: 1, value: 4.5, scale: 5 }] }),
+        reception: [score("imdb", 8.2), score("tomatometer", 89), score("metacritic", 94)],
+        files: [
+          {
+            id: 1,
+            source_id: 1,
+            rel_path: "a.mkv",
+            size: 1,
+            mtime: 0,
+            item_id: 1,
+            tech: { duration_s: 6840, width: 1920, height: 1080, video_codec: "h264", hdr: null, audio: [audioTrack()], subtitles: [subTrack()] },
+          },
+        ],
+      },
+      { overview: "A lonely veteran drives a taxi at night." },
+    );
+    const view = withServices(<Placard item={d.item} detail={d} size="hero" />, [service(), scoresService()]);
+    const line = view.container.querySelector("[data-line=verdicts]")!;
+    await waitFor(() => expect(line.querySelectorAll("[data-score]").length).toBe(3));
+    expect(lineNames(view.container)).toEqual(["title", "credit", "body", "story", "overview", "verdicts", "facts"]);
+    // Each score is a figure: its value, then its origin's mark beneath.
+    for (const figure of line.querySelectorAll("[data-score]")) {
+      const parts = [...figure.querySelectorAll("[role=img]")];
+      expect(parts.length).toBe(2);
+      expect(parts[1]!.hasAttribute("data-origin")).toBe(true);
+    }
+    // The owner's stars, with the service's mark and "Yours" beneath.
+    const mine = line.querySelector("[data-figure=mine]")!;
+    expect(mine.querySelector("[aria-label='Rated 4.5 out of 5']")).not.toBeNull();
+    expect(mine.querySelector("[data-service=letterboxd]")).not.toBeNull();
+    expect(mine.textContent).toContain("Yours");
+    // The file line carries the languages; the tracks line is gone from the hero.
+    expect(view.container.querySelector("[data-line=facts]")?.textContent).toContain("English, 1 subtitle");
+    expect(view.container.querySelector("[data-line=tracks]")).toBeNull();
+  });
+
+  test("the_held_hero_keeps_an_empty_verdicts_row", () => {
+    const on = withServices(<Placard item={summary()} size="hero" holdVerdicts />);
+    expect(on.container.querySelector("[data-line=verdicts]")?.textContent).toBe("");
+    expect(on.container.querySelector("[data-line=facts]")).not.toBeNull();
+    on.unmount();
+    const off = withServices(<Placard item={summary()} size="hero" />);
+    expect(lineNames(off.container)).not.toContain("verdicts");
+    expect(off.container.querySelector("[data-line=facts]")).not.toBeNull();
   });
 
   test("stars_for_4_5_of_5_are_four_and_a_half", () => {

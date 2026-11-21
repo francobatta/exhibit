@@ -12,6 +12,7 @@ const HEIGHT = {
   hero: "h-(--mark-hero)",
   panel: "h-(--mark-panel)",
   line: "h-(--mark-line)",
+  caption: "h-(--mark-caption)",
 };
 
 type Size = keyof typeof HEIGHT;
