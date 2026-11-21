@@ -89,7 +89,7 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
       data-entry={entry.id}
     >
       {/* Outside the page's scope, like the bar: the page opens on its own work, never on these. */}
-      {views !== null && <SectionViews views={views} route={entry.route} />}
+      {views !== null && <SectionViews views={views} route={entry.route} live={live} />}
       <FocusScope
         id={`entry-${entry.id}`}
         restoreKey={entry.focusKey}

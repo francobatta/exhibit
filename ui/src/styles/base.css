@@ -256,3 +256,31 @@
       );
   }
 }
+
+/* A view not showing: a glint crosses it twice as its section opens (components/SectionViews). */
+.views-glint {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.views-glint::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, var(--views-glint), transparent);
+  transform: translateX(-120%);
+  animation: views-glint var(--dur-views-glint) var(--curve-out) var(--delay-views-glint) 2 both;
+}
+@keyframes views-glint {
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .views-glint::after {
+    animation: none;
+    opacity: 0;
+  }
+}

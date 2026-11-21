@@ -5,13 +5,14 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { focusedHandlers, useFocusState, type InputMode, type ItemHandlers } from "@/focus/bridge";
 import { useInputMode } from "@/focus/react";
+import { nextView } from "@/nav/sections";
 import { t, useLanguage, useT } from "@/i18n";
 import { useStatus } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { useNav } from "@/nav/stack";
 
 /** A, Left and Right, X, Y, LB/RB, the Menu button and B; as keys Enter, the arrows, M, /, [ ], none, Esc. */
-export type HintAction = "select" | "adjust" | "menu" | "ask" | "sections" | "done" | "back";
+export type HintAction = "select" | "adjust" | "menu" | "ask" | "sections" | "views" | "done" | "back";
 
 export interface Hint {
   action: HintAction;
@@ -23,6 +24,8 @@ export interface HintContext {
   canAsk: boolean;
   /** LB and RB change section: outside dialogs and first run. */
   sections: boolean;
+  /** The view the pad's View button (V) switches to, on a section's view; none elsewhere. */
+  view?: string;
   /** What Y is called here: Search, or Ask once an agent is set up. */
   askLabel: string;
   /** Keys are typing into a field: Enter, `/` and `[ ]` belong to it, and only Esc acts. */
@@ -40,11 +43,12 @@ export function hints(item: ItemHandlers | null, at: HintContext): Hint[] {
   if (at.canAsk) out.push({ action: "ask", label: at.askLabel });
   if (item?.leap) out.push({ action: "sections", label: item.leap });
   else if (at.sections) out.push({ action: "sections", label: t("hints.sections") });
+  if (at.view) out.push({ action: "views", label: at.view });
   if (at.canBack) out.push({ action: "back", label: t("hints.back") });
   return out;
 }
 
-const PAD: Record<Exclude<HintAction, "sections" | "done" | "adjust">, string> = { select: "A", menu: "X", ask: "Y", back: "B" };
+const PAD: Record<Exclude<HintAction, "sections" | "views" | "done" | "adjust">, string> = { select: "A", menu: "X", ask: "Y", back: "B" };
 
 /** A face button: a filled disc with its letter. */
 function Disc({ children }: { children: ReactNode }) {
@@ -95,6 +99,18 @@ function MenuGlyph() {
   );
 }
 
+/** The pad's View button: two overlapping frames in a disc. */
+function ViewGlyph() {
+  return (
+    <Disc>
+      <svg viewBox="0 0 12 12" aria-hidden className="size-[0.85em]" fill="none" stroke="currentColor" strokeWidth="1.4">
+        <rect x="1.5" y="1.5" width="6" height="5" rx="1" />
+        <rect x="4.5" y="5.5" width="6" height="5" rx="1" />
+      </svg>
+    </Disc>
+  );
+}
+
 /** The glyphs for `action` on `mode`'s device; null when the device has no such button. */
 export function Glyph({ action, mode }: { action: HintAction; mode: Exclude<InputMode, "pointer"> }) {
   if (mode === "pad") {
@@ -107,6 +123,7 @@ export function Glyph({ action, mode }: { action: HintAction; mode: Exclude<Inpu
       );
     }
     if (action === "done") return <MenuGlyph />;
+    if (action === "views") return <ViewGlyph />;
     if (action === "adjust") return <DpadSides />;
     return <Disc>{PAD[action]}</Disc>;
   }
@@ -131,6 +148,8 @@ export function Glyph({ action, mode }: { action: HintAction; mode: Exclude<Inpu
           <Cap>]</Cap>
         </>
       );
+    case "views":
+      return <Cap>V</Cap>;
     case "back":
       return <Cap>{t("keys.esc")}</Cap>;
     case "done":
@@ -192,12 +211,14 @@ export function Hints() {
   const field = useFocusState((s) => s.field);
   const mode = useInputMode();
   const firstRun = useNav((s) => s.entries[0]!.route.screen === "firstRun");
+  const next = useNav((s) => (s.entries.length === 1 ? nextView(s.entries[0]!.route) : null));
   const agent = Boolean(useStatus().data?.agent_key);
   if (ownHints) return null;
   const at: HintContext = {
     canBack,
     canAsk,
     sections: modal === null && !firstRun,
+    view: modal === null && next !== null ? t(next.label) : undefined,
     // In Ask, Y goes back to its field.
     askLabel: agent && modal === null ? t("hints.ask") : t("hints.search"),
     // The pad's A opens the on-screen keyboard on a field, so the pad keeps its hints there.
