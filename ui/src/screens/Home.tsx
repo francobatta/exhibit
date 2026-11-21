@@ -17,7 +17,8 @@ import { jobLine } from "@/components/TopBar";
 import { t, useT } from "@/i18n";
 import { hasActivity, hasReception, mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
-import { glideScroll, remPx, seconds, stopGlide } from "@/lib/motion";
+import { motion } from "motion/react";
+import { easeOut, focusSpring, glideScroll, remPx, rems, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
 import { useNav } from "@/nav/stack";
@@ -124,15 +125,24 @@ function Spotlight({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
   }, [current.backdrop, current.poster]);
 
   const ctx = useActionContext();
-  const latest = useRef({ detail, ctx });
+  const latest = useRef({ detail, ctx, rows });
   useLayoutEffect(() => {
-    latest.current = { detail, ctx };
+    latest.current = { detail, ctx, rows };
   });
   const open = useCallback((item: ItemSummary) => {
     const { detail, ctx } = latest.current;
     runMain(detail?.item.id === item.id ? detail : item, ctx);
   }, []);
+  // Which side the next work's placard comes in from: the way focus moved along its shelf (1 from
+  // the right, -1 from the left), none when it came from another shelf.
+  const [from, setFrom] = useState(0);
+  const was = useRef(focused);
   const focus = useCallback((item: ItemSummary, row: ShelfName) => {
+    const items = latest.current.rows.find((r) => r.shelf === row)?.items ?? [];
+    const a = items.findIndex((i) => i.id === was.current.id);
+    const b = items.findIndex((i) => i.id === item.id);
+    was.current = item;
+    setFrom(a < 0 || b < 0 ? 0 : Math.sign(b - a));
     setFocused(item);
     setActive(row);
   }, []);
@@ -144,7 +154,15 @@ function Spotlight({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="flex max-w-measure-hero flex-col gap-5">
-            <Placard item={current} detail={detail} size="hero" holdVerdicts={verdicts} />
+            {/* A new work's label slides in a little from the way focus moved; nothing else moves. */}
+            <motion.div
+              key={current.id}
+              initial={{ opacity: 0, x: from * rems("--shift-placard") * remPx() }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ x: focusSpring(), opacity: { duration: seconds("--dur-control"), ease: easeOut() } }}
+            >
+              <Placard item={current} detail={detail} size="hero" holdVerdicts={verdicts} />
+            </motion.div>
             <Cues
               id="home-cues"
               prefix="hero"

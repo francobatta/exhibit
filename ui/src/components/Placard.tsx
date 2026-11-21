@@ -211,7 +211,7 @@ function Figure({ value, caption, ...data }: { value: ReactNode; caption: ReactN
     <span {...data} className="flex flex-col items-start gap-(--verdict-caption-gap)">
       {/* A fixed slot: the stars' glyphs come from a font with a taller line than the figures'. */}
       <span className="flex h-(--verdict-figure) items-end">{value}</span>
-      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label-dim">{caption}</span>
+      <span className="flex h-(--mark-caption) items-center gap-2 text-body text-label-soft">{caption}</span>
     </span>
   );
 }
@@ -278,8 +278,8 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
       data-line="overview"
       className={cn(
         "font-reading leading-reading text-label-soft",
-        full ? "line-clamp-8" : "line-clamp-2",
-        hold && "min-h-[2lh]",
+        full ? "line-clamp-8" : hero ? "line-clamp-3" : "line-clamp-2",
+        hold && (hero ? "min-h-[3lh]" : "min-h-[2lh]"),
         hero ? "text-lead" : "text-body",
       )}
     >
@@ -306,7 +306,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
           className="grid gap-y-6 @placard-split:grid-cols-[minmax(0,1fr)_var(--placard-side)] @placard-split:items-end @placard-split:gap-x-(--placard-split-gap)"
         >
           {story && (
-            <div data-line="story" className="flex min-w-0 flex-col justify-between gap-4 self-stretch">
+            <div data-line="story" className="flex min-w-0 flex-col gap-3">
               {credit}
               {(overview || after.length > 0) && (
                 <div className="flex flex-col gap-3">
@@ -320,7 +320,7 @@ export function Placard({ item, detail, size, more = [], full = false, hold: hol
               )}
             </div>
           )}
-          <div className="flex min-w-0 flex-col gap-5 font-display text-body text-label-dim">
+          <div className="flex min-w-0 flex-col gap-5 font-display text-body text-label-dim @placard-split:border-l @placard-split:border-line @placard-split:pl-(--placard-rule-pad)">
             {verdicts && (
               <div
                 data-line="verdicts"
