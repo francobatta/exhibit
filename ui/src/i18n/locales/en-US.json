@@ -78,7 +78,9 @@
     "season_other": "{{count, number}} seasons",
     "track_one": "{{count, number}} track",
     "track_other": "{{count, number}} tracks",
-    "more": "{{count, number}} more"
+    "more": "{{count, number}} more",
+    "subtitle_one": "{{count, number}} subtitle",
+    "subtitle_other": "{{count, number}} subtitles"
   },
   "format": {
     "hoursMinutes": "{{h}} h {{m}} min",
@@ -109,7 +111,11 @@
     "left": "{{time}} left",
     "sound": "Sound",
     "subtitles": "Subtitles",
-    "none": "None"
+    "none": "None",
+    "noSubtitles": "no subtitles",
+    "heardMore_one": "{{first}} and {{count, number}} other language",
+    "heardMore_other": "{{first}} and {{count, number}} other languages",
+    "yours": "Yours"
   },
   "cues": {
     "actions": "Actions",

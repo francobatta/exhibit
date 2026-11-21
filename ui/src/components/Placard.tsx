@@ -6,7 +6,7 @@
 // every line built with `format.facts` so a missing fact leaves no trace. A line with nothing to
 // say is left out, except on Home, where the placard keeps its shape (see `hold`).
 
-import { t, useT } from "@/i18n";
+import { language, t, useT } from "@/i18n";
 import type { Item, ItemDetail, ItemSummary, RatingFact, Sourced, SourcedScore, TechInfo } from "@/lib/api";
 import { useServices } from "@/lib/queries";
 import { episodeLabel, facts, languageName, listed, number, runtime, started, stars, titleOf } from "@/lib/format";
@@ -28,6 +28,8 @@ export interface PlacardLines {
   sound: string | null;
   /** The languages of its full subtitles, "None", or how many unnamed tracks. */
   subtitles: string | null;
+  /** The hero's short form of both: "English, 19 subtitles". */
+  languages: string | null;
   /** How far a started, unwatched work has got; shown beside its action. */
   progress: Progress | null;
   overview: string | null;
@@ -64,6 +66,31 @@ export function trackLines(tech: TechInfo | null): { sound: string | null; subti
   };
 }
 
+/**
+ * What a file can be heard and read in, short enough for one line beside the format marks: the
+ * film's own language named, the others heard and the subtitles counted ("English and 2 other
+ * languages, 19 subtitles"). Subtitles count by language, else by track when none is named.
+ */
+export function heardAndRead(tech: TechInfo | null): string | null {
+  if (tech === null) return null;
+  const heard = [
+    ...new Set(
+      tech.audio
+        .filter((a) => !a.commentary)
+        .sort((a, b) => Number(b.original) - Number(a.original))
+        .map((a) => languageName(a.lang))
+        .filter((n) => n !== null),
+    ),
+  ];
+  const subs = tech.subtitles.filter((s) => !s.forced);
+  const read = new Set(subs.map((s) => languageName(s.lang)).filter((n) => n !== null)).size || subs.length;
+  const subtitles = read > 0 ? t("units.subtitle", { count: read }) : t("placard.noSubtitles");
+  const first = heard[0];
+  if (first === undefined) return subtitles.charAt(0).toLocaleUpperCase(language()) + subtitles.slice(1);
+  const said = heard.length > 1 ? t("placard.heardMore", { first, count: heard.length - 1 }) : first;
+  return facts([said, subtitles]);
+}
+
 const isSummary = (item: ItemSummary | Item): item is ItemSummary => "available" in item;
 const yearOf = (y: number | null | undefined) => (typeof y === "number" && y > 0 ? String(y) : null);
 
@@ -78,7 +105,7 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
   const credit =
     kind === "episode"
       ? facts([summary?.show_title, episodeLabel(full?.season ?? item.season, full?.episode ?? item.episode), year])
-      : facts([year, director]);
+      : facts([director, year]);
 
   const tech = detail?.files.find((f) => f.tech !== null)?.tech ?? null;
   const picture = tech
@@ -122,6 +149,7 @@ export function placardLines(item: ItemSummary | Item, detail?: ItemDetail): Pla
         ]),
     marks: absent ? [] : sound === null ? picture.marks : [...picture.marks, sound],
     ...trackLines(tech),
+    languages: absent ? null : heardAndRead(tech),
     progress,
     overview: full?.overview?.trim() || null,
     verdicts: {

@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { CJK, LONG, activity, audioTrack, clean, detail, fullItem, score, scoresService, service, subTrack, summary } from "../../test/fixtures";
 import { tauri } from "../../test/setup";
 import { stars } from "@/lib/format";
-import { Placard, placardLines, splitTitle, trackLines } from "./Placard";
+import { heardAndRead, Placard, placardLines, splitTitle, trackLines } from "./Placard";
 
 afterEach(cleanup);
 
@@ -93,6 +93,7 @@ describe("verdicts", () => {
   test("a film with no file says it is not in the library, not its runtime", () => {
     const wanted = detail({ files: [], available: false });
     expect(placardLines(wanted.item, wanted).facts).toBe("Not in your library");
+    expect(placardLines(wanted.item, wanted).languages).toBeNull();
     expect(placardLines(summary({ in_library: false, available: false, height: null, width: null })).facts).toBe("Not in your library");
     // A show has no files of its own and is in the library all the same.
     const show = detail({ files: [] }, { kind: "show", runtime_min: null });
@@ -135,7 +136,7 @@ describe("placardLines", () => {
     );
     expect(placardLines(d.item, d)).toEqual({
       title: "Taxi Driver",
-      credit: "1976, Martin Scorsese",
+      credit: "Martin Scorsese, 1976",
       facts: "1 h 54 min, Watched",
       marks: [
         { id: "ultra-hd", name: "4K Ultra HD" },
@@ -143,6 +144,7 @@ describe("placardLines", () => {
       ],
       sound: null,
       subtitles: "None",
+      languages: "No subtitles",
       progress: null,
       overview: "A mentally unstable veteran works as a night-time taxi driver.",
       verdicts: { mine: null, public: [] },
@@ -156,6 +158,40 @@ describe("placardLines", () => {
     expect(lines.progress).toEqual({ done: 0.5, left: "57 min left" });
     expect(lines.marks.map((m) => m.id)).toEqual(["hd-1080p"]);
     expect(lines.overview).toBeNull();
+  });
+
+  test("the_file_line_names_what_is_heard_and_counts_the_subtitles", () => {
+    const tech = (audio: ReturnType<typeof audioTrack>[], subtitles: ReturnType<typeof subTrack>[]) => ({
+      duration_s: 1,
+      width: 1920,
+      height: 1080,
+      video_codec: "h264",
+      hdr: null,
+      audio,
+      subtitles,
+    });
+    const subs = (...langs: Array<string | null>) => langs.map((lang) => subTrack({ lang }));
+    expect(heardAndRead(null)).toBeNull();
+    expect(heardAndRead(tech([audioTrack()], subs("eng", "chi", "cze", "ger")))).toBe("English, 4 subtitles");
+    expect(heardAndRead(tech([audioTrack()], subs("eng")))).toBe("English, 1 subtitle");
+    expect(heardAndRead(tech([audioTrack()], []))).toBe("English, no subtitles");
+    // A language with several tracks (full and SDH) is counted once.
+    expect(heardAndRead(tech([audioTrack()], subs("eng", "eng", "spa")))).toBe("English, 2 subtitles");
+    // Forced tracks are not the film's subtitles; unnamed tracks are counted when none is named.
+    expect(heardAndRead(tech([audioTrack()], [subTrack({ forced: true }), ...subs(null, null)]))).toBe("English, 2 subtitles");
+    // The original is named first and the rest are counted, so the two parts never run together; commentaries are left out.
+    const heard = [
+      audioTrack({ lang: "rus" }),
+      audioTrack({ lang: "eng", original: true }),
+      audioTrack({ lang: "fre", commentary: true }),
+      audioTrack({ lang: "ukr" }),
+      audioTrack({ lang: "ger" }),
+      audioTrack({ lang: "ita" }),
+    ];
+    expect(heardAndRead(tech(heard, subs("eng")))).toBe("English and 4 other languages, 1 subtitle");
+    expect(heardAndRead(tech(heard.slice(0, 2), []))).toBe("English and 1 other language, no subtitles");
+    // Nothing heard: the subtitles alone, as a phrase of their own.
+    expect(heardAndRead(tech([], []))).toBe("No subtitles");
   });
 
   test("an episode names its show and place", () => {
