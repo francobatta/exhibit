@@ -42,7 +42,7 @@ export function watchlistLine(n: number, wanted: number): string {
   return facts([t("activity.watchlistCount", { count: n }), wanted > 0 ? t("activity.notInLibraryCount", { count: wanted }) : null]);
 }
 
-const control = "relative focus-visible:bg-transparent focus:text-label";
+const control = "relative h-(--wall-controls) text-(length:--size-wall-controls) focus-visible:bg-transparent focus:text-label";
 
 function SortToggle({ sort, view, onView }: { sort: Sort; view: WallView; onView: (view: WallView) => void }) {
   const t = useT();
@@ -116,7 +116,7 @@ function FilterIcon() {
   );
 }
 
-const caption = "font-display text-body text-label-faint";
+const caption = "font-display text-(length:--size-wall-controls) text-label-faint";
 
 /** Several works are chosen: what can be done to them all at once. B or Done ends it. */
 export interface WallSelection {
@@ -159,7 +159,7 @@ export function WallControls({ kind, view, onView, total, wanted = 0, selection,
       >
         {selection ? (
           <>
-            <p className="mr-6 font-display text-body font-ui text-label tabular-nums">{t("wall.selected", { count: selection.count })}</p>
+            <p className="mr-6 font-display text-(length:--size-wall-controls) font-ui text-label tabular-nums">{t("wall.selected", { count: selection.count })}</p>
             <ControlButton focusKey="wall:select:watched" onSelect={() => selection.onMark(true)} onBack={selection.onDone}>
               {t("actions.markWatched")}
             </ControlButton>

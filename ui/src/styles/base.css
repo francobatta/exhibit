@@ -279,20 +279,24 @@
   width: 200%;
   aspect-ratio: 1;
   translate: -50% -50%;
-  background: conic-gradient(transparent 0 78%, var(--views-glint) 94%, transparent);
+  background: conic-gradient(transparent 0 62%, var(--views-glint) 90%, transparent);
   opacity: 0;
-  animation: views-ring var(--dur-views-glint) var(--curve-out) var(--delay-views-glint) 1 both;
+  animation: views-ring var(--dur-views-glint) var(--curve-glint) var(--delay-views-glint) 1 both;
 }
+/* It comes up out of nothing and goes back into it while still moving, so the lap has no edges. */
 @keyframes views-ring {
   0% {
-    transform: rotate(0deg);
+    transform: rotate(-40deg);
+    opacity: 0;
+  }
+  30% {
     opacity: 1;
   }
-  80% {
+  65% {
     opacity: 1;
   }
   100% {
-    transform: rotate(360deg);
+    transform: rotate(400deg);
     opacity: 0;
   }
 }

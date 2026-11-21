@@ -43,9 +43,9 @@
   /* Type. */
   --type-display: "Archivo Variable", "Archivo", system-ui, sans-serif;
   --type-reading: "Source Serif 4 Variable", "Source Serif 4", Georgia, serif;
-  --size-caption: 0.875rem;
-  --size-body: 1rem;
-  --size-lead: 1.25rem;
+  --size-caption: 1rem;
+  --size-body: 1.125rem;
+  --size-lead: 1.4rem;
   --size-heading: 1.6rem;
   --size-title: 2.4rem;
   --size-display: 4rem;
@@ -119,7 +119,8 @@
   --views-pad: 1.5rem;
   --views-ring: 0.125rem;
   --views-glint: var(--lamp);
-  --dur-views-glint: 1400ms;
+  --dur-views-glint: 1900ms;
+  --curve-glint: cubic-bezier(0.45, 0, 0.55, 1);
   --delay-views-glint: 350ms;
   /* The bar's first slot: the mark, or Back on a screen stacked over another. Back may run into
      the gap after it, never into the sections. */
@@ -181,8 +182,9 @@
   --wall-panel: 26%;
   --wall-portrait: 7rem;
   --wall-panel-foot: 5.5rem;
-  /* The height of the row of controls above a wall. */
-  --wall-controls: 3.5rem;
+  /* The row of controls above a wall: its height, and the size of its words (sort, filters, the count). */
+  --wall-controls: 4.5rem;
+  --size-wall-controls: 1.375rem;
   /* Details, in two movements: the work, then its cast and record. How much of the second shows
      below the first, the space under the first's actions, between the second's parts, a portrait's
      width and the gap between portraits, and the column naming each line of the record. */

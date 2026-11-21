@@ -43,13 +43,26 @@ function ViewButton({ view, on }: { view: SectionView; on: boolean }) {
     >
       {t(view.label)}
       {/* The view showing stands on a rule, as a section in the bar stands on its lamp. */}
-      {on && <span aria-hidden className="absolute inset-x-0 bottom-2 h-(--cue-rule-weight) rounded-full bg-label" />}
+      {on && (
+        <span
+          aria-hidden
+          className="absolute inset-x-0 bottom-2 h-(--cue-rule-weight) rounded-full bg-label"
+        />
+      )}
       {focused && <Lamp />}
     </button>
   );
 }
 
-export function SectionViews({ views, route, live }: { views: readonly SectionView[]; route: Route; live: boolean }) {
+export function SectionViews({
+  views,
+  route,
+  live,
+}: {
+  views: readonly SectionView[];
+  route: Route;
+  live: boolean;
+}) {
   const t = useT();
   const mode = useInputMode();
   useEffect(() => {
@@ -57,23 +70,32 @@ export function SectionViews({ views, route, live }: { views: readonly SectionVi
     return registerShortcut("v", switchView, { description: "Switch view" });
   }, [live]);
   return (
-    <FocusGroup
-      id="section-views"
-      orientation="horizontal"
-      aria-label={t("sections.label")}
-      className="absolute top-(--bar-height) right-0 z-10 flex h-(--views-row) px-edge"
+    <div
+      inert={!live}
+      aria-hidden={!live || undefined}
+      className={cn(
+        "absolute top-(--bar-height) right-0 z-10 transition-opacity duration-(--dur-screen) ease-out",
+        !live && "opacity-0",
+      )}
     >
-      <div className="relative flex items-stretch gap-(--views-gap) px-(--views-pad)">
-        <span aria-hidden className="views-ring" />
-        {mode !== "pointer" && (
-          <span aria-hidden className="flex items-center gap-1 self-center">
-            <Glyph action="views" mode={mode} />
-          </span>
-        )}
-        {views.map((v) => (
-          <ViewButton key={v.id} view={v} on={samePlace(route, v.route)} />
-        ))}
-      </div>
-    </FocusGroup>
+      <FocusGroup
+        id="section-views"
+        orientation="horizontal"
+        aria-label={t("sections.label")}
+        className="flex h-(--views-row) px-edge"
+      >
+        <div className="relative flex items-stretch gap-(--views-gap) px-(--views-pad)">
+          <span aria-hidden className="views-ring" />
+          {mode !== "pointer" && (
+            <span aria-hidden className="flex items-center gap-1 self-center">
+              <Glyph action="views" mode={mode} />
+            </span>
+          )}
+          {views.map((v) => (
+            <ViewButton key={v.id} view={v} on={samePlace(route, v.route)} />
+          ))}
+        </div>
+      </FocusGroup>
+    </div>
   );
 }

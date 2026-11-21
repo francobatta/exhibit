@@ -88,8 +88,6 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
       transition={transition}
       data-entry={entry.id}
     >
-      {/* Outside the page's scope, like the bar: the page opens on its own work, never on these. */}
-      {views !== null && <SectionViews views={views} route={entry.route} live={live} />}
       <FocusScope
         id={`entry-${entry.id}`}
         restoreKey={entry.focusKey}
@@ -109,6 +107,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
 
 export function Screens() {
   const entries = useNav((s) => s.entries);
+  const root = entries[0]!.route;
+  const views = viewsOf(root);
   return (
     <main className="relative h-full">
       <AnimatePresence initial={false}>
@@ -116,6 +116,12 @@ export function Screens() {
           <Layer key={e.id} entry={e} top={i === entries.length - 1} />
         ))}
       </AnimatePresence>
+      {/* A section's views stay drawn while its pages replace each other below them, outside any
+          page's focus scope, like the bar: a page opens on its own work, never on these. They step
+          aside while a screen is stacked over the section. */}
+      {views !== null && (
+        <SectionViews key={views.map((v) => v.id).join()} views={views} route={root} live={entries.length === 1} />
+      )}
     </main>
   );
 }
