@@ -88,6 +88,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
       transition={transition}
       data-entry={entry.id}
     >
+      {/* Outside the page's scope, like the bar: the page opens on its own work, never on these. */}
+      {views !== null && <SectionViews views={views} route={entry.route} />}
       <FocusScope
         id={`entry-${entry.id}`}
         restoreKey={entry.focusKey}
@@ -97,11 +99,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
         {views === null ? (
           page
         ) : (
-          // A section's views are named in a row under the bar; the page below starts under the row.
-          <div className="contents [--space-bar:calc(var(--bar-height)+var(--views-row))]">
-            <SectionViews views={views} route={entry.route} />
-            {page}
-          </div>
+          // Under a section's views, the page starts below their row.
+          <div className="contents [--space-bar:calc(var(--bar-height)+var(--views-row))]">{page}</div>
         )}
       </FocusScope>
     </motion.div>
