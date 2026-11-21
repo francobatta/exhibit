@@ -11,7 +11,7 @@ Steps, in order; any failure stops the run:
   1. Preflight: tag is x.y.z and newer than every earlier tag; on main, clean, not behind origin;
      the tag and its release do not exist yet; gh is signed in; no Exhibit is running; Exhibit's
      own TMDB key is at hand (EXHIBIT_TMDB_KEY, or the git-ignored file tmdb-app-key).
-  2. Version: writes the tag into Cargo.toml (workspace), the two exhibit-core pins,
+  2. Version: writes the tag into Cargo.toml (workspace), every exhibit-* version pin,
      tauri.conf.json and ui/package.json.
   3. Checks: cargo fmt, clippy, cargo test, bun install, bun test, tsc.
   4. Build: `bun run tauri build` (release exe + NSIS installer) with the TMDB key baked in, then
@@ -57,25 +57,33 @@ function Get-Output([scriptblock]$run) {
 }
 
 # Replaces the first match of $pattern (which captures the text before and after the version)
-# in $path, and fails unless exactly that one place changed.
-function Set-VersionIn([string]$path, [string]$pattern, [string]$version) {
+# in $path, or every match with -All, and fails when nothing matches.
+function Set-VersionIn([string]$path, [string]$pattern, [string]$version, [switch]$All) {
     $full = Join-Path $repo $path
     $text = [IO.File]::ReadAllText($full)
     $re = New-Object System.Text.RegularExpressions.Regex($pattern, "Multiline")
     if (-not $re.IsMatch($text)) { throw "No version found in $path. Has its layout changed?" }
-    $new = $re.Replace($text, "`${1}$version`${2}", 1)
+    $count = if ($All) { -1 } else { 1 }
+    $new = $re.Replace($text, "`${1}$version`${2}", $count)
     [IO.File]::WriteAllText($full, $new, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "  $path -> $version"
 }
 
+# A path dependency on one of the workspace's own crates that also names a version, such as
+# exhibit-core = { version = "0.0.1", path = "../exhibit-core" }. Each must follow the workspace
+# version, or cargo cannot select it. Found in every crate, so a new crate needs no edit here.
+$pinPattern = '(exhibit-[\w-]+\s*=\s*\{\s*version\s*=\s*")[^"]+(")'
+$pinnedManifests = @(Get-ChildItem (Join-Path $repo "crates") -Directory |
+    ForEach-Object { "crates/$($_.Name)/Cargo.toml" } |
+    Where-Object { (Test-Path (Join-Path $repo $_)) -and
+        ([IO.File]::ReadAllText((Join-Path $repo $_)) -match $pinPattern) })
+
 $versionFiles = @(
     "Cargo.toml",
     "Cargo.lock",
-    "crates/exhibit-app/Cargo.toml",
-    "crates/exhibit-cli/Cargo.toml",
     "crates/exhibit-app/tauri.conf.json",
     "ui/package.json"
-)
+) + $pinnedManifests
 
 # ---------------------------------------------------------------- 1. Preflight
 Write-Step "Preflight"
@@ -143,8 +151,7 @@ try {
     # ------------------------------------------------------------ 2. Version
     Write-Step "Version $Tag"
     Set-VersionIn "Cargo.toml" '(\[workspace\.package\][\s\S]*?^version\s*=\s*")[^"]+(")' $Tag
-    Set-VersionIn "crates/exhibit-app/Cargo.toml" '(exhibit-core\s*=\s*\{\s*version\s*=\s*")[^"]+(")' $Tag
-    Set-VersionIn "crates/exhibit-cli/Cargo.toml" '(exhibit-core\s*=\s*\{\s*version\s*=\s*")[^"]+(")' $Tag
+    foreach ($manifest in $pinnedManifests) { Set-VersionIn $manifest $pinPattern $Tag -All }
     Set-VersionIn "crates/exhibit-app/tauri.conf.json" '(^\s*"version"\s*:\s*")[^"]+(")' $Tag
     Set-VersionIn "ui/package.json" '(^\s*"version"\s*:\s*")[^"]+(")' $Tag
 

@@ -49,7 +49,7 @@ The user asked for the release, so pushing the tag and creating the release is t
 | Step | What happens | Stops when |
 |---|---|---|
 | 1. Preflight | Fetches tags | The tag isn't `x.y.z`, or isn't newer than the latest tag; not on `main`; the tree is dirty; `main` is behind `origin/main`; the tag or its release already exists; `gh` isn't signed in; `exhibit-app` or `Exhibit` is running; the CDP port answers |
-| 2. Version | Writes the tag into `Cargo.toml` (`[workspace.package]`), the `exhibit-core` pins in `crates/exhibit-app/Cargo.toml` and `crates/exhibit-cli/Cargo.toml`, `crates/exhibit-app/tauri.conf.json` and `ui/package.json`. `Cargo.lock` follows at the first cargo run | A file's version line can't be found |
+| 2. Version | Writes the tag into `Cargo.toml` (`[workspace.package]`), every `exhibit-* = { version = ..., path = ... }` pin in `crates/*/Cargo.toml`, `crates/exhibit-app/tauri.conf.json` and `ui/package.json`. `Cargo.lock` follows at the first cargo run | A file's version line can't be found |
 | 3. Checks | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`; in `ui/`: `bun install --frozen-lockfile`, `bun test --parallel`, `bunx --bun tsc --noEmit` | Any check fails |
 | 4. Build | `bun run tauri build` in `ui/`. Its `beforeBuildCommand` builds the UI; Tauri builds `target/release/exhibit-app.exe` and the NSIS installer. The script then reads the exe's ProductVersion | The installer is missing, or the exe's version isn't the tag |
 | 5. Smoke test | Starts the release exe windowed, on an empty temp data dir, with keyring service `exhibit-release-check` and DevTools on `-CdpPort`. Waits for the `http://tauri.localhost` page, then for the intro (`[data-slot=intro]`) to finish and the "Welcome to Exhibit" text to show, and takes a screenshot, then closes the app and deletes the temp dir | Exhibit started during the build; the exe exits (code 0 means another Exhibit took over); no window appears in 60 s; or first run doesn't show in 30 s |
@@ -76,7 +76,7 @@ Check each state with `git log -1 --oneline`, `git ls-remote --tags origin <tag>
 
 This is what the script automates, for when it needs debugging or changing.
 
-1. **Version.** Set `x.y.z` in the five places listed in step 2 of the table. The `exhibit-core = { version = ... }` pins must match the workspace version, or cargo fails with `failed to select a version for the requirement exhibit-core`.
+1. **Version.** Set `x.y.z` in the places listed in step 2 of the table. Every `exhibit-* = { version = ... }` pin must match the workspace version, or cargo fails with `failed to select a version for the requirement exhibit-...`.
 2. **Checks.** Run the commands from step 3 of the table, the same as `README.md` → Checks.
 3. **Build.** In `ui/`, run `bun run tauri build`. In `tauri.conf.json`, `bundle.active: true` with `targets: ["nsis"]` makes the per-user installer. With `active: false`, the build makes only the bare exe. The first build downloads NSIS into Tauri's cache. The exe embeds the UI, and Windows 11 provides WebView2; the installer fetches WebView2 if it is missing.
 4. **Smoke test.** Never start the release exe on the owner's real data or keyring. Set these environment variables, then start `target\release\exhibit-app.exe`:
