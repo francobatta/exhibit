@@ -98,10 +98,25 @@
 
   /* Space and shape. */
   --space-edge: 4.5rem;
-  --space-bar: 6rem;
+  /* The top bar, read from across the room: its height, the size of its sections, the mark and the
+     search field's words, a control's height (a section, the field, settings), settings' icon, and
+     the field's width. Pages start --space-bar down: the bar, and under a section's views their row. */
+  --bar-height: 7.5rem;
+  --space-bar: var(--bar-height);
+  --size-bar: 1.5rem;
+  --size-bar-mark: 1.75rem;
+  --size-bar-field: 1.25rem;
+  --bar-control: 3.5rem;
+  --bar-icon: 2.25rem;
+  --bar-field: 26rem;
+  /* The row naming a section's views (Movies: Spotlight, All movies) under the bar: its height, the
+     size of its names and the space between them. */
+  --views-row: 3.5rem;
+  --size-views: 1.375rem;
+  --views-gap: 2.5rem;
   /* The bar's first slot: the mark, or Back on a screen stacked over another. Back may run into
      the gap after it, never into the sections. */
-  --bar-lead: 4.5rem;
+  --bar-lead: 6.5rem;
   /* Control hints: a button's glyph (a key cap grows with its name), the space between hints, and
      the dark pill they stand on, so they read over artwork; its padding keeps the text on the edge. */
   --hint-glyph: 1.75rem;

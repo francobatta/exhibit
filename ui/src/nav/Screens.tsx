@@ -15,6 +15,8 @@ import { Settings } from "@/screens/Settings";
 import { Show } from "@/screens/Show";
 import { Spotlight } from "@/screens/Spotlight";
 import { Wall } from "@/screens/Wall";
+import { SectionViews } from "@/components/SectionViews";
+import { viewsOf } from "./sections";
 import { DEFAULT_VIEW, onFirstRun, samePlace, useNav, type Entry, type Route, type SettingsPart } from "./stack";
 
 /** The top-level sections `[` and `]` (LB and RB) cycle through. */
@@ -72,6 +74,8 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
   const live = top && present;
   const shift = length("--shift-screen");
   const transition = { duration: seconds("--dur-screen"), ease: easeOut() };
+  const page = screenFor(entry.route, (route) => useNav.getState().setRoute(entry.id, route));
+  const views = viewsOf(entry.route);
   return (
     <motion.div
       className="absolute inset-0 scroll-pt-bar overflow-x-hidden overflow-y-auto pt-bar"
@@ -90,7 +94,15 @@ function Layer({ entry, top }: { entry: Entry; top: boolean }) {
         active={live}
         onFocusKey={live ? setFocusKey : undefined}
       >
-        {screenFor(entry.route, (route) => useNav.getState().setRoute(entry.id, route))}
+        {views === null ? (
+          page
+        ) : (
+          // A section's views are named in a row under the bar; the page below starts under the row.
+          <div className="contents [--space-bar:calc(var(--bar-height)+var(--views-row))]">
+            <SectionViews views={views} route={entry.route} />
+            {page}
+          </div>
+        )}
       </FocusScope>
     </motion.div>
   );

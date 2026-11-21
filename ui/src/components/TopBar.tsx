@@ -17,26 +17,18 @@ import { openAsk, samePlace, useNav, type Route } from "@/nav/stack";
 import { BackButton } from "./BackButton";
 import { Lamp } from "./Lamp";
 import { Button } from "./ui/button";
+import { viewsOf } from "@/nav/sections";
 
 /**
  * The sections, by a stable id (their focus keys) and the key of their name. A section with views
- * (Movies: its Spotlight and its wall) opens on the first and names them beside it while it is the
- * one showing.
+ * (Movies: its Spotlight and its wall, nav/sections) opens on the first and is lit on any of them.
  */
 const SECTIONS = [
   { id: "home", label: "sections.home", route: { screen: "home" } },
-  {
-    id: "movies",
-    label: "sections.movies",
-    route: { screen: "spotlight", kind: "movie" },
-    views: [
-      { id: "spotlight", label: "sections.spotlight", route: { screen: "spotlight", kind: "movie" } },
-      { id: "all", label: "sections.allMovies", route: { screen: "wall", kind: "movie" } },
-    ],
-  },
+  { id: "movies", label: "sections.movies", route: { screen: "spotlight", kind: "movie" } },
   { id: "shows", label: "sections.shows", route: { screen: "wall", kind: "show" } },
   { id: "other", label: "sections.other", route: { screen: "wall", kind: "other" } },
-] as const satisfies Array<{ id: string; label: string; route: Route; views?: ReadonlyArray<{ id: string; label: string; route: Route }> }>;
+] as const satisfies Array<{ id: string; label: string; route: Route }>;
 
 const REVIEW = { id: "review", label: "sections.review", route: { screen: "review" } } as const satisfies {
   id: string;
@@ -66,7 +58,7 @@ export function jobLine(job: JobStatus | null): string | null {
 
 function SettingsIcon() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden className="size-[1.375rem]" fill="none">
+    <svg viewBox="0 0 24 24" aria-hidden className="size-(--bar-icon)" fill="none">
       <path
         d="M4 7h10M18 7h2M4 17h4M12 17h8"
         stroke="currentColor"
@@ -100,7 +92,7 @@ function BarButton({
       ref={ref}
       {...props}
       {...rest}
-      className={cn("relative focus-visible:bg-transparent focus:text-label", className)}
+      className={cn("relative h-(--bar-control) focus-visible:bg-transparent focus:text-label", className)}
     >
       {children}
       {focused && <Lamp />}
@@ -130,8 +122,8 @@ function AskField({ label }: { label: string }) {
       type="button"
       aria-haspopup="dialog"
       className={cn(
-        "flex h-11 w-[22rem] items-center rounded-control border border-line bg-wall/40 px-4 outline-none",
-        "font-display text-body text-label-faint transition-[border-color,background-color]",
+        "flex h-(--bar-control) w-(--bar-field) items-center rounded-control border border-line bg-wall/40 px-5 outline-none",
+        "font-display text-(length:--size-bar-field) text-label-faint transition-[border-color,background-color]",
         "hover:border-label-faint",
         focused && "border-lamp/60 bg-wall/70 text-label-dim",
       )}
@@ -161,16 +153,11 @@ export function TopBar() {
   const { data: status } = useStatus();
   const job = jobLine(useJobStatus());
   const review = status?.needs_review ?? 0;
-  type View = { id: string; label: "sections.spotlight" | "sections.allMovies"; route: Route };
-  const sections: Array<{
-    id: string;
-    label: (typeof SECTIONS)[number]["label"] | typeof REVIEW.label;
-    route: Route;
-    views?: ReadonlyArray<View>;
-  }> = review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
+  const sections: Array<{ id: string; label: (typeof SECTIONS)[number]["label"] | typeof REVIEW.label; route: Route }> =
+    review > 0 ? [...SECTIONS, REVIEW] : [...SECTIONS];
 
   return (
-    <header className="fixed inset-x-0 top-0 z-30 h-bar px-edge">
+    <header className="fixed inset-x-0 top-0 z-30 h-(--bar-height) px-edge">
       <FocusGroup id="topbar" orientation="horizontal" onEdge={intoScreen} className="flex h-full items-center gap-12">
         {/* Back takes the mark's place, so the sections never move. */}
         <div className="flex h-full w-(--bar-lead) shrink-0 items-center">
@@ -182,7 +169,7 @@ export function TopBar() {
             <motion.span
               key="mark"
               {...fade}
-              className="font-display text-lead font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
+              className="font-display text-(length:--size-bar-mark) font-title tracking-title text-label [font-stretch:var(--stretch-mark)]"
             >
               Exhibit
             </motion.span>
@@ -190,14 +177,14 @@ export function TopBar() {
         </div>
 
         <nav aria-label={t("sections.label")} className="-ml-4 flex items-center gap-1">
-          {sections.map(({ id, label, route, views }) => {
-            const here = samePlace(root, route) || (views?.some((v) => samePlace(root, v.route)) ?? false);
-            const section = (
+          {sections.map(({ id, label, route }) => {
+            const here = samePlace(root, route) || (viewsOf(route)?.some((v) => samePlace(root, v.route)) ?? false);
+            return (
               <BarButton
                 key={id}
                 focusKey={`section:${id}`}
                 aria-current={here ? "page" : undefined}
-                className={cn(here && "text-label")}
+                className={cn("px-5 text-(length:--size-bar)", here && "text-label")}
                 // The section already under the stack returns as it was left.
                 onSelect={() => (here ? toRoot() : replaceRoot(route))}
               >
@@ -206,27 +193,6 @@ export function TopBar() {
                   <span className="text-label-faint tabular-nums">{review}</span>
                 )}
               </BarButton>
-            );
-            if (!here || views === undefined) return section;
-            return (
-              <div key={id} className="flex items-center gap-1">
-                {section}
-                <span aria-hidden className="mx-1 h-[1lh] w-px bg-line" />
-                {views.map((v) => {
-                  const on = samePlace(root, v.route);
-                  return (
-                    <BarButton
-                      key={v.id}
-                      focusKey={`section:${id}:${v.id}`}
-                      aria-current={on ? "page" : undefined}
-                      className={cn(on ? "text-label" : "text-label-faint")}
-                      onSelect={() => (on ? toRoot() : replaceRoot(v.route))}
-                    >
-                      {t(v.label)}
-                    </BarButton>
-                  );
-                })}
-              </div>
             );
           })}
         </nav>
@@ -244,6 +210,7 @@ export function TopBar() {
           <BarButton
             focusKey="settings"
             size="icon"
+            className="size-(--bar-control)"
             aria-label={t("topBar.settings")}
             onSelect={openSettings}
           >
