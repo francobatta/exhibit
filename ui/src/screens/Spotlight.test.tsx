@@ -127,6 +127,10 @@ test("A on a film whose drive is away never plays, and the message names the dri
   await settle(120);
   expect(tauri.calls().some((c) => c.cmd === "play")).toBe(false);
   expect(document.querySelector('[data-slot="toast-title"]')?.textContent).toBe("The drive for D:\\Movies is not connected");
+  await select();
+  await select();
+  await settle(120);
+  expect(document.querySelectorAll('[data-slot="toast"]')).toHaveLength(1);
 });
 
 test("A on a film plays it; the hero's action line says so", async () => {

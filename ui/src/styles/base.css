@@ -305,3 +305,26 @@
     animation: none;
   }
 }
+
+/* Runs with the SDK's countdown: it holds while the stack is hovered or focused, and while the
+   window is away, the same things that hold the toast's timer. */
+.toast-timer {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: var(--toast-timer-weight);
+  background: var(--toast-timer);
+  transform-origin: left;
+  animation: toast-timer var(--toast-ms) linear both;
+}
+:dir(rtl) .toast-timer {
+  transform-origin: right;
+}
+[data-slot="toast-region"]:is([data-expanded], [data-away]) .toast-timer {
+  animation-play-state: paused;
+}
+@keyframes toast-timer {
+  to {
+    transform: scaleX(0);
+  }
+}

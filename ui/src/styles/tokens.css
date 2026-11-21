@@ -135,6 +135,12 @@
   --hint-gap: 1.75rem;
   --hint-pad: 1rem;
   --hint-scrim: color-mix(in oklch, var(--wall) 78%, transparent);
+  /* How far the hint line stands off the bottom; toasts stand just above it, in the rail. A toast's
+     timer is a thin line along its foot that runs out as the toast does. */
+  --hint-floor: 1.5rem;
+  --toast-floor: calc(var(--hint-floor) + var(--hint-glyph) + 1rem + 0.75rem);
+  --toast-timer: color-mix(in oklch, var(--label) 35%, transparent);
+  --toast-timer-weight: 0.1875rem;
   --placard-measure: 46rem;
   /* The hero placard on Home and Details, wide enough to set its story beside its verdicts. */
   --placard-hero-measure: 80rem;

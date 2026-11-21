@@ -229,7 +229,7 @@ export function Hints() {
       hints={hints(item, at)}
       above={modal ?? ""}
       className={cn(
-        "fixed inset-auto right-[calc(var(--space-edge)-var(--hint-pad))] bottom-6 m-0 overflow-visible",
+        "fixed inset-auto right-[calc(var(--space-edge)-var(--hint-pad))] bottom-(--hint-floor) m-0 overflow-visible",
         "rounded-full border-0 bg-(--hint-scrim) px-(--hint-pad) py-2",
       )}
     />
