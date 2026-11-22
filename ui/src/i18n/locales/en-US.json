@@ -709,5 +709,15 @@
       "spirit": "Independent Spirit Awards",
       "sundance": "Sundance"
     }
+  },
+  "agentSetup": {
+    "title": "Connect your AI agent",
+    "body": "Claude Code, Codex or another AI agent on this computer can browse your collection with you, suggest what to watch and hang exhibitions on Home. Paste the setup prompt to your agent once; it does the rest.",
+    "copy": "Copy setup prompt",
+    "copyAgain": "Copy again",
+    "copied": "Setup prompt copied. Paste it to your agent.",
+    "copyFailed": "Exhibit could not copy the setup prompt: {{reason}}",
+    "settingsTitle": "AI agent",
+    "settingsNote": "Claude Code, Codex or another AI agent on this computer, browsing and curating with you. Paste the setup prompt to it once."
   }
 }

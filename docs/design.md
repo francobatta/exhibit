@@ -169,8 +169,8 @@ evening lamp, lower and warmer after midnight).
   beside the verdicts as large figures with their marks beneath; the file in two quiet lines
   (runtime, state, marks; then "English and 2 other languages, 19 subtitles"). Stacks where narrow.
 - **Needs review**, **Ask** (one button from anywhere, on-screen keyboard with a pad; plain search
-  until stage 4), **First run** (add a folder, offer to download missing tools, MDBList sign-in).
-- **Settings:** one screen. Sources, tools, TMDB key, agent key, Services, Display (full screen,
+  until stage 4), **First run** (add a folder, offer to download missing tools, MDBList sign-in, then the AI agent).
+- **Settings:** one screen. Sources, tools, TMDB key, agent key, Services, AI agent, Display (full screen,
   intro), Language and Dates.
 - **Intro:** the lit E spawns, creeps while the library opens, then zooms through its hole onto
   Home; about 1.5 s, silent, any button skips without acting on Home; one switch in Settings.
@@ -202,6 +202,11 @@ designed empty, loading, offline and error states.
    has, with a title, a wall text and a note on each; at most six hang, as shelves on Home after
    Continue watching. A shelf opens with its wall text and who hung it, where three works would
    be; the note on the focused work sits above its placard, once the owner is on that shelf.
+   **Onboarding an agent** follows a hosted service's setup link (owner, 2026-11): one button,
+   "Copy setup prompt", on first run's last step and in Settings, copies one line that sends the
+   agent to `agent-setup.md`, written into the data directory on each copy for this exe and this
+   library; the file has the agent check the server (`mcp --check`), register it at user level in
+   its own client, and confirm. The program installs as `Exhibit.exe`, the path the file names.
    Still to do: hand `play` to an open window instead of starting mpv itself.
 4. **Built-in agent** (Anthropic API through the Vercel AI SDK, owner's key, optional): one text box
    whose answers come back as a shelf with a line of reasoning each, not a chat. Agent matching,

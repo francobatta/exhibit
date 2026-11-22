@@ -580,6 +580,8 @@ export const search = (query: SearchQuery) => invoke<ItemSummary[]>("search", { 
 export const facets = (kind: ItemKind | null) => invoke<Facets>("facets", { kind });
 export const similar = (id: Id, limit: number) => invoke<Similar[]>("similar", { id, limit });
 export const exhibitions = () => invoke<Exhibition[]>("exhibitions");
+/** The setup prompt for the owner's AI agent; `replyIn` names the language it answers in. */
+export const agentPrompt = (replyIn: string | null) => invoke<string>("agent_prompt", { replyIn });
 export const item = (id: Id) => invoke<ItemDetail>("item", { id });
 /** A work's cast with portraits; the first ask fetches and caches them. */
 export const cast = (id: Id) => invoke<CastMember[]>("cast", { id });

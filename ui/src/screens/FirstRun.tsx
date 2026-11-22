@@ -2,13 +2,15 @@
 // once, so the library fills in behind the next steps); the media tools that were not found (a
 // step only when one is missing, led by downloading both); the TMDB key, only for a build without
 // one of its own; and signing in for the public's scores, with a QR code, while a service that
-// brings them waits for it. Finishing, or skipping the last step, goes Home.
+// brings them waits for it; and the setup prompt for the owner's AI agent. Finishing, or
+// skipping the last step, goes Home.
 // B goes back a step.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
 import { useState, type ReactNode } from "react";
 import { BackButton } from "@/components/BackButton";
+import { useAgentSetup } from "@/components/AgentSetup";
 import { FocusButton } from "@/components/FocusButton";
 import { useT } from "@/i18n";
 import { useBrowse } from "@/components/FolderBrowser";
@@ -27,7 +29,7 @@ import { keys, useServices, useStatus, useTools, useToolsDownload } from "@/lib/
 import { toolFound } from "@/lib/tools";
 import { useNav } from "@/nav/stack";
 
-type Step = "folder" | "tools" | "tmdb" | "scores";
+type Step = "folder" | "tools" | "tmdb" | "scores" | "agent";
 
 /** Where focus lands as each step opens: its main action, or the key's field. */
 const LANDING: Record<Step, string> = {
@@ -35,6 +37,7 @@ const LANDING: Record<Step, string> = {
   tools: "first:tools:main",
   tmdb: "first:tmdb:field",
   scores: "first:scores:sign-in",
+  agent: "first:agent:main",
 };
 
 /** The service that brings the public's scores and waits for the owner to sign in, if any. */
@@ -67,6 +70,7 @@ export function FirstRun() {
     ...((missing?.length ?? 0) > 0 ? (["tools"] as const) : []),
     ...(later?.tmdb ? (["tmdb"] as const) : []),
     ...(later?.scores ? (["scores"] as const) : []),
+    "agent",
   ];
   const finish = () => useNav.getState().replaceRoot({ screen: "home" });
   const go = (delta: 1 | -1) => setStep(steps[steps.indexOf(step) + delta] ?? step);
@@ -80,6 +84,7 @@ export function FirstRun() {
         {step === "tools" && tools !== undefined && missing !== null && <ToolsStep missing={missing} tools={tools} onNext={next} />}
         {step === "tmdb" && <TmdbStep onDone={next} />}
         {step === "scores" && later?.scores && <ScoresStep service={later.scores} onNext={next} />}
+        {step === "agent" && <AgentStep onNext={next} />}
       </Stage>
     </FocusScope>
   );
@@ -277,6 +282,40 @@ function ScoresStep({ service, onNext }: { service: ServiceView; onNext: () => v
         <FocusButton focusKey="first:scores:skip" variant="plain" onSelect={onNext} className="-ml-4">
           {t("common.skip")}
         </FocusButton>
+      </Actions>
+    </>
+  );
+}
+
+/** The owner's AI agent: one button copies the setup prompt; once copied, it goes on, as after adding a folder. */
+function AgentStep({ onNext }: { onNext: () => void }) {
+  const t = useT();
+  const { copied, copy } = useAgentSetup();
+  return (
+    <>
+      <Heading title={t("agentSetup.title")}>
+        <p>{t("agentSetup.body")}</p>
+      </Heading>
+      <Actions step="agent">
+        {copied ? (
+          <>
+            <FocusButton focusKey="first:agent:main" variant="solid" onSelect={onNext}>
+              {t("common.continue")}
+            </FocusButton>
+            <FocusButton focusKey="first:agent:again" onSelect={copy}>
+              {t("agentSetup.copyAgain")}
+            </FocusButton>
+          </>
+        ) : (
+          <>
+            <FocusButton focusKey="first:agent:main" variant="solid" onSelect={copy}>
+              {t("agentSetup.copy")}
+            </FocusButton>
+            <FocusButton focusKey="first:agent:skip" variant="plain" onSelect={onNext}>
+              {t("common.skip")}
+            </FocusButton>
+          </>
+        )}
       </Actions>
     </>
   );
