@@ -56,6 +56,9 @@ FunctionEnd
 ; After the files are in place: by then the installer has made sure Exhibit is not running,
 ; so nothing holds the database open.
 !macro NSIS_HOOK_POSTINSTALL
+  ; Before 0.0.4 the program was exhibit-app.exe; it is Exhibit.exe now, the path an agent's MCP
+  ; registration names. An update's run of the old uninstaller removes it; this covers the rest.
+  Delete "$INSTDIR\exhibit-app.exe"
   ClearErrors
   ${GetOptions} $CMDLINE "/CLEAN" $0
   ${IfNot} ${Errors}

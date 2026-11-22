@@ -75,12 +75,23 @@ profile, exhibitions (curated shelves on Home), matches in review, and play. Thr
 the common jobs: `curate_exhibition`, `recommend`, `update_taste_profile`. An open window picks
 up what an agent writes within a second.
 
-In this repo, `.mcp.json` points Claude Code at a debug build on the dev library
-(`cargo build -p exhibit-cli` first). For the owner's real library:
+**Setting an agent up** works like a hosted service's setup link. First run's last step, or
+Settings > AI agent, copies one line to paste into the agent: "Read and follow the instructions in
+`…\agent-setup.md` to set me up for Exhibit." On each copy, the window writes that file into the
+data directory. It names the exe that wrote it and the library it shows (with `EXHIBIT_DATA_DIR`
+and `EXHIBIT_KEYRING_SERVICE` when set), and tells the agent to check the server, register it at
+user level in its own client (Claude Code, Claude Desktop, Codex, others), and confirm it
+connects. The CLI does the same:
 
 ```powershell
-claude mcp add exhibit -- "$env:LOCALAPPDATA\Exhibit\Exhibit.exe" mcp
+Exhibit.exe mcp --setup   # writes agent-setup.md, prints the line to paste
+Exhibit.exe mcp --check   # starts the server as a client would and reports the library
 ```
+
+`Exhibit.exe` is a windowed app: PowerShell neither waits for it nor shows its output, so run these
+two through `cmd /c` there. MCP clients start it with pipes and need nothing special. For the dev
+library, `exhibit mcp --setup` with `EXHIBIT_DATA_DIR=.superpowers/dev-data` and
+`EXHIBIT_KEYRING_SERVICE=exhibit-dev` writes instructions for a debug build on it.
 
 ## Checks
 

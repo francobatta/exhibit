@@ -178,7 +178,7 @@ try {
         Pop-Location
     }
 
-    $exe = Join-Path $repo "target\release\exhibit-app.exe"
+    $exe = Join-Path $repo "target\release\Exhibit.exe"
     $setup = Join-Path $repo "target\release\bundle\nsis\Exhibit_${Tag}_x64-setup.exe"
     if (-not (Test-Path $setup)) { throw "The installer is missing: $setup" }
     $built = (Get-Item $exe).VersionInfo.ProductVersion
@@ -238,6 +238,11 @@ try {
         Write-Host "  The build carries its own TMDB key."
         Invoke-Checked "screenshot" { bun scripts/cdp.ts shot $shot | Out-Null }
         Write-Host "  First run showed. Screenshot: $shot"
+        # The MCP server an agent registers: the same exe, started as a client would start it. Through
+        # cmd, which waits for a windowed exe and passes its output on; PowerShell does neither.
+        $check = @(cmd /c "`"$exe`" mcp --check")
+        if ($LASTEXITCODE -ne 0) { throw "Exhibit.exe mcp --check failed: $($check -join ' ')" }
+        Write-Host "  $($check[0]) $($check[2].Trim())"
     } finally {
         if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
         $app.WaitForExit(10000) | Out-Null

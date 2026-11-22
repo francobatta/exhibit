@@ -34,7 +34,7 @@ $repo = Split-Path -Parent $PSScriptRoot
 
 if ($Stop) {
     $mine = Get-CimInstance Win32_Process | Where-Object {
-        ($_.Name -eq "exhibit-app.exe") -or
+        ($_.Name -in "exhibit-app.exe", "Exhibit.exe") -or
         ($_.CommandLine -and $_.CommandLine.Contains($repo) -and
             ($_.CommandLine -match "vite|tauri"))
     }
