@@ -116,6 +116,9 @@
   },
   "placard": {
     "left": "Quedan {{time}}",
+    "endsAt_one": "Termina a la {{time}}",
+    "endsAt_many": "Termina a las {{time}}",
+    "endsAt_other": "Termina a las {{time}}",
     "sound": "Audio",
     "subtitles": "Subtítulos",
     "none": "Ninguno",
@@ -269,7 +272,32 @@
     "empty": "Todavía no hay nada aquí.",
     "allInOther": "Inicio muestra películas y series. Todo lo que Exhibit ha encontrado hasta ahora está en Otros.",
     "looking": "Exhibit sigue revisando tus carpetas.",
-    "openOther": "Abrir Otros"
+    "openOther": "Abrir Otros",
+    "programme": {
+      "morning": "Esta mañana",
+      "afternoon": "Esta tarde",
+      "evening": "Esta noche",
+      "late": "De madrugada"
+    },
+    "rows": {
+      "watchlist": "De tu lista por ver",
+      "long": "Tiempo para una larga",
+      "short": "Menos de 100 minutos",
+      "acclaimed": "Bien valoradas, sin ver todavía",
+      "autumn": "Tardes de otoño",
+      "winter": "Largas noches de invierno",
+      "spring": "Algo ligero para la primavera",
+      "summer": "Aventuras de verano"
+    },
+    "why": {
+      "continue": "Donde lo dejaste",
+      "watchlist": "Está en tu lista por ver",
+      "long": "Hay tiempo para una larga",
+      "short": "Lo bastante corta para empezar ya",
+      "acclaimed": "Bien valorada, y no la has visto",
+      "recent": "Nueva en la colección",
+      "loved": "Una de tus favoritas"
+    }
   },
   "show": {
     "label": "Serie",

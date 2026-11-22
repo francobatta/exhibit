@@ -4,6 +4,18 @@
  * mapped in `@theme` below, or `var(--…)`; none hard-codes a colour or a duration.
  */
 
+/* The lamp follows the clock (lib/moment.ts): daylight in the morning, the evening lamp as the
+   base, and lower and warmer after midnight. Only the light changes; the walls never do. */
+:root[data-daypart="morning"] {
+  --lamp: #f4f1e8;
+}
+:root[data-daypart="afternoon"] {
+  --lamp: #fff0d4;
+}
+:root[data-daypart="late"] {
+  --lamp: #ffd9a6;
+}
+
 /* Registered so the tint can be interpolated when it changes. */
 @property --tint {
   syntax: "<color>";
@@ -187,6 +199,10 @@
   --home-placard-foot: 1.5rem;
   --home-shelf-gap: 2.5rem;
   --home-peek: 3.5rem;
+  /* Home's greeting: how long it takes to go once the owner looks at another work, and the room
+     it keeps below the bar's controls (it stays away rather than come closer). */
+  --dur-programme: 240ms;
+  --home-greeting-clear: 1rem;
   /* The wall: the details panel's share of the window beside the grid, a portrait's width in its
      cast, and the room under the cast for the hint line. */
   --wall-panel: calc(var(--rail) + var(--space-edge));

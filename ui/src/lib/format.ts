@@ -267,6 +267,18 @@ export function votesText(n: number | null): string | null {
   return t("reception.votes", { count: n, votes: count });
 }
 
+/** "21:41" or "9:41 PM", as the language writes the time of day. */
+export function clockTime(ms: number): string {
+  return new Intl.DateTimeFormat(language(), { hour: "numeric", minute: "2-digit" }).format(new Date(ms));
+}
+
+/** "Ends at 23:41", for a work of `minutes` started at `now` (ms). Spanish says "a la 1:05" but "a las 23:41", so the written hour counts. */
+export function endsAt(now: number, minutes: number | null): string | null {
+  if (!finite(minutes) || minutes <= 0) return null;
+  const time = clockTime(now + minutes * 60_000);
+  return t("placard.endsAt", { time, count: parseInt(time, 10) });
+}
+
 /** "21:00" today, "Sat 21:00" on another day: when something resumes. */
 export function timeOfDay(unixSeconds: number): string {
   const date = new Date(unixSeconds * 1000);

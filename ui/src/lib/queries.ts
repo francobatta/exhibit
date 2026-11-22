@@ -6,6 +6,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -35,6 +36,7 @@ export const keys = {
   status: ["library", "status"] as const,
   shelf: (shelf: Shelf, limit: number) => ["library", "shelf", shelf, limit] as const,
   items: (query: SearchQuery) => ["library", "items", query] as const,
+  row: (query: SearchQuery) => ["library", "row", query] as const,
   facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
@@ -81,6 +83,17 @@ export function useStatus() {
 
 export function useShelf(shelf: Shelf, limit: number) {
   return useQuery({ queryKey: keys.shelf(shelf, limit), queryFn: () => api.shelf(shelf, limit) });
+}
+
+/** Several shelves at once, each a named shelf or one page of a search (Home's programme). */
+export function useRows(sources: ReadonlyArray<{ shelf: Shelf; limit: number } | { query: SearchQuery }>) {
+  return useQueries({
+    queries: sources.map((s) =>
+      "shelf" in s
+        ? { queryKey: keys.shelf(s.shelf, s.limit), queryFn: () => api.shelf(s.shelf, s.limit) }
+        : { queryKey: keys.row(s.query), queryFn: () => api.search(s.query) },
+    ),
+  });
 }
 
 /**

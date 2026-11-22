@@ -5,8 +5,9 @@ movies, shows and other videos in your folders, identifies them through TMDB, an
 a TV-first interface you can drive with a gamepad, a keyboard or a mouse. It never plays anything
 itself: it launches [mpv](https://mpv.io) and steps aside.
 
-Windows 11 first. The status is stage 2 of 4: the core library and the window are built and under
-the owner's whole-app check. The design and the plans are in `docs/superpowers/`.
+Windows 11 first. Stages 1 and 2 of 4, the core library and the window, are built and released as
+0.0.2. The owner's whole-app check and stage 3 (the MCP server) come next. The design is
+`docs/design.md`.
 
 ## Layout
 
@@ -19,7 +20,7 @@ the owner's whole-app check. The design and the plans are in `docs/superpowers/`
 | `crates/exhibit-services` | The registry of adapters compiled in |
 | `ui/` | React 19, TypeScript, Vite, Tailwind 4, Vercel UI SDK, Motion, TanStack Query (see `ui/AGENTS.md`) |
 | `scripts/` | `dev.ps1` (run in dev mode), `cdp.ts` (drive and screenshot a dev window), `shot.ps1`, `release.ps1` (build, tag and publish a release) |
-| `docs/superpowers/` | Spec, stage plans, screenshots |
+| `docs/design.md` | The living design: intent, anti-goals, owner decisions |
 
 ## Prerequisites
 
