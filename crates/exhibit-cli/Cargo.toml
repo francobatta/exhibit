@@ -9,9 +9,9 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.6.9", features = ["derive"] }
-exhibit-core = { version = "0.0.3", path = "../exhibit-core" }
-exhibit-mcp = { version = "0.0.3", path = "../exhibit-mcp" }
-exhibit-services = { version = "0.0.3", path = "../exhibit-services" }
+exhibit-core = { version = "0.0.4", path = "../exhibit-core" }
+exhibit-mcp = { version = "0.0.4", path = "../exhibit-mcp" }
+exhibit-services = { version = "0.0.4", path = "../exhibit-services" }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
 
