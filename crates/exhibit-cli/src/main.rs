@@ -29,6 +29,8 @@ struct Cli {
 enum Command {
     /// Library counts, sources, tools and which keys are set
     Status,
+    /// Serve the library to an outside agent over MCP, on stdin and stdout, until it goes
+    Mcp,
     #[command(subcommand)]
     Source(SourceCmd),
     #[command(subcommand)]
@@ -401,6 +403,16 @@ impl KeyName {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if matches!(cli.command, Command::Mcp) {
+        // stdout carries the protocol: nothing else may be written there.
+        return match exhibit_mcp::serve(Library::open_default) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("exhibit mcp: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let result = Library::open_default().and_then(|lib| commands::run(&lib, cli.command));
     let (value, code) = match result {
         Ok(v) => (v, ExitCode::SUCCESS),

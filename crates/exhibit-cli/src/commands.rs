@@ -63,6 +63,7 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
         Command::Search(args) => to_json(lib.search(&search_query(*args))?),
         Command::Facets { kind } => to_json(lib.facets(kind.map(kind_of))?),
         Command::Item { id } => to_json(lib.item(id)?),
+        Command::Mcp => unreachable!("main serves MCP before opening the library"),
         Command::Similar { id, limit } => to_json(lib.similar(id, limit)?),
         Command::Shelf { shelf, limit } => {
             let shelf = match shelf {

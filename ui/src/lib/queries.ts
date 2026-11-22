@@ -40,6 +40,7 @@ export const keys = {
   facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
   similar: (id: Id) => ["library", "similar", id] as const,
+  exhibitions: ["library", "exhibitions"] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
   services: ["library", "services"] as const,
@@ -132,6 +133,11 @@ const ITEM_STALE = 10 * 60_000;
  * One full record. With `fetch` false only what is cached is returned, so a screen can show a
  * record it has seen at once and ask for a new one only once focus has settled on it.
  */
+/** The exhibitions hanging on Home. An agent hanging one from outside reaches the window through the library's change. */
+export function useExhibitions() {
+  return useQuery({ queryKey: keys.exhibitions, queryFn: api.exhibitions });
+}
+
 /** The works in the library most like `id`, with what links each. */
 export function useSimilar(id: Id) {
   return useQuery({ queryKey: keys.similar(id), queryFn: () => api.similar(id, 30) });

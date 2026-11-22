@@ -4,6 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
+use exhibit_core::exhibition::Exhibition;
 use exhibit_core::filter::Facets;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Candidate, CastMember, Id, ItemKind, Source};
@@ -52,6 +53,12 @@ pub fn search(state: State<'_, AppState>, query: SearchQuery) -> ApiResult<Vec<I
 #[tauri::command(async)]
 pub fn facets(state: State<'_, AppState>, kind: Option<ItemKind>) -> ApiResult<Facets> {
     Ok(state.lib().facets(kind)?)
+}
+
+/// The exhibitions hanging on Home, the most recently hung first.
+#[tauri::command(async)]
+pub fn exhibitions(state: State<'_, AppState>) -> ApiResult<Vec<Exhibition>> {
+    Ok(state.lib().exhibitions()?)
 }
 
 #[tauri::command(async)]

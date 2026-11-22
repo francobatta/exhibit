@@ -578,6 +578,14 @@
     "library": {
       "no_wal": "La carpeta de la biblioteca no admite la base de datos de Exhibit. Muévela a una unidad local."
     },
+    "exhibition": {
+      "unknown": "Esa exposición ya no está colgada.",
+      "title": "Una exposición necesita un título de hasta 60 caracteres.",
+      "wall_text": "El texto de sala es demasiado largo. Mantenlo por debajo de 600 caracteres.",
+      "works": "Una exposición reúne de 3 a 24 obras distintas.",
+      "note": "La nota de una obra es demasiado larga. Mantenla por debajo de 80 caracteres.",
+      "work": "Solo las películas y series de la biblioteca pueden colgarse en una exposición."
+    },
     "service": {
       "unknown": "Exhibit no conoce ese servicio.",
       "unsupported": "Ese servicio no ofrece esto.",

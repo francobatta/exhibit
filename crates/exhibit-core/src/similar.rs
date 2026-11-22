@@ -3,12 +3,21 @@
 //! and no network, so "More like this" works offline and an outside agent can ask why.
 
 use crate::error::Result;
+use crate::filter::Count;
 use crate::model::Id;
 use crate::query::{self, ItemSummary, LIB_CTE, TREE_CTE, online_sources};
 use crate::volume::Volumes;
 use rusqlite::{Connection, params};
 use serde::Serialize;
 use std::collections::HashMap;
+
+/// TMDB's keywords about the release rather than the work: they link nothing.
+const NOT_THEMES: [&str; 4] = [
+    "aftercreditsstinger",
+    "duringcreditsstinger",
+    "woman director",
+    "short film",
+];
 
 /// Replaces the keywords and related works stored for `id`.
 pub(crate) fn store(c: &Connection, id: Id, keywords: &[String], related: &[i64]) -> Result<()> {
@@ -21,7 +30,7 @@ pub(crate) fn store(c: &Connection, id: Id, keywords: &[String], related: &[i64]
     for word in keywords
         .iter()
         .map(|w| w.trim().to_lowercase())
-        .filter(|w| !w.is_empty())
+        .filter(|w| !w.is_empty() && !NOT_THEMES.contains(&w.as_str()))
     {
         k.execute(params![id, word])?;
     }
@@ -42,6 +51,27 @@ pub fn keywords(c: &Connection, id: Id) -> Result<Vec<String>> {
              ORDER BY (SELECT count(*) FROM item_keywords o WHERE o.keyword = k.keyword), k.keyword",
         )?
         .query_map([id], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?)
+}
+
+/// The people with the most works in the library in `role` ("director"), most first.
+pub fn top_people(
+    c: &Connection,
+    v: &dyn Volumes,
+    role: &str,
+    limit: u32,
+) -> Result<Vec<Count<String>>> {
+    let online = online_sources(c, v)?;
+    let sql = format!(
+        "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT p.name, count(*) n FROM item_people p          JOIN lib ON lib.item_id = p.item_id JOIN items i ON i.id = p.item_id          WHERE p.role = ?2 AND i.kind IN ('movie', 'show') GROUP BY p.name ORDER BY n DESC, p.name LIMIT ?3"
+    );
+    Ok(c.prepare_cached(&sql)?
+        .query_map(params![query::json_ids(&online), role, limit], |r| {
+            Ok(Count {
+                value: r.get(0)?,
+                count: r.get(1)?,
+            })
+        })?
         .collect::<rusqlite::Result<_>>()?)
 }
 

@@ -79,6 +79,7 @@ Leave no process files behind: no `docs/superpowers/`, no `.superpowers/sdd/` an
 - Never print, remove or overwrite the TMDB key in the `exhibit-dev` keyring.
 - Never point tests at the owner's real data dir or credential store.
 - The UI never touches the database, the file system or the network itself. Everything goes through Tauri commands over `exhibit_core::Library`.
+- No feature is UI-only. A new library operation gets a CLI command and an MCP tool (`crates/exhibit-mcp`) too: brief JSON, a doc comment the agent can act on, writes limited to Exhibit's own state.
 - Code in `ui/src` is written for WebView2 only. Stub happy-dom gaps in `ui/test/setup.ts`, never in `src`.
 - Tokens live only in `ui/src/styles/tokens.css`. Everything is sized in `rem`.
 - Database code is plain `rusqlite` with hand-written SQL.

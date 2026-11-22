@@ -195,8 +195,12 @@ designed empty, loading, offline and error states.
 1. **Core** and CLI. Done.
 2. **Interface,** then languages, navigation, sort and filters, services, the hero placard. Done;
    released as 0.0.2.
-3. **Outside agents:** the MCP server over the same operations; the CLI hands `play` to an open
-   window.
+3. **Outside agents:** the MCP server (`exhibit mcp`, `Exhibit.exe mcp`; Rust, rmcp, stdio)
+   over the same operations, built. Tools read the library and write only Exhibit's own state
+   (watched, loved, taste profile, exhibitions, matches, play); answers are compact JSON so an
+   agent spends its tokens on the library. Exhibitions: a curator hangs 3 to 24 works the owner
+   has, with a title, a wall text and a note on each; at most six hang, as shelves on Home after
+   Continue watching. Still to do: hand `play` to an open window instead of starting mpv itself.
 4. **Built-in agent** (Anthropic API through the Vercel AI SDK, owner's key, optional): one text box
    whose answers come back as a shelf with a line of reasoning each, not a chat. Agent matching,
    agent shelves on Home, a taste profile the owner can read and edit. Ask is shaped so stage 4

@@ -38,6 +38,8 @@ export interface ShelfProps {
   onEnter?: () => void;
   /** A line under each work, for works whose facts do not hang elsewhere ("1972, Likely"). */
   caption?: (item: ItemSummary) => string;
+  /** A line in the reading face beside the title (an exhibition's wall text), cut to one line. */
+  note?: string;
   /**
    * Brings the shelf into view when one of its works takes focus by key or pad, for a screen that
    * glides its own scroller (`revealRow`). Without it the shelf scrolls itself into view.
@@ -128,6 +130,7 @@ export const Shelf = memo(function Shelf({
   inert,
   onEnter,
   caption,
+  note,
   hintOf,
   onReveal,
   menu = true,
@@ -253,7 +256,7 @@ export const Shelf = memo(function Shelf({
   const gap = rems("--space-work-gap");
   return (
     <section ref={section} aria-label={title} className={cn("flex flex-col", className)}>
-      <h2 className="mb-6 px-edge font-display text-lead font-ui text-label-dim">
+      <h2 className="mb-6 flex items-baseline gap-6 px-edge font-display text-lead font-ui text-label-dim">
         {onEnter ? (
           // Not a focus item: a pointer target only, which keeps focus where it is until it enters.
           <button
@@ -267,6 +270,9 @@ export const Shelf = memo(function Shelf({
           </button>
         ) : (
           title
+        )}
+        {note !== undefined && note !== "" && (
+          <span className="min-w-0 truncate font-reading text-body font-text text-label-faint">{note}</span>
         )}
       </h2>
       <FocusGroup

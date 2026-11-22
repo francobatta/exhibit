@@ -41,6 +41,10 @@ export interface Row {
   key: string;
   title: string;
   items: ItemSummary[];
+  /** Beside the title in the reading face (an exhibition's wall text). */
+  note?: string;
+  /** A line under each work (an exhibition's note on it). */
+  caption?: (item: ItemSummary) => string;
 }
 
 /** The works a spotlight of `kind` shows: a show's own episodes count as the show's. */
@@ -127,8 +131,8 @@ export interface StageProps {
   first?: ItemSummary;
   /** Open on the hero's cues (Home's pick, one press from playing), not on the shelves. */
   onCues?: boolean;
-  /** Above the placard, given the work it shows (Home's programme line). */
-  head?: (shown: ItemSummary) => ReactNode;
+  /** Above the placard, given the work it shows and the shelf in view (Home's wall label). */
+  head?: (shown: ItemSummary, shelf: string) => ReactNode;
   /** Now, in ms: the cues say when the work would end if started now. */
   clock?: number;
 }
@@ -186,7 +190,7 @@ export function Stage({ rows, verdicts, first, onCues = false, head, clock }: St
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="relative flex max-w-measure-hero flex-col gap-5">
             {/* Above the placard and out of its flow, so it never moves the placard. */}
-            {head && <div className="pointer-events-none absolute inset-x-0 bottom-full pb-5">{head(current)}</div>}
+            {head && <div className="pointer-events-none absolute inset-x-0 bottom-full pb-5">{head(current, active)}</div>}
             {/* A new work's label slides in a little from the way focus moved; nothing else moves. */}
             <motion.div
               key={current.id}
@@ -328,6 +332,8 @@ function Shelves({
               id={`home-${row.key}`}
               title={row.title}
               items={row.items}
+              note={row.note}
+              caption={row.caption}
               onOpen={onOpen}
               hintOf={mainHint}
               onFocusItem={handlers.get(row.key)!.focus}

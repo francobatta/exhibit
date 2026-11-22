@@ -48,6 +48,17 @@ export type Link =
   | { kind: "person"; name: string; role: Role }
   | { kind: "genre"; genre: string };
 
+/** A small show hung from the owner's collection by a curator (an outside agent). */
+export interface Exhibition {
+  id: Id;
+  title: string;
+  wall_text: string;
+  curator: string | null;
+  created_at: number;
+  updated_at: number;
+  works: Array<{ item: ItemSummary; note: string }>;
+}
+
 export interface Similar {
   item: ItemSummary;
   score: number;
@@ -568,6 +579,7 @@ export const status = () => invoke<LibraryStatus>("status");
 export const search = (query: SearchQuery) => invoke<ItemSummary[]>("search", { query });
 export const facets = (kind: ItemKind | null) => invoke<Facets>("facets", { kind });
 export const similar = (id: Id, limit: number) => invoke<Similar[]>("similar", { id, limit });
+export const exhibitions = () => invoke<Exhibition[]>("exhibitions");
 export const item = (id: Id) => invoke<ItemDetail>("item", { id });
 /** A work's cast with portraits; the first ask fetches and caches them. */
 export const cast = (id: Id) => invoke<CastMember[]>("cast", { id });

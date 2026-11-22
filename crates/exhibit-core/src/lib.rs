@@ -3,6 +3,7 @@ pub mod cast;
 pub mod db;
 pub mod download;
 pub mod error;
+pub mod exhibition;
 pub mod filter;
 pub mod freshen;
 pub mod identify;

@@ -1,7 +1,9 @@
 // Home: the programme for now. The part of the day names it ("Tonight", "After hours") and sets its
 // shelves; one work is put forward on the hero, with focus on its Play, so one press starts the
 // evening. A line above the placard greets the owner with the programme's name and why that work
-// was chosen; it goes once they look elsewhere. Beside Play, when the work would end if started now.
+// was chosen; it goes once they look elsewhere. On an exhibition (a curator's shelf) the same line
+// is the work's wall label: the exhibition's title and the curator's note on it. Beside Play, when
+// the work would end if started now.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ErrorState, Loading } from "@/components/states";
@@ -11,7 +13,8 @@ import { plain } from "@/lib/api";
 import { momentOf, type Moment } from "@/lib/moment";
 import { remPx, rems } from "@/lib/motion";
 import { onHome, pick, programme, type RowId } from "@/lib/programme";
-import { useJobStatus, useRows, useServices, useStatus } from "@/lib/queries";
+import type { Exhibition } from "@/lib/api";
+import { useExhibitions, useJobStatus, useRows, useServices, useStatus } from "@/lib/queries";
 import { NothingToShow, Stage, type Row } from "./Spotlight";
 
 export function Home() {
@@ -24,10 +27,11 @@ export function Home() {
   const activity = hasActivity(services.data);
   const plan = useMemo(() => programme(moment, activity), [moment, activity]);
   const queries = useRows(plan.map((r) => r.source));
+  const exhibitions = useExhibitions();
   const job = useJobStatus();
   const status = useStatus().data;
 
-  if (services.isPending || queries.some((q) => q.isPending)) return <Loading />;
+  if (services.isPending || exhibitions.isPending || queries.some((q) => q.isPending)) return <Loading />;
   const failed = queries.find((q) => q.isError);
   if (failed) {
     return (
@@ -44,6 +48,10 @@ export function Home() {
   const chosen = pick(shelves, moment);
   if (chosen === null) return <NothingToShow job={job} status={status} />;
   const rows: Row[] = shelves.map((r) => ({ key: r.id, title: rowTitle(r.id, moment, t), items: r.items }));
+  // Exhibitions hang after what is under way: a curator's shows, each with its wall text and a
+  // note under every work. One that has lost its works (gone from the library) does not hang.
+  const hung = (exhibitions.data ?? []).filter((e) => e.works.length > 0).map(exhibitionRow);
+  rows.splice(rows[0]?.key === "continue" ? 1 : 0, 0, ...hung);
 
   return (
     <Stage
@@ -52,12 +60,29 @@ export function Home() {
       first={chosen.item}
       onCues
       clock={clock}
-      head={(shown) => <Programme moment={moment} why={whyLine(chosen.row, moment, t)} shown={shown.id === chosen.item.id} />}
+      head={(shown, shelf) => {
+        const hung = (exhibitions.data ?? []).find((e) => `exhibition-${e.id}` === shelf);
+        const note = hung?.works.find((w) => w.item.id === shown.id)?.note;
+        return hung !== undefined && note ? (
+          <Label name={hung.title} why={note} shown />
+        ) : (
+          <Label name={t(`home.programme.${moment.daypart}`)} why={whyLine(chosen.row, moment, t)} shown={shown.id === chosen.item.id} />
+        );
+      }}
     />
   );
 }
 
 type T = ReturnType<typeof useT>;
+
+function exhibitionRow(e: Exhibition): Row {
+  return {
+    key: `exhibition-${e.id}`,
+    title: e.title,
+    note: e.wall_text,
+    items: e.works.map((w) => w.item),
+  };
+}
 
 function rowTitle(id: RowId, moment: Moment, t: T): string {
   switch (id) {
@@ -79,12 +104,11 @@ function whyLine(id: RowId, moment: Moment, t: T): string {
 }
 
 /**
- * The programme's name and why the work on the hero was put forward, while it is the one shown.
- * It stands above the placard out of its flow; a pick whose title leaves no room under the bar
- * goes without it rather than run into the bar.
+ * A name and a line of why above the placard: the programme and why the pick was put forward, or
+ * an exhibition and the curator's note on the work. It stands out of the placard's flow; a title
+ * that leaves no room under the bar goes without it rather than run into the bar.
  */
-function Programme({ moment, why, shown }: { moment: Moment; why: string; shown: boolean }) {
-  const t = useT();
+function Label({ name, why, shown }: { name: string; why: string; shown: boolean }) {
   const ref = useRef<HTMLParagraphElement>(null);
   const [fits, setFits] = useState(true);
   useLayoutEffect(() => {
@@ -111,7 +135,7 @@ function Programme({ moment, why, shown }: { moment: Moment; why: string; shown:
       data-shown={shown && fits}
       className="flex items-baseline gap-6 transition-opacity duration-(--dur-programme) data-[shown=false]:opacity-0"
     >
-      <span className="font-display text-title font-title tracking-title text-label">{t(`home.programme.${moment.daypart}`)}</span>
+      <span className="shrink-0 font-display text-title font-title tracking-title text-label">{name}</span>
       <span className="font-reading text-lead text-label-soft">{why}</span>
     </p>
   );

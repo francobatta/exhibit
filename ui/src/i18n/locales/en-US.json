@@ -576,6 +576,14 @@
     "library": {
       "no_wal": "The library's folder cannot hold Exhibit's database. Move it to a local drive."
     },
+    "exhibition": {
+      "unknown": "That exhibition is no longer hanging.",
+      "title": "An exhibition needs a title of up to 60 characters.",
+      "wall_text": "The wall text is too long. Keep it under 600 characters.",
+      "works": "An exhibition holds 3 to 24 different works.",
+      "note": "A note on a work is too long. Keep it under 80 characters.",
+      "work": "Only films and shows in the library can hang in an exhibition."
+    },
     "service": {
       "unknown": "Exhibit does not know that service.",
       "unsupported": "That service does not provide this.",

@@ -26,6 +26,15 @@ use crate::worker::{Job, WorkerHandle};
 const WALL: Color = Color(0x0f, 0x11, 0x13, 0xff);
 
 fn main() {
+    // `Exhibit.exe mcp`: the library for an outside agent over stdio, with no window. Before the
+    // single-instance plugin, which would hand a second launch to the open window and exit.
+    if std::env::args().nth(1).as_deref() == Some("mcp") {
+        if let Err(e) = exhibit_mcp::serve(Library::open_default) {
+            eprintln!("exhibit mcp: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
     // Development and screenshots: a plain 1600x900 window that remembers nothing.
     let windowed = std::env::var_os("EXHIBIT_WINDOWED").is_some_and(|v| v == "1");
     let mut builder = tauri::Builder::default()
@@ -49,6 +58,7 @@ fn main() {
             commands::search,
             commands::facets,
             commands::similar,
+            commands::exhibitions,
             commands::item,
             commands::shelf,
             commands::needs_review,
