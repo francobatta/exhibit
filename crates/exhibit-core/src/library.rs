@@ -667,11 +667,13 @@ impl Library {
     }
 
     pub fn status(&self) -> Result<LibraryStatus> {
+        // The credential store is asked once for each secret.
+        let own_tmdb = self.has_secret(TMDB_KEY)?;
         Ok(LibraryStatus {
             counts: query::library_counts(&self.conn)?,
             sources: self.list_sources()?,
-            tmdb_key: self.has_tmdb()?,
-            tmdb_own_key: self.has_secret(TMDB_KEY)?,
+            tmdb_key: own_tmdb || self.builtin_tmdb.is_some(),
+            tmdb_own_key: own_tmdb,
             tmdb_builtin: self.builtin_tmdb.is_some(),
             agent_key: self.has_secret(AGENT_KEY)?,
             intro: self.intro()?,

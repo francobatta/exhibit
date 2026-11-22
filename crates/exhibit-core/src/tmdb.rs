@@ -671,12 +671,22 @@ pub struct UreqHttp {
 }
 
 impl UreqHttp {
+    /// Every `UreqHttp` in the process shares one agent and so its pool of open connections:
+    /// the app opens a library per network command, and each would otherwise start its TLS
+    /// handshakes with TMDB again.
     pub fn new() -> Self {
-        let agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(10)))
-            .http_status_as_error(false)
-            .build()
-            .into();
+        static AGENT: std::sync::OnceLock<ureq::Agent> = std::sync::OnceLock::new();
+        let agent = AGENT
+            .get_or_init(|| {
+                ureq::Agent::config_builder()
+                    .timeout_global(Some(Duration::from_secs(10)))
+                    .http_status_as_error(false)
+                    // Posters, a backdrop and details for several works at once.
+                    .max_idle_connections_per_host(8)
+                    .build()
+                    .into()
+            })
+            .clone();
         UreqHttp { agent }
     }
 }

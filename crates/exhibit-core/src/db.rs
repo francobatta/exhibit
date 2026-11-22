@@ -14,6 +14,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/007_fetched_at.sql"),
     include_str!("migrations/008_keywords_related.sql"),
     include_str!("migrations/009_exhibitions.sql"),
+    include_str!("migrations/010_item_tree.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
@@ -43,8 +44,25 @@ pub fn open(data_dir: &Path) -> Result<Connection> {
     c.pragma_update(None, "foreign_keys", "ON")?;
     crate::filter::register(&c)?;
     use_wal(&c)?;
+    tune(&c)?;
     migrate(&c)?;
     Ok(c)
+}
+
+/// Per-connection settings for speed. Under WAL, `synchronous=NORMAL` stays consistent after
+/// a crash and only a power cut can lose the last commits; it saves an fsync on every commit,
+/// which identification and probing make one per item. Sorting and grouping stay in memory,
+/// and the file is read through a memory map and a larger page cache.
+fn tune(c: &Connection) -> Result<()> {
+    c.execute_batch(
+        "PRAGMA synchronous = NORMAL; \
+         PRAGMA temp_store = MEMORY; \
+         PRAGMA cache_size = -16000; \
+         PRAGMA mmap_size = 268435456;",
+    )?;
+    // Bigger than rusqlite's default of 16: listings build their SQL from filters and sorts.
+    c.set_prepared_statement_cache_capacity(64);
+    Ok(())
 }
 
 /// Switches to WAL, which several processes sharing the database rely on.
@@ -299,6 +317,93 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(300));
         tx.commit().unwrap();
         assert_eq!(other.join().unwrap().unwrap(), 1);
+    }
+
+    #[test]
+    fn item_tree_follows_inserts_moves_and_deletes() {
+        let d = tempfile::tempdir().unwrap();
+        let c = open(d.path()).unwrap();
+        let add = |kind: &str, parent: Option<i64>| -> i64 {
+            c.execute(
+                "INSERT INTO items(kind, title, parent_id) VALUES (?1, '', ?2)",
+                rusqlite::params![kind, parent],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+        let pairs = |c: &Connection| -> Vec<(i64, i64)> {
+            let mut s = c
+                .prepare("SELECT root_id, id FROM item_tree ORDER BY root_id, id")
+                .unwrap();
+            s.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(|r| r.unwrap())
+                .collect()
+        };
+        let (show, other_show) = (add("show", None), add("show", None));
+        let season = add("season", Some(show));
+        let ep = add("episode", Some(season));
+        assert_eq!(
+            pairs(&c),
+            [
+                (show, show),
+                (show, season),
+                (show, ep),
+                (other_show, other_show),
+                (season, season),
+                (season, ep),
+                (ep, ep)
+            ]
+        );
+        // The season moves to the other show with its episode.
+        c.execute(
+            "UPDATE items SET parent_id = ?2 WHERE id = ?1",
+            [season, other_show],
+        )
+        .unwrap();
+        assert_eq!(
+            pairs(&c),
+            [
+                (show, show),
+                (other_show, other_show),
+                (other_show, season),
+                (other_show, ep),
+                (season, season),
+                (season, ep),
+                (ep, ep)
+            ]
+        );
+        // Deleting a show takes its seasons, episodes and their pairs with it.
+        c.execute("DELETE FROM items WHERE id = ?1", [other_show])
+            .unwrap();
+        assert_eq!(pairs(&c), [(show, show)]);
+    }
+
+    #[test]
+    fn item_tree_is_built_for_a_library_from_before_it() {
+        let d = tempfile::tempdir().unwrap();
+        {
+            let c = Connection::open(d.path().join("exhibit.db")).unwrap();
+            for sql in &MIGRATIONS[..9] {
+                c.execute_batch(sql).unwrap();
+            }
+            c.pragma_update(None, "user_version", 9).unwrap();
+            c.execute_batch(
+                "INSERT INTO items(id, kind, title) VALUES (1, 'show', 'S');
+                 INSERT INTO items(id, kind, title, parent_id) VALUES (2, 'season', '', 1);
+                 INSERT INTO items(id, kind, title, parent_id) VALUES (3, 'episode', '', 2);",
+            )
+            .unwrap();
+        }
+        let c = open(d.path()).unwrap();
+        let n: i64 = c
+            .query_row(
+                "SELECT count(*) FROM item_tree WHERE root_id = 1",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 3);
     }
 
     fn fts_ids(c: &rusqlite::Connection, q: &str) -> Vec<i64> {

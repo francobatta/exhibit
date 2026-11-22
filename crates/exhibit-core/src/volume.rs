@@ -8,16 +8,41 @@ pub trait Volumes {
     fn id_of(&self, path: &Path) -> Option<String>;
     /// Current root of the volume (for example `E:\`), or `None` if it is not mounted.
     fn find(&self, volume_id: &str) -> Option<PathBuf>;
+    /// Whether the folder `path` can be read now.
+    fn is_online(&self, path: &Path) -> bool {
+        path.is_dir()
+    }
 }
 
 /// The machine's real volumes. On Windows a drive is identified by its volume serial
 /// number (`GetVolumeInformationW`), found again among the drive letters; a network share
-/// (`\\server\share`) is identified by its UNC root.
+/// (`\\server\share`) is identified by its UNC root. What it reads of the drives is kept for
+/// the whole process, so every connection the app opens shares it.
 #[derive(Default)]
-pub struct SystemVolumes {
-    /// Drive letters and their serials, read at most once every few seconds.
-    #[cfg(windows)]
-    drives: std::sync::Mutex<Option<win::Drives>>,
+pub struct SystemVolumes;
+
+/// How long a folder's online state is reused. Every listing asks which sources are online;
+/// a sleeping disk or a network share that went away can take seconds to answer.
+const ONLINE_FRESH: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Whether `path` is a readable folder, asked of the disk at most once every `ONLINE_FRESH`.
+/// The disk is asked outside the lock, so one slow share never holds up another path.
+fn online_now(path: &Path) -> bool {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    static SEEN: Mutex<Option<HashMap<PathBuf, (bool, Instant)>>> = Mutex::new(None);
+    let lock = || SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(&(online, at)) = lock().get_or_insert_with(HashMap::new).get(path)
+        && at.elapsed() < ONLINE_FRESH
+    {
+        return online;
+    }
+    let online = path.is_dir();
+    lock()
+        .get_or_insert_with(HashMap::new)
+        .insert(path.to_path_buf(), (online, Instant::now()));
+    online
 }
 
 impl SystemVolumes {
@@ -28,6 +53,10 @@ impl SystemVolumes {
 
 #[cfg(windows)]
 impl Volumes for SystemVolumes {
+    fn is_online(&self, path: &Path) -> bool {
+        online_now(path)
+    }
+
     fn id_of(&self, path: &Path) -> Option<String> {
         use std::path::{Component, Prefix};
         let Some(Component::Prefix(p)) = path.components().next() else {
@@ -54,7 +83,7 @@ impl Volumes for SystemVolumes {
             return win::serial(root).map(|_| PathBuf::from(root));
         }
         let serial = u32::from_str_radix(volume_id, 16).ok()?;
-        let mut cache = self.drives.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = win::DRIVES.lock().unwrap_or_else(|e| e.into_inner());
         if cache
             .as_ref()
             .is_none_or(|d| d.read_at.elapsed() >= win::FRESH)
@@ -82,6 +111,9 @@ mod win {
 
     /// How long a read of the drive letters is reused.
     pub const FRESH: Duration = Duration::from_secs(3);
+
+    /// Drive letters and their serials, read at most once every `FRESH`.
+    pub static DRIVES: std::sync::Mutex<Option<Drives>> = std::sync::Mutex::new(None);
 
     /// `(letter, serial, drive type)` of the mounted drives; network drives read lazily.
     pub struct Drives {
@@ -143,6 +175,10 @@ mod win {
 /// Non-Windows stub: the id is the path's root and `find` returns it if it exists.
 #[cfg(not(windows))]
 impl Volumes for SystemVolumes {
+    fn is_online(&self, path: &Path) -> bool {
+        online_now(path)
+    }
+
     fn id_of(&self, path: &Path) -> Option<String> {
         path.ancestors()
             .last()

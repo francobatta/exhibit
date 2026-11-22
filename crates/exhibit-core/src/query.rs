@@ -139,9 +139,9 @@ pub struct HistoryEntry {
     pub position_s: f64,
 }
 
-/// `tree(root_id, id)`: every item paired with itself and each of its descendants.
-pub(crate) const TREE_CTE: &str = "tree(root_id, id) AS (SELECT id, id FROM items \
-     UNION ALL SELECT tree.root_id, i.id FROM tree JOIN items i ON i.parent_id = tree.id)";
+/// `tree(root_id, id)`: every item paired with itself and each of its descendants, read from
+/// `item_tree`, which triggers keep.
+pub(crate) const TREE_CTE: &str = "tree(root_id, id) AS (SELECT root_id, id FROM item_tree)";
 
 /// `lib(item_id, avail)`: items with at least one file in their subtree; `avail` is 1 when
 /// one of those files is on a source whose id is in the JSON array bound as `?1`.
@@ -571,27 +571,27 @@ pub struct LibraryCounts {
 }
 
 pub fn library_counts(c: &Connection) -> Result<LibraryCounts> {
-    // Items matching `cond` with a file at or below them.
-    let count = |cond: &str| -> Result<u32> {
-        Ok(c.query_row(
-            &format!(
-                "WITH RECURSIVE {TREE_CTE} SELECT count(DISTINCT r.id) FROM items r \
-                 JOIN tree t ON t.root_id = r.id \
-                 JOIN files f ON f.item_id = t.id WHERE {cond}"
-            ),
-            [],
-            |r| r.get(0),
-        )?)
-    };
-    Ok(LibraryCounts {
-        movies: count("r.kind = 'movie'")?,
-        shows: count("r.kind = 'show'")?,
-        other: count("r.kind = 'other'")?,
-        needs_review: count("r.match_state = 'needsreview'")?,
-        unprobed: c.query_row("SELECT count(*) FROM files WHERE probed = 0", [], |r| {
-            r.get(0)
-        })?,
-    })
+    // Items of each kind (or state) with a file at or below them, in one pass.
+    let count = |cond: &str| format!("count(DISTINCT CASE WHEN {cond} THEN r.id END)");
+    let sql = format!(
+        "WITH RECURSIVE {TREE_CTE} SELECT {}, {}, {}, {}, \
+         (SELECT count(*) FROM files WHERE probed = 0) FROM items r \
+         JOIN tree t ON t.root_id = r.id JOIN files f ON f.item_id = t.id \
+         WHERE r.kind IN ('movie', 'show', 'other') OR r.match_state = 'needsreview'",
+        count("r.kind = 'movie'"),
+        count("r.kind = 'show'"),
+        count("r.kind = 'other'"),
+        count("r.match_state = 'needsreview'"),
+    );
+    Ok(c.prepare_cached(&sql)?.query_row([], |r| {
+        Ok(LibraryCounts {
+            movies: r.get(0)?,
+            shows: r.get(1)?,
+            other: r.get(2)?,
+            needs_review: r.get(3)?,
+            unprobed: r.get(4)?,
+        })
+    })?)
 }
 
 /// First unwatched episode of a show that has a file, by season then episode, specials

@@ -147,16 +147,25 @@ const PICTURE: &str = "CASE WHEN f.tech ->> 'hdr' LIKE 'Dolby Vision%' THEN 'dol
 
 const SOUNDS: &str = r#"'["atmos","dts_x","lossless","surround"]'"#;
 
-/// Whether the audio track `t` (a JSON object) offers the sound named by `class`.
-fn sound_is(class: &str, t: &str) -> String {
+/// Whether an audio track offers the sound named by `class`. `field` gives the SQL that reads
+/// one of the track's fields (`commentary`, `profile`, `codec`, `channels`): from its JSON
+/// object for a filter (`in_json`), or from the columns `facets` unpacks the tracks into.
+fn sound_is(class: &str, field: impl Fn(&str) -> String) -> String {
+    let (commentary, profile) = (field("commentary"), field("profile"));
+    let (codec, channels) = (field("codec"), field("channels"));
     format!(
-        "NOT coalesce({t} ->> 'commentary', 0) AND CASE {class} \
-         WHEN 'atmos' THEN {t} ->> 'profile' LIKE '%Atmos%' \
-         WHEN 'dts_x' THEN {t} ->> 'profile' LIKE '%DTS:X%' \
-         WHEN 'lossless' THEN lower({t} ->> 'codec') IN ('truehd', 'mlp', 'flac', 'alac') \
-           OR lower({t} ->> 'codec') LIKE 'pcm%' OR {t} ->> 'profile' LIKE '%DTS-HD MA%' \
-         WHEN 'surround' THEN {t} ->> 'channels' >= 6 END"
+        "NOT coalesce({commentary}, 0) AND CASE {class} \
+         WHEN 'atmos' THEN {profile} LIKE '%Atmos%' \
+         WHEN 'dts_x' THEN {profile} LIKE '%DTS:X%' \
+         WHEN 'lossless' THEN lower({codec}) IN ('truehd', 'mlp', 'flac', 'alac') \
+           OR lower({codec}) LIKE 'pcm%' OR {profile} LIKE '%DTS-HD MA%' \
+         WHEN 'surround' THEN {channels} >= 6 END"
     )
+}
+
+/// A field of the JSON object `t`, for `sound_is`.
+fn in_json(t: &str) -> impl Fn(&str) -> String + '_ {
+    move |k| format!("{t} ->> '{k}'")
 }
 
 /// Some file at or beneath the work `b` meets `cond` (on `files f`).
@@ -271,7 +280,7 @@ pub(crate) fn conditions(f: &Filters, p: &mut Params) -> Vec<String> {
         let cond = format!(
             "EXISTS (SELECT 1 FROM json_each(f.tech, '$.audio') a, json_each({}) s WHERE {})",
             p.bind(set),
-            sound_is("s.value", "a.value")
+            sound_is("s.value", in_json("a.value"))
         );
         w.push(any_file(&cond));
     }
@@ -294,18 +303,22 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
         Some(k) => format!("b.kind = {}", p.bind(enum_str(k))),
         None => DEFAULT_KINDS.to_string(),
     };
-    let langs = |tracks: &str| {
-        format!(
-            "SELECT '{tracks}', track_lang(a.value ->> 'lang') l, count(DISTINCT f.root) FROM ff f, \
-             json_each(f.tech, '$.{tracks}') a \
-             WHERE NOT coalesce(a.value ->> 'commentary', 0) AND l IS NOT NULL GROUP BY 2"
-        )
-    };
+    // Each file's JSON is read once: its picture classes in `ff`, and every audio and
+    // subtitle track unpacked into the columns of `au` and `su`, which the counts read.
     let sql = format!(
         "WITH RECURSIVE {TREE_CTE}, {LIB_CTE}, \
          roots(id) AS (SELECT b.id FROM items b JOIN lib ON lib.item_id = b.id WHERE {kinds}), \
-         ff(root, tech) AS (SELECT r.id, f.tech FROM roots r JOIN tree t ON t.root_id = r.id \
+         ff(root, tech, resolution, picture) AS MATERIALIZED (SELECT r.id, f.tech, {RESOLUTION}, \
+           {PICTURE} FROM roots r JOIN tree t ON t.root_id = r.id \
            JOIN files f ON f.item_id = t.id WHERE f.tech IS NOT NULL), \
+         aj(root, j) AS MATERIALIZED (SELECT f.root, jsonb(a.value) \
+           FROM ff f, json_each(f.tech, '$.audio') a), \
+         au(root, lang, commentary, profile, codec, channels) AS MATERIALIZED (SELECT root, \
+           track_lang(j ->> 'lang'), j ->> 'commentary', j ->> 'profile', j ->> 'codec', \
+           j ->> 'channels' FROM aj), \
+         su(root, lang) AS MATERIALIZED (SELECT f.root, track_lang(a.value ->> 'lang') \
+           FROM ff f, json_each(f.tech, '$.subtitles') a \
+           WHERE NOT coalesce(a.value ->> 'commentary', 0)), \
          act(in_lib, rated, reviewed, logged, watchlist) AS (SELECT lib.item_id IS NOT NULL, \
            {rated}, {reviewed}, {logged}, {watchlist} FROM items b \
            LEFT JOIN lib ON lib.item_id = b.id LEFT JOIN play_state p ON p.item_id = b.id \
@@ -320,12 +333,15 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
            WHERE i.year IS NOT NULL GROUP BY 2 \
          UNION ALL SELECT 'runtimes', i.runtime_min, count(*) FROM roots r JOIN items i ON i.id = r.id \
            WHERE i.runtime_min > 0 GROUP BY 2 \
-         UNION ALL SELECT 'resolution', {RESOLUTION} v, count(DISTINCT f.root) FROM ff f \
-           WHERE v IS NOT NULL GROUP BY 2 \
-         UNION ALL SELECT 'picture', {PICTURE}, count(DISTINCT f.root) FROM ff f GROUP BY 2 \
-         UNION ALL SELECT 'sound', s.value, count(DISTINCT f.root) FROM ff f, \
-           json_each(f.tech, '$.audio') a, json_each({SOUNDS}) s WHERE {sound} GROUP BY 2 \
-         UNION ALL {audio} UNION ALL {subtitles} \
+         UNION ALL SELECT 'resolution', f.resolution, count(DISTINCT f.root) FROM ff f \
+           WHERE f.resolution IS NOT NULL GROUP BY 2 \
+         UNION ALL SELECT 'picture', f.picture, count(DISTINCT f.root) FROM ff f GROUP BY 2 \
+         UNION ALL SELECT 'sound', s.value, count(DISTINCT a.root) FROM au a, \
+           json_each({SOUNDS}) s WHERE {sound} GROUP BY 2 \
+         UNION ALL SELECT 'audio', a.lang, count(DISTINCT a.root) FROM au a \
+           WHERE NOT coalesce(a.commentary, 0) AND a.lang IS NOT NULL GROUP BY 2 \
+         UNION ALL SELECT 'subtitles', s.lang, count(DISTINCT s.root) FROM su s \
+           WHERE s.lang IS NOT NULL GROUP BY 2 \
          UNION ALL SELECT 'activity', 'rated', count(*) FROM act WHERE in_lib AND rated \
          UNION ALL SELECT 'activity', 'reviewed', count(*) FROM act WHERE in_lib AND reviewed \
          UNION ALL SELECT 'activity', 'logged', count(*) FROM act WHERE in_lib AND logged \
@@ -336,9 +352,7 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
         reviewed = reviewed_sql("b"),
         logged = logged_sql("b"),
         watchlist = on_watchlist_sql("b", &watched_sql("b", "p")),
-        sound = sound_is("s.value", "a.value"),
-        audio = langs("audio"),
-        subtitles = langs("subtitles"),
+        sound = sound_is("s.value", |k| format!("a.{k}")),
     );
     let mut out = Facets::default();
     let mut s = c.prepare_cached(&sql)?;
