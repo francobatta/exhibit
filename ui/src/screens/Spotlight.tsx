@@ -41,8 +41,9 @@ export interface Row {
   key: string;
   title: string;
   items: ItemSummary[];
-  /** Beside the title in the reading face (an exhibition's wall text). */
-  note?: string;
+  /** A wall text before the first work (an exhibition's), and who hung the shelf. */
+  wall?: string;
+  wallBy?: string | null;
   /** A line under each work (an exhibition's note on it). */
   caption?: (item: ItemSummary) => string;
 }
@@ -131,8 +132,11 @@ export interface StageProps {
   first?: ItemSummary;
   /** Open on the hero's cues (Home's pick, one press from playing), not on the shelves. */
   onCues?: boolean;
-  /** Above the placard, given the work it shows and the shelf in view (Home's wall label). */
-  head?: (shown: ItemSummary, shelf: string) => ReactNode;
+  /**
+   * Above the placard, given the work it shows and the shelf it was focused on: null for the work
+   * the screen opened on, until a shelf has had focus (Home's greeting, or a work's wall label).
+   */
+  head?: (shown: ItemSummary, shelf: string | null) => ReactNode;
   /** Now, in ms: the cues say when the work would end if started now. */
   clock?: number;
 }
@@ -141,6 +145,9 @@ export function Stage({ rows, verdicts, first, onCues = false, head, clock }: St
   const [focused, setFocused] = useState<ItemSummary>(first ?? rows[0]!.items[0]!);
   // The shelf in view, by its key: a refresh may add or drop a shelf above it.
   const [active, setActive] = useState<string>(rows[0]!.key);
+  // Whether a shelf has had focus: until then the hero shows the work the screen opened on, which
+  // belongs to no shelf in particular (Home's pick).
+  const [entered, setEntered] = useState(false);
   // The focused work as the library last reported it (marking it watched changes its facts).
   const current = rows.flatMap((r) => r.items).find((i) => i.id === focused.id) ?? focused;
   // A record seen before shows at once; a new one is asked for once focus has settled, so a held
@@ -180,6 +187,7 @@ export function Stage({ rows, verdicts, first, onCues = false, head, clock }: St
     setFrom(a < 0 || b < 0 ? 0 : Math.sign(b - a));
     setFocused(item);
     setActive(row);
+    setEntered(true);
   }, []);
 
   return (
@@ -190,7 +198,7 @@ export function Stage({ rows, verdicts, first, onCues = false, head, clock }: St
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
           <div data-placard className="relative flex max-w-measure-hero flex-col gap-5">
             {/* Above the placard and out of its flow, so it never moves the placard. */}
-            {head && <div className="pointer-events-none absolute inset-x-0 bottom-full pb-5">{head(current, active)}</div>}
+            {head && <div className="pointer-events-none absolute inset-x-0 bottom-full pb-5">{head(current, entered ? active : null)}</div>}
             {/* A new work's label slides in a little from the way focus moved; nothing else moves. */}
             <motion.div
               key={current.id}
@@ -332,7 +340,8 @@ function Shelves({
               id={`home-${row.key}`}
               title={row.title}
               items={row.items}
-              note={row.note}
+              wall={row.wall}
+              wallBy={row.wallBy}
               caption={row.caption}
               onOpen={onOpen}
               hintOf={mainHint}

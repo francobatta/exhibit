@@ -272,6 +272,7 @@
     "empty": "Todavía no hay nada aquí.",
     "allInOther": "Inicio muestra películas y series. Todo lo que Exhibit ha encontrado hasta ahora está en Otros.",
     "looking": "Exhibit sigue revisando tus carpetas.",
+    "hungBy": "Montada por {{name}}",
     "openOther": "Abrir Otros",
     "programme": {
       "morning": "Esta mañana",

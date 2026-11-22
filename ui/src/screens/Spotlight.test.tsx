@@ -10,7 +10,7 @@ import { usePlayback } from "@/lib/playback";
 import { FocusScope } from "@/focus/react";
 import { useNav } from "@/nav/stack";
 import type { ItemSummary, Shelf, Source } from "@/lib/api";
-import { Spotlight } from "./Spotlight";
+import { Spotlight, Stage } from "./Spotlight";
 
 let uninstall: () => void = () => {};
 beforeEach(() => {
@@ -222,4 +222,34 @@ test("home waits for the watchlist shelf, so nothing arrives late", async () => 
     await sleep(60);
   });
   expect(titles()).toEqual(["Your watchlist", "Recently added"]);
+});
+
+test("an exhibition's shelf opens with its wall text, and its label waits until a shelf has focus", async () => {
+  const heads: Array<string | null> = [];
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={client}>
+      <FocusScope id="entry">
+        <Stage
+          rows={[{ key: "exhibition-1", title: "Further Down the Road", wall: "Six films about the road.", wallBy: "Claude", items: [summary({ id: 1 }), summary({ id: 2, title: "Heat" })] }]}
+          verdicts={false}
+          first={summary({ id: 2, title: "Heat" })}
+          onCues
+          head={(_, shelf) => {
+            heads.push(shelf);
+            return null;
+          }}
+        />
+      </FocusScope>
+    </QueryClientProvider>,
+  );
+  await settle();
+  const wall = document.querySelector('section[aria-label="Further Down the Road"] [data-slot="wall-text"]');
+  expect(wall?.textContent).toBe("Six films about the road.Hung by Claude");
+  expect(heads.at(-1)).toBeNull();
+  await act(async () => {
+    document.querySelector<HTMLElement>('[data-focus-key="home-exhibition-1:item:2"]')!.focus();
+    await sleep(20);
+  });
+  expect(heads.at(-1)).toBe("exhibition-1");
 });

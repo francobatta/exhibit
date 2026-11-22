@@ -6,6 +6,7 @@
 import { createVirtualizer } from "@ui-sdk/core";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FocusEvent } from "react";
 import { focusItem, useFocusState } from "@/focus/bridge";
+import { useT } from "@/i18n";
 import { FocusGroup, useFocusItem, type GroupMove } from "@/focus/react";
 import type { ItemSummary } from "@/lib/api";
 import { glideScroll, remPx, rems, scrollBehavior, stopGlide } from "@/lib/motion";
@@ -38,8 +39,13 @@ export interface ShelfProps {
   onEnter?: () => void;
   /** A line under each work, for works whose facts do not hang elsewhere ("1972, Likely"). */
   caption?: (item: ItemSummary) => string;
-  /** A line in the reading face beside the title (an exhibition's wall text), cut to one line. */
-  note?: string;
+  /**
+   * A wall text before the first work, as at the door of a gallery room (an exhibition's): it
+   * takes the room of three works and slides away as focus moves past the first.
+   */
+  wall?: string;
+  /** Who hung the shelf, under its wall text ("Claude"). */
+  wallBy?: string | null;
   /**
    * Brings the shelf into view when one of its works takes focus by key or pad, for a screen that
    * glides its own scroller (`revealRow`). Without it the shelf scrolls itself into view.
@@ -52,6 +58,11 @@ export interface ShelfProps {
 
 const OVERSCAN = 4;
 
+/** A wall text takes the room of this many works. */
+const WALL_SLOTS = 3;
+/** A wall text longer than this is set a size down, so the longest (600 characters) still fits. */
+const WALL_LONG = 320;
+
 /**
  * A work's focus key, namespaced by its shelf: a film on two shelves is two places, and Back
  * returns to the one the owner left. The wall grid keys works as `item:<id>`.
@@ -62,6 +73,8 @@ interface CellProps {
   shelf: string;
   item: ItemSummary;
   index: number;
+  /** Slots before the first work (a wall text). */
+  lead: number;
   shape: WorkShape;
   size: number;
   light: string;
@@ -72,7 +85,7 @@ interface CellProps {
   onFocused: (index: number) => void;
 }
 
-const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, light, caption, hint, menu, onOpen, onFocused }: CellProps) {
+const ShelfCell = memo(function ShelfCell({ shelf, item, index, lead, shape, size, light, caption, hint, menu, onOpen, onFocused }: CellProps) {
   const el = useRef<HTMLButtonElement | null>(null);
   const { ref, props, focused } = useFocusItem<HTMLButtonElement>({
     key: itemKey(shelf, item),
@@ -101,7 +114,7 @@ const ShelfCell = memo(function ShelfCell({ shelf, item, index, shape, size, lig
       aria-posinset={index + 1}
       data-index={index}
       className="absolute top-0 left-0 outline-none"
-      style={{ transform: `translateX(${index * (size + rems("--space-work-gap"))}rem)`, width: `${size}rem` }}
+      style={{ transform: `translateX(${(index + lead) * (size + rems("--space-work-gap"))}rem)`, width: `${size}rem` }}
     >
       <Work item={item} shape={shape} focused={focused || menuOpen} size={size} light={light} />
       {caption !== undefined && (
@@ -130,16 +143,20 @@ export const Shelf = memo(function Shelf({
   inert,
   onEnter,
   caption,
-  note,
+  wall,
+  wallBy,
   hintOf,
   onReveal,
   menu = true,
   className,
 }: ShelfProps) {
+  const t = useT();
   const section = useRef<HTMLElement>(null);
-  const latest = useRef({ items, onOpen, onFocusItem, onReveal, size });
+  // Works start after the wall text, when there is one: `lead` slots in.
+  const lead = wall ? WALL_SLOTS : 0;
+  const latest = useRef({ items, onOpen, onFocusItem, onReveal, size, lead });
   useLayoutEffect(() => {
-    latest.current = { items, onOpen, onFocusItem, onReveal, size };
+    latest.current = { items, onOpen, onFocusItem, onReveal, size, lead };
   });
   // The work the shelf remembers stays rendered wherever it scrolls, so focus can come back to it.
   const remembered = useRef<string | null>(null);
@@ -154,6 +171,7 @@ export const Shelf = memo(function Shelf({
       key: (i) => String(latest.current.items[i]?.id ?? i),
       horizontal: true,
       overscan: OVERSCAN,
+      scrollMargin: lead * (size + rems("--space-work-gap")) * remPx(),
       keep: () => {
         const at = remembered.current === null ? undefined : indexRef.current.get(remembered.current);
         return at === undefined ? [] : [at];
@@ -181,12 +199,13 @@ export const Shelf = memo(function Shelf({
     virtual.refresh();
   }, [items, size, virtual]);
 
-  // One slot in from the left edge; the bridge leaves scrolling to the shelf (`reveals`).
+  // One slot in from the left edge; the bridge leaves scrolling to the shelf (`reveals`). The first
+  // work keeps the wall text in view beside it.
   const slideTo = useCallback(
     (index: number) => {
       const slot = (latest.current.size + rems("--space-work-gap")) * remPx();
       const el = scroller();
-      if (el !== null) glideScroll(el, "left", Math.max(0, (index - 1) * slot));
+      if (el !== null) glideScroll(el, "left", index === 0 ? 0 : (index - 1 + latest.current.lead) * slot);
     },
     [scroller],
   );
@@ -198,7 +217,7 @@ export const Shelf = memo(function Shelf({
       if (el === null) return;
       const rem = remPx();
       const edge = rems("--space-edge") * rem;
-      const left = edge + index * (latest.current.size + rems("--space-work-gap")) * rem;
+      const left = edge + (index + latest.current.lead) * (latest.current.size + rems("--space-work-gap")) * rem;
       const right = left + latest.current.size * rem;
       if (right > el.scrollLeft + el.clientWidth - edge) glideScroll(el, "left", right - el.clientWidth + edge);
       else if (left < el.scrollLeft + edge) glideScroll(el, "left", left - edge);
@@ -271,9 +290,6 @@ export const Shelf = memo(function Shelf({
         ) : (
           title
         )}
-        {note !== undefined && note !== "" && (
-          <span className="min-w-0 truncate font-reading text-body font-text text-label-faint">{note}</span>
-        )}
       </h2>
       <FocusGroup
         id={id}
@@ -286,8 +302,18 @@ export const Shelf = memo(function Shelf({
       >
         <div
           className="relative"
-          style={{ width: `${items.length * (size + gap) - gap}rem`, height: `${height}rem` }}
+          style={{ width: `${(items.length + lead) * (size + gap) - gap}rem`, height: `${height}rem` }}
         >
+          {wall && (
+            <div
+              data-slot="wall-text"
+              className="absolute inset-y-0 left-0 flex flex-col justify-between"
+              style={{ width: `${lead * (size + gap) - gap}rem` }}
+            >
+              <p className={cn("font-reading leading-reading text-pretty text-label-soft", wall.length > WALL_LONG ? "text-body" : "text-lead")}>{wall}</p>
+              {wallBy && <p className="font-display text-body text-label-dim">{t("home.hungBy", { name: wallBy })}</p>}
+            </div>
+          )}
           {rendered.map((v) => {
             const item = items[v.index];
             if (item === undefined) return null;
@@ -297,6 +323,7 @@ export const Shelf = memo(function Shelf({
                 shelf={id}
                 item={item}
                 index={v.index}
+                lead={lead}
                 shape={shape}
                 size={size}
                 light={light}

@@ -273,6 +273,7 @@
     "allInOther": "Home shows films and shows. Everything Exhibit has found so far is in Other.",
     "looking": "Exhibit is still looking through your folders.",
     "foundNothing": "Exhibit found nothing to show in your folders. Add another folder in Settings.",
+    "hungBy": "Hung by {{name}}",
     "openOther": "Open Other",
     "programme": {
       "morning": "This morning",

@@ -2,8 +2,8 @@
 // shelves; one work is put forward on the hero, with focus on its Play, so one press starts the
 // evening. A line above the placard greets the owner with the programme's name and why that work
 // was chosen; it goes once they look elsewhere. On an exhibition (a curator's shelf) the same line
-// is the work's wall label: the exhibition's title and the curator's note on it. Beside Play, when
-// the work would end if started now.
+// is the work's wall label: the exhibition's title and the curator's note on it; the exhibition's
+// wall text opens its shelf. Beside Play, when the work would end if started now.
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ErrorState, Loading } from "@/components/states";
@@ -61,7 +61,9 @@ export function Home() {
       onCues
       clock={clock}
       head={(shown, shelf) => {
-        const hung = (exhibitions.data ?? []).find((e) => `exhibition-${e.id}` === shelf);
+        // Until a shelf has had focus the hero shows the programme's pick, even when an exhibition
+        // in view also holds it.
+        const hung = shelf === null ? undefined : (exhibitions.data ?? []).find((e) => `exhibition-${e.id}` === shelf);
         const note = hung?.works.find((w) => w.item.id === shown.id)?.note;
         return hung !== undefined && note ? (
           <Label name={hung.title} why={note} shown />
@@ -79,7 +81,8 @@ function exhibitionRow(e: Exhibition): Row {
   return {
     key: `exhibition-${e.id}`,
     title: e.title,
-    note: e.wall_text,
+    wall: e.wall_text,
+    wallBy: e.curator,
     items: e.works.map((w) => w.item),
   };
 }
