@@ -1,7 +1,7 @@
 // A work's own room, in two movements. The first is the work: its backdrop, the laurels it won,
 // its placard in full, and its row of cues as on Home (components/Cues). The rest of what can be
 // done waits in the item menu (X). Below, peeking in, the second: the owner's own review when they
-// wrote one, who is in it, as portraits, then its record: the file, its reception (the public's
+// wrote one, who is in it, as portraits, the works in the library most like it, then its record: the file, its reception (the public's
 // scores and every award) and its history (every watch, from Exhibit and from each service).
 // Down glides from one movement to the other; the backdrop darkens as it goes.
 
@@ -12,6 +12,7 @@ import { Cues } from "@/components/Cues";
 import { Placard, placardLines, Stars, trackLines } from "@/components/Placard";
 import { awardsByYear, bodyName, Laurels, orderedScores, pageOf, ScoreValue } from "@/components/Reception";
 import { OriginMark, ServiceMark } from "@/components/ServiceMark";
+import { itemKey, Shelf } from "@/components/Shelf";
 import { ErrorState, Loading } from "@/components/states";
 import { buttonVariants } from "@/components/ui/button";
 import { Collapsible, CollapsiblePanel, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -24,7 +25,10 @@ import {
   type CastMember,
   type Id,
   type ItemDetail,
+  type ItemSummary,
+  type Link,
   type MediaFile,
+  type Person,
   type RatingFact,
   type ReviewFact,
   type ServiceView,
@@ -35,7 +39,8 @@ import {
 import { EXHIBIT, bytes, clock, facts, initials, languageName, listed, loggedLine, resolution, serviceName, shortDay, votesText } from "@/lib/format";
 import { soundMark } from "@/lib/marks";
 import { focusSpring, glideScroll, numberToken, remPx, rems, stopGlide } from "@/lib/motion";
-import { useCast, useItem, useItemSources, useServices } from "@/lib/queries";
+import { useActionContext } from "@/lib/actions";
+import { useCast, useItem, useItemSources, useServices, useSimilar } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { openAsk, useNav } from "@/nav/stack";
 
@@ -60,6 +65,8 @@ function Shown({ detail }: { detail: ItemDetail }) {
   const sources = useItemSources(detail);
   const drive = sources.find((s) => !s.online)?.path;
   const cast = useCast(item.id).data ?? [];
+  const similar = useSimilar(item.id).data ?? [];
+  const ctx = useActionContext();
   // An episode has no artwork of its own: it hangs on its show's (through its season).
   const parent = useItem(item.backdrop === null ? item.parent_id : null).data?.item;
   const show = useItem(parent?.backdrop === null ? parent.parent_id : null).data?.item;
@@ -72,12 +79,12 @@ function Shown({ detail }: { detail: ItemDetail }) {
   const review = detail.activity.reviews[0] ?? null;
   // The stars beside the review are the rating its own service gave.
   const reviewRating = review === null ? null : (detail.activity.ratings.find((r) => r.service === review.service) ?? null);
-  const firstItems = review !== null || cast.length > 0;
 
   const scroller = useRef<HTMLDivElement>(null);
   const second = useRef<HTMLElement>(null);
   const reviewPart = useRef<HTMLElement>(null);
   const castPart = useRef<HTMLElement>(null);
+  const likePart = useRef<HTMLDivElement>(null);
   const [below, setBelow] = useState(false);
   const belowNow = useRef(below);
   // Where the scroller is gliding to, so a held key pages on from there, not from mid-glide.
@@ -104,11 +111,10 @@ function Shown({ detail }: { detail: ItemDetail }) {
     const end = part.offsetTop + part.offsetHeight + px("--space-edge") - el.clientHeight;
     return Math.min(lowest(), Math.max(anchor(true), end));
   };
-  // The cast stays where it is when it already shows below the review; after a long review the
+  // A part stays where it is when it already shows below the one before; after a long review the
   // movement slides up to bring it under the bar.
-  const castView = () => {
+  const partView = (part: HTMLElement | null) => {
     const el = scroller.current;
-    const part = castPart.current;
     if (el === null || part === null) return anchor(true);
     if (part.offsetTop + part.offsetHeight <= anchor(true) + el.clientHeight) return anchor(true);
     return Math.min(lowest(), Math.max(anchor(true), part.offsetTop - px("--space-bar")));
@@ -149,50 +155,57 @@ function Shown({ detail }: { detail: ItemDetail }) {
       stopGlide(el);
     };
   }, []);
-  // Up from below comes back the way Down went: from the cast to the review, and from the review
-  // (or the cast, with no review) to the work's first cue, which the nearest-item search would pass
-  // over, the cues being under the bar; with nothing to focus below, to the cues' own place.
-  // The review and the cast take focus only once their movement is in view (they are inert while
-  // it peeks, so the nearest-item search from the bar cannot land on them): Down from the cues
-  // brings it in, then lights the review, or else the portrait lit last.
-  const lastCast = useRef<string | null>(null);
+  // The second movement's parts, in order: Down and Up go from one to the next and back, each
+  // landing on what was lit there last; Up from the first goes to the work's first cue, which the
+  // nearest-item search would pass over, the cues being under the bar. With nothing to focus
+  // below, Up goes to the cues' own place. The parts take focus only once their movement is in
+  // view (they are inert while it peeks, so the nearest-item search from the bar cannot land on
+  // them): Down from the cues brings it in, then lights the first part.
+  const lit = useRef(new Map<string, string>());
   const toSecond = useRef(false);
-  /** The portrait lit last, else the first. */
-  const portrait = () =>
-    (lastCast.current === null ? null : document.querySelector<HTMLElement>(`[data-focus-key="${lastCast.current}"]`)) ?? focusable(CAST);
+  /** In a group, the item lit there last, else its first. */
+  const entry = (group: string) => {
+    const key = lit.current.get(group);
+    return (key === undefined ? null : document.querySelector<HTMLElement>(`[data-focus-key="${CSS.escape(key)}"]`)) ?? focusable(group);
+  };
+  const parts = [
+    review !== null && { group: REVIEW, view: () => showEnd(reviewPart.current) },
+    cast.length > 0 && { group: CAST, view: () => partView(castPart.current) },
+    similar.length > 0 && { group: LIKE, view: () => partView(likePart.current) },
+  ].filter((p) => p !== false);
+  const remember = (group: string, key: string) => lit.current.set(group, key);
   useEffect(() => {
     if (!below || !toSecond.current) return;
     toSecond.current = false;
-    (focusable(REVIEW) ?? portrait())?.focus({ preventScroll: true });
+    const first = parts[0];
+    if (first) entry(first.group)?.focus({ preventScroll: true });
   }, [below]);
   const secondKeys = (e: KeyboardEvent<HTMLElement>) => {
     if (!below || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
     const from = e.target as HTMLElement;
-    const fromReview = from.closest(REVIEW) !== null;
-    const fromCast = from.closest(CAST) !== null;
+    const at = parts.findIndex((p) => from.closest(p.group) !== null);
     const stop = () => {
       e.preventDefault();
       e.stopPropagation();
     };
-    if (fromReview && page(e.key === "ArrowDown" ? 1 : -1)) return stop();
-    if (e.key === "ArrowDown") {
-      // On from the review's end to the cast, as Up comes back from it.
-      const next = fromReview ? portrait() : null;
-      if (next === null) return;
+    if (parts[at]?.group === REVIEW && page(e.key === "ArrowDown" ? 1 : -1)) return stop();
+    if (at < 0) {
+      // From the cues: on into the parts, or with none back to the cues' place.
+      if (parts.length > 0) return;
       stop();
-      next.focus({ preventScroll: true });
+      glide(false);
       return;
     }
-    if (fromCast && review !== null) {
-      stop();
-      focusable(REVIEW)?.focus({ preventScroll: true });
-      glide(true, showEnd(reviewPart.current));
-      return;
-    }
-    if (!fromCast && !fromReview && firstItems) return;
+    const next = parts[at + (e.key === "ArrowDown" ? 1 : -1)];
+    if (e.key === "ArrowDown" && next === undefined) return;
     stop();
-    if (fromCast || fromReview) focusable(CUES)?.focus({ preventScroll: true });
-    glide(false);
+    if (next === undefined) {
+      focusable(CUES)?.focus({ preventScroll: true });
+      glide(false);
+      return;
+    }
+    entry(next.group)?.focus({ preventScroll: true });
+    glide(true, next.view());
   };
 
   return (
@@ -206,7 +219,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
         >
           <div className="flex max-w-measure-hero flex-col gap-5">
             <Laurels awards={detail.awards} services={services} />
-            <Placard item={item} detail={detail} size="hero" full more={[facts(item.genres)]} />
+            <Placard item={item} detail={detail} size="hero" full more={[facts(item.genres), crewLine(item.people)]} />
             <Cues
               id="details-cues"
               prefix="action"
@@ -217,7 +230,7 @@ function Shown({ detail }: { detail: ItemDetail }) {
               onFocusCue={() => glide(false)}
               onEdge={(dir) => {
                 if (dir[1] !== 1) return;
-                toSecond.current = firstItems;
+                toSecond.current = parts.length > 0;
                 glide(true);
               }}
             />
@@ -235,8 +248,8 @@ function Shown({ detail }: { detail: ItemDetail }) {
                 if (!belowNow.current) glide(true);
               }}
               onEdge={(dir) => {
-                // Past the end of the review with no cast below it, the record comes into view.
-                if (dir[1] === 1 && cast.length === 0) glide(true, lowest());
+                // Past the end of the review with nothing below it, the record comes into view.
+                if (dir[1] === 1 && parts.length === 1) glide(true, lowest());
               }}
             />
           )}
@@ -246,10 +259,28 @@ function Shown({ detail }: { detail: ItemDetail }) {
               cast={cast}
               inert={!below}
               onFocus={(key) => {
-                lastCast.current = key;
-                glide(true, castView());
+                remember(CAST, key);
+                glide(true, partView(castPart.current));
               }}
             />
+          )}
+          {similar.length > 0 && (
+            <div ref={likePart} className="-mx-edge">
+              <Shelf
+                id="details-like"
+                title={t("details.moreLikeThis")}
+                items={similar.map((s) => s.item)}
+                caption={(w) => because(similar.find((s) => s.item.id === w.id)?.because ?? [])}
+                inert={!below}
+                onOpen={(w: ItemSummary) => ctx.open(w)}
+                hintOf={() => t("actions.details")}
+                onFocusItem={(w) => {
+                  remember(LIKE, itemKey("details-like", w));
+                  glide(true, partView(likePart.current));
+                }}
+                onReveal={() => undefined}
+              />
+            </div>
           )}
           <Record detail={detail} sources={sources} />
         </section>
@@ -259,6 +290,34 @@ function Shown({ detail }: { detail: ItemDetail }) {
 }
 
 const CUES = "[data-focus-group='details-cues']";
+const LIKE = "[data-focus-group='details-like']";
+
+/** Why a work is like this one, in a few words: its strongest link that is not a genre. */
+function because(links: Link[]): string {
+  const link = links.find((l) => l.kind !== "genre") ?? links[0];
+  if (link === undefined) return "";
+  switch (link.kind) {
+    case "recommended":
+      return t("details.because.recommended");
+    case "person":
+      return t(`details.because.${link.role}`, { name: link.name });
+    case "keyword":
+      return link.keyword.charAt(0).toUpperCase() + link.keyword.slice(1);
+    case "genre":
+      return link.genre;
+  }
+}
+
+/** "Written by …, Photographed by …, Music by …": the crew kept beyond the director. */
+function crewLine(people: Person[]): string {
+  const roles = ["writer", "cinematographer", "composer", "editor"] as const;
+  return facts(
+    roles.map((role) => {
+      const names = people.filter((p) => p.role === role).map((p) => p.name);
+      return names.length === 0 ? null : t(`details.crew.${role}`, { names: listed(names) });
+    }),
+  );
+}
 const REVIEW = "[data-focus-group='details-review']";
 const CAST = "[data-focus-group='details-cast']";
 /** The first focus item of a group, by its selector. */

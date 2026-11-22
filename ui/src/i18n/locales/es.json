@@ -307,6 +307,22 @@
   },
   "details": {
     "cast": "Reparto",
+    "moreLikeThis": "Más como esta",
+    "crew": {
+      "writer": "Guion de {{names}}",
+      "cinematographer": "Fotografía de {{names}}",
+      "composer": "Música de {{names}}",
+      "editor": "Montaje de {{names}}"
+    },
+    "because": {
+      "recommended": "Suelen gustar juntas",
+      "director": "También de {{name}}",
+      "writer": "También escrita por {{name}}",
+      "cinematographer": "También fotografiada por {{name}}",
+      "composer": "También con música de {{name}}",
+      "editor": "También montada por {{name}}",
+      "cast": "También con {{name}}"
+    },
     "as": "como {{character}}",
     "subtitlesIn": "subtítulos en {{languages}}",
     "watchedOn": "Visto el {{when}}",
@@ -635,6 +651,8 @@
     "allOf": "Con todos ellos",
     "anyOf": "Con alguno de ellos",
     "without": "sin {{genres}}",
+    "with": "con {{people}}",
+    "keywords": "Palabras clave",
     "year": "Año",
     "runtime": "Duración",
     "from": "Desde {{value}}",

@@ -39,6 +39,7 @@ export const keys = {
   row: (query: SearchQuery) => ["library", "row", query] as const,
   facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
+  similar: (id: Id) => ["library", "similar", id] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
   services: ["library", "services"] as const,
@@ -131,6 +132,11 @@ const ITEM_STALE = 10 * 60_000;
  * One full record. With `fetch` false only what is cached is returned, so a screen can show a
  * record it has seen at once and ask for a new one only once focus has settled on it.
  */
+/** The works in the library most like `id`, with what links each. */
+export function useSimilar(id: Id) {
+  return useQuery({ queryKey: keys.similar(id), queryFn: () => api.similar(id, 30) });
+}
+
 export function useItem(id: Id | null, fetch = true) {
   return useQuery({
     queryKey: keys.item(id ?? -1),

@@ -58,13 +58,21 @@ enum Command {
         item: Option<Id>,
     },
     Search(Box<SearchArgs>),
-    /// What a listing can be narrowed by: genres, years, runtimes, picture, sound and languages
+    /// What a listing can be narrowed by: genres, keywords, years, runtimes, picture, sound and
+    /// languages
     Facets {
         #[arg(long)]
         kind: Option<KindArg>,
     },
     Item {
         id: Id,
+    },
+    /// The works most like one in the library, with what links each (director, keywords,
+    /// TMDB's recommendation)
+    Similar {
+        id: Id,
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
     },
     Shelf {
         shelf: ShelfArg,
@@ -223,6 +231,15 @@ struct SearchArgs {
     any_genre: bool,
     #[arg(long)]
     without_genre: Vec<String>,
+    /// A TMDB keyword ("heist"); repeat for more; all are required unless --any-keyword
+    #[arg(long)]
+    keyword: Vec<String>,
+    #[arg(long)]
+    any_keyword: bool,
+    /// Someone in the work, in any role (director, writer, cinematographer, composer, cast);
+    /// repeat for more, all required
+    #[arg(long)]
+    person: Vec<String>,
     #[arg(long)]
     year_min: Option<i32>,
     #[arg(long)]

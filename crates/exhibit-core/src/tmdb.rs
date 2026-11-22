@@ -11,6 +11,8 @@ use std::time::Duration;
 const API: &str = "https://api.themoviedb.org/3";
 const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 const MAX_CAST: usize = 8;
+/// What each work's details bring with them, in one request.
+const DETAILS: &str = "credits,keywords,recommendations";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchHit {
@@ -26,7 +28,7 @@ pub struct SearchHit {
     pub titles: Vec<(&'static str, String)>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct MovieMeta {
     pub tmdb_id: i64,
     pub title: String,
@@ -37,9 +39,13 @@ pub struct MovieMeta {
     pub people: Vec<Person>,
     pub poster: Option<String>,
     pub backdrop: Option<String>,
+    /// TMDB's keywords ("heist", "neo-noir"), in English: TMDB does not translate them.
+    pub keywords: Vec<String>,
+    /// TMDB's recommendations for this work, most fitting first (TMDB ids of the same kind).
+    pub related: Vec<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct ShowMeta {
     pub tmdb_id: i64,
     pub title: String,
@@ -51,6 +57,8 @@ pub struct ShowMeta {
     pub backdrop: Option<String>,
     /// (season number, episode count)
     pub seasons: Vec<(i32, u32)>,
+    pub keywords: Vec<String>,
+    pub related: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -402,7 +410,7 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
     fn movie(&self, tmdb_id: i64) -> Result<MovieMeta> {
         let v = self.json(
             &format!("/movie/{tmdb_id}"),
-            &[("append_to_response", "credits")],
+            &[("append_to_response", DETAILS)],
         )?;
         Ok(MovieMeta {
             tmdb_id: v["id"].as_i64().unwrap_or(tmdb_id),
@@ -411,16 +419,18 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
             overview: text(&v["overview"]),
             runtime_min: int(&v["runtime"]),
             genres: names(&v["genres"]),
-            people: people(crew_directors(&v), &v),
+            people: people(Vec::new(), &v),
             poster: opt_text(&v["poster_path"]),
             backdrop: opt_text(&v["backdrop_path"]),
+            keywords: names(&v["keywords"]["keywords"]),
+            related: related(&v),
         })
     }
 
     fn show(&self, tmdb_id: i64) -> Result<ShowMeta> {
         let v = self.json(
             &format!("/tv/{tmdb_id}"),
-            &[("append_to_response", "credits")],
+            &[("append_to_response", DETAILS)],
         )?;
         let seasons = arr(&v["seasons"])
             .iter()
@@ -439,6 +449,8 @@ impl<H: Http> MetadataProvider for Tmdb<H> {
             poster: opt_text(&v["poster_path"]),
             backdrop: opt_text(&v["backdrop_path"]),
             seasons,
+            keywords: names(&v["keywords"]["results"]),
+            related: related(&v),
         })
     }
 
@@ -545,16 +557,55 @@ fn names(v: &Value) -> Vec<String> {
     arr(v).iter().filter_map(|p| opt_text(&p["name"])).collect()
 }
 
-fn crew_directors(v: &Value) -> Vec<String> {
-    arr(&v["credits"]["crew"])
+/// TMDB's recommendations, in its order.
+fn related(v: &Value) -> Vec<i64> {
+    arr(&v["recommendations"]["results"])
         .iter()
-        .filter(|c| c["job"] == "Director")
-        .filter_map(|c| opt_text(&c["name"]))
+        .filter_map(|r| r["id"].as_i64())
         .collect()
 }
 
-/// Directors first, then the first `MAX_CAST` cast members.
-fn people(directors: Vec<String>, v: &Value) -> Vec<Person> {
+/// The crew jobs Exhibit keeps, as the role it stores each under. A show's creators come from
+/// `created_by` and count as its directors.
+const CREW: [(&str, &str); 7] = [
+    ("Director", "director"),
+    ("Screenplay", "writer"),
+    ("Writer", "writer"),
+    ("Novel", "writer"),
+    ("Director of Photography", "cinematographer"),
+    ("Original Music Composer", "composer"),
+    ("Editor", "editor"),
+];
+
+/// The crew Exhibit keeps, in `CREW`'s order of roles, each person once per role.
+fn crew(v: &Value) -> Vec<Person> {
+    let mut out: Vec<Person> = Vec::new();
+    for (job, role) in CREW {
+        for c in arr(&v["credits"]["crew"])
+            .iter()
+            .filter(|c| c["job"] == job)
+        {
+            let Some(name) = opt_text(&c["name"]) else {
+                continue;
+            };
+            if out.iter().any(|p| p.role == role && p.name == name) {
+                continue;
+            }
+            out.push(Person {
+                name,
+                role: role.into(),
+                tmdb_id: c["id"].as_i64(),
+                profile: opt_text(&c["profile_path"]),
+                ..Person::default()
+            });
+        }
+    }
+    out
+}
+
+/// Directors, then the rest of the kept crew, then the first `MAX_CAST` cast members. A
+/// show's `creators` are its directors.
+fn people(creators: Vec<String>, v: &Value) -> Vec<Person> {
     let cast = arr(&v["credits"]["cast"])
         .iter()
         .filter_map(|c| {
@@ -567,13 +618,14 @@ fn people(directors: Vec<String>, v: &Value) -> Vec<Person> {
             })
         })
         .take(MAX_CAST);
-    directors
+    creators
         .into_iter()
         .map(|name| Person {
             name,
             role: "director".into(),
             ..Person::default()
         })
+        .chain(crew(v))
         .chain(cast)
         .collect()
 }
@@ -893,8 +945,37 @@ mod tests {
     fn movie_details() {
         let f = fake(&[("/movie/603", "movie_603.json")]);
         let m = Tmdb::new("k".into(), &f).movie(603).unwrap();
-        assert!(last_url(&f).contains("append_to_response=credits"));
+        assert!(
+            last_url(&f).contains("append_to_response=credits%2Ckeywords%2Crecommendations")
+                || last_url(&f).contains("append_to_response=credits,keywords,recommendations"),
+            "{}",
+            last_url(&f)
+        );
         assert_eq!(m.title, "The Matrix");
+        assert_eq!(
+            m.keywords[..3],
+            ["artificial intelligence", "future", "dystopia"]
+        );
+        assert_eq!(m.related, [604, 605, 550]);
+        let crew: Vec<_> = m
+            .people
+            .iter()
+            .filter(|p| p.role != "cast")
+            .map(|p| (p.role.as_str(), p.name.as_str()))
+            .collect();
+        // Each person once per role, whatever TMDB calls the job (Writer and Screenplay).
+        assert_eq!(
+            crew,
+            [
+                ("director", "Lilly Wachowski"),
+                ("director", "Lana Wachowski"),
+                ("writer", "Lilly Wachowski"),
+                ("writer", "Lana Wachowski"),
+                ("cinematographer", "Bill Pope"),
+                ("composer", "Don Davis"),
+                ("editor", "Zach Staenberg"),
+            ]
+        );
         assert_eq!(m.year, Some(1999));
         assert_eq!(m.runtime_min, Some(136));
         assert_eq!(m.genres, ["Action", "Science Fiction"]);
@@ -909,9 +990,9 @@ mod tests {
             .map(|p| p.name.as_str())
             .collect();
         assert_eq!(directors, ["Lilly Wachowski", "Lana Wachowski"]);
-        assert_eq!(m.people.len(), 2 + 8);
+        assert_eq!(m.people.len(), 7 + 8);
         assert_eq!(
-            m.people[2],
+            m.people[7],
             Person {
                 name: "Keanu Reeves".into(),
                 role: "cast".into(),

@@ -258,6 +258,7 @@ mod tests {
             activity: Default::default(),
             reception: Vec::new(),
             awards: Vec::new(),
+            keywords: Vec::new(),
         }
     }
 

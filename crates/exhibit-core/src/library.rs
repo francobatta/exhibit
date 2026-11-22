@@ -26,6 +26,7 @@ use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
 use crate::service::{Account, DeviceCode, Need, Service, SyncInput, normalize_username};
 use crate::signin::{self, SignInState};
+use crate::similar::{self, Similar};
 use crate::sync::{self, ServiceState, SyncReport};
 use crate::tmdb::{self, Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
@@ -408,6 +409,11 @@ impl Library {
             &self.image_dir(),
             id,
         )
+    }
+
+    /// The works most like `id` in the library, with what links each; see `similar::similar`.
+    pub fn similar(&self, id: Id, limit: u32) -> Result<Vec<Similar>> {
+        similar::similar(&self.conn, &*self.volumes, id, limit)
     }
 
     pub fn shelf(&self, shelf: Shelf, limit: u32) -> Result<Vec<ItemSummary>> {

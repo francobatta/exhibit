@@ -157,8 +157,7 @@ mod tests {
                 runtime_min: None,
                 genres: vec![],
                 people: self.people.clone(),
-                poster: None,
-                backdrop: None,
+                ..MovieMeta::default()
             })
         }
         fn show(&self, _: i64) -> Result<ShowMeta> {

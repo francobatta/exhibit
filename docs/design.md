@@ -107,6 +107,12 @@ The project has failed, even if it works, when:
 - **Formats:** Dolby Vision, HDR10, each track's best sound (DTS-HD MA, DTS:X, Atmos), and the
   original, commentary, forced and SDH flags. Marks are drawn in the text colour and may come from
   reputable, not only official, sources. The sound mark names the best format on any track.
+- **What a work is about:** with each work's details TMDB gives its keywords (English only), its
+  crew (director, writer, cinematographer, composer, editor) and its recommendations, all in the
+  one request. They feed the keyword and people filters, search by crew, and `similar`: the works
+  in the library most like one, scored offline from TMDB's recommendation either way, shared
+  director and writer, keywords weighted by how few works share them, the rest of the crew and
+  cast, and a little for genre, each result saying what links it.
 
 ## 8. Playback
 
@@ -153,11 +159,12 @@ evening lamp, lower and warmer after midnight).
   its backdrop and placard) beside its wall, and a row of views under the top bar that one button
   switches; **Shows** and **Other** use the Wall.
 - **Wall:** a virtualised poster grid with sort (each either way; A again reverses) and a live
-  filter sheet beside it: genres wanted or left out, year and runtime ranges, picture, sound,
-  languages and activity. Deterministic; the agent comes later.
+  filter sheet beside it: genres wanted or left out, the most shared keywords, year and runtime
+  ranges, picture, sound, languages and activity. Deterministic; the agent comes later.
 - **Show:** seasons and episodes, the next unwatched episode focused on entry.
-- **Details:** the full placard, Reception, Your review and History, file details, versions, and
-  play or resume, watched, loved, fix match.
+- **Details:** the full placard (with the crew beyond the director), Reception, Your review, the
+  cast, More like this (each with its strongest link: "Also by Brian De Palma"), History, file
+  details, versions, and play or resume, watched, loved, fix match.
 - **Hero placard:** the title alone; the story (byline "director, year" over the description)
   beside the verdicts as large figures with their marks beneath; the file in two quiet lines
   (runtime, state, marks; then "English and 2 other languages, 19 subtitles"). Stacks where narrow.

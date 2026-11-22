@@ -8,6 +8,7 @@ use exhibit_core::filter::Facets;
 use exhibit_core::identify::IdentifyScope;
 use exhibit_core::model::{Candidate, CastMember, Id, ItemKind, Source};
 use exhibit_core::query::{HistoryEntry, ItemDetail, ItemSummary, SearchQuery, Shelf};
+use exhibit_core::similar::Similar;
 use exhibit_core::tools::{Tool, ToolStatus};
 use exhibit_core::{Library, LibraryStatus};
 use serde::{Deserialize, Serialize};
@@ -51,6 +52,11 @@ pub fn search(state: State<'_, AppState>, query: SearchQuery) -> ApiResult<Vec<I
 #[tauri::command(async)]
 pub fn facets(state: State<'_, AppState>, kind: Option<ItemKind>) -> ApiResult<Facets> {
     Ok(state.lib().facets(kind)?)
+}
+
+#[tauri::command(async)]
+pub fn similar(state: State<'_, AppState>, id: Id, limit: u32) -> ApiResult<Vec<Similar>> {
+    Ok(state.lib().similar(id, limit)?)
 }
 
 #[tauri::command(async)]

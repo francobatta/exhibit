@@ -24,7 +24,7 @@ use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use std::collections::{HashMap, HashSet};
 
 const DEFAULT_LIMIT: u32 = 50;
-const MAX_LIMIT: u32 = 500;
+pub(crate) const MAX_LIMIT: u32 = 500;
 const TASTE_KEY: &str = "taste_profile";
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize)]
@@ -70,6 +70,8 @@ pub struct ItemDetail {
     pub reception: Vec<SourcedScore>,
     /// Wins first, the most prominent first.
     pub awards: Vec<AwardEntry>,
+    /// TMDB's keywords, most specific first.
+    pub keywords: Vec<String>,
 }
 
 /// A listing's order. Works without the value sorted by (no year) come last either way; ties go
@@ -165,7 +167,7 @@ impl Params {
     }
 }
 
-fn json_ids(ids: &[Id]) -> String {
+pub(crate) fn json_ids(ids: &[Id]) -> String {
     serde_json::to_string(ids).unwrap_or_else(|_| "[]".into())
 }
 
@@ -264,7 +266,11 @@ fn list(
 }
 
 /// Summaries of the visible items among `ids`, in the order of `ids`.
-fn summaries_by_ids(c: &Connection, online: &[Id], ids: &[Id]) -> Result<Vec<ItemSummary>> {
+pub(crate) fn summaries_by_ids(
+    c: &Connection,
+    online: &[Id],
+    ids: &[Id],
+) -> Result<Vec<ItemSummary>> {
     let mut p = Params::new(c, online)?;
     let cond = format!(
         "b.id IN (SELECT value FROM json_each({}))",
@@ -428,6 +434,7 @@ fn item_with(c: &Connection, online: &[Id], id: Id, children: bool) -> Result<It
         activity,
         reception,
         awards,
+        keywords: crate::similar::keywords(c, id)?,
     })
 }
 

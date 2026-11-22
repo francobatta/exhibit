@@ -49,6 +49,7 @@ export function compact(f: Filters): Filters {
     out[key] = value;
   }
   if (out.genres === undefined) delete out.any_genre;
+  if (out.keywords === undefined) delete out.any_keyword;
   return out as Filters;
 }
 
@@ -58,6 +59,8 @@ export function filterCount(f: Filters): number {
   const set = (...keys: Array<keyof Filters>) => keys.some((k) => c[k] !== undefined);
   return [
     set("genres", "without_genres"),
+    set("keywords"),
+    set("people"),
     set("year_min", "year_max"),
     set("runtime_min", "runtime_max"),
     set("seen"),
@@ -115,6 +118,8 @@ export function describe(f: Filters): string[] {
   const parts: Array<string | null> = [];
   if (c.genres) parts.push(c.any_genre ? either(c.genres) : c.genres.join(" + "));
   if (c.without_genres) parts.push(t("filters.without", { genres: either(c.without_genres) }));
+  if (c.keywords) parts.push(c.any_keyword ? either(c.keywords) : c.keywords.join(" + "));
+  if (c.people) parts.push(t("filters.with", { people: c.people.join(", ") }));
   parts.push(span(c.year_min, c.year_max, String), span(c.runtime_min, c.runtime_max, minutes));
   if (c.seen) parts.push(either(c.seen.map(seenName)));
   for (const k of ACTIVITY) if (c[k]) parts.push(activityName(k));

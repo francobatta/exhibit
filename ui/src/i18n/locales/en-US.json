@@ -308,6 +308,22 @@
   },
   "details": {
     "cast": "Cast",
+    "moreLikeThis": "More like this",
+    "crew": {
+      "writer": "Written by {{names}}",
+      "cinematographer": "Photographed by {{names}}",
+      "composer": "Music by {{names}}",
+      "editor": "Edited by {{names}}"
+    },
+    "because": {
+      "recommended": "Often liked together",
+      "director": "Also by {{name}}",
+      "writer": "Also written by {{name}}",
+      "cinematographer": "Also shot by {{name}}",
+      "composer": "Also scored by {{name}}",
+      "editor": "Also cut by {{name}}",
+      "cast": "Also with {{name}}"
+    },
     "as": "as {{character}}",
     "subtitlesIn": "subtitles {{languages}}",
     "watchedOn": "Watched {{when}}",
@@ -634,6 +650,8 @@
     "allOf": "Has all of them",
     "anyOf": "Has any of them",
     "without": "not {{genres}}",
+    "with": "with {{people}}",
+    "keywords": "Keywords",
     "year": "Year",
     "runtime": "Runtime",
     "from": "From {{value}}",

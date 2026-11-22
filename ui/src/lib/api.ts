@@ -33,11 +33,25 @@ export type RefreshPhase =
   | "reception"
   | "freshening";
 
+export type Role = "director" | "writer" | "cinematographer" | "composer" | "editor" | "cast";
+
 export interface Person {
   name: string;
-  /** "director" | "cast" */
-  role: string;
+  role: Role;
   character?: string;
+}
+
+/** What links two works (`similar`), strongest first. */
+export type Link =
+  | { kind: "recommended" }
+  | { kind: "keyword"; keyword: string }
+  | { kind: "person"; name: string; role: Role }
+  | { kind: "genre"; genre: string };
+
+export interface Similar {
+  item: ItemSummary;
+  score: number;
+  because: Link[];
 }
 
 /** One of a work's cast; `portrait` is a cached image file name. */
@@ -174,6 +188,8 @@ export interface ItemDetail {
   reception: SourcedScore[];
   /** Wins first, the most prominent first. */
   awards: AwardEntry[];
+  /** TMDB's keywords, in English, most specific first. */
+  keywords: string[];
 }
 
 /** A public score: `origin` is whose it is (an id in some service's `origins`), `service` the one that fetched it. */
@@ -244,6 +260,11 @@ export interface Filters {
   genres?: string[];
   any_genre?: boolean;
   without_genres?: string[];
+  /** TMDB keywords, in English, as `facets` names them; all required unless `any_keyword`. */
+  keywords?: string[];
+  any_keyword?: boolean;
+  /** People by name in any role; all required. */
+  people?: string[];
   year_min?: number | null;
   year_max?: number | null;
   /** Minutes. */
@@ -292,6 +313,8 @@ export interface ActivityCounts {
 /** What a listing can be narrowed by, over all of it. Genres and languages most common first. */
 export interface Facets {
   genres: Count<string>[];
+  /** The keywords most works share, most common first. */
+  keywords: Count<string>[];
   years: Count<number>[];
   runtimes: Count<number>[];
   resolution: Count<Resolution>[];
@@ -544,6 +567,7 @@ export async function boot(): Promise<Boot> {
 export const status = () => invoke<LibraryStatus>("status");
 export const search = (query: SearchQuery) => invoke<ItemSummary[]>("search", { query });
 export const facets = (kind: ItemKind | null) => invoke<Facets>("facets", { kind });
+export const similar = (id: Id, limit: number) => invoke<Similar[]>("similar", { id, limit });
 export const item = (id: Id) => invoke<ItemDetail>("item", { id });
 /** A work's cast with portraits; the first ask fetches and caches them. */
 export const cast = (id: Id) => invoke<CastMember[]>("cast", { id });

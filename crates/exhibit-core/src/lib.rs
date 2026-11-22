@@ -23,6 +23,7 @@ pub mod scan;
 pub mod secrets;
 pub mod service;
 pub mod signin;
+pub mod similar;
 pub mod sync;
 pub mod tmdb;
 pub mod tools;

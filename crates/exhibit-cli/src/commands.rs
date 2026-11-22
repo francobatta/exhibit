@@ -63,6 +63,7 @@ pub fn run(lib: &Library, command: Command) -> Result<Value> {
         Command::Search(args) => to_json(lib.search(&search_query(*args))?),
         Command::Facets { kind } => to_json(lib.facets(kind.map(kind_of))?),
         Command::Item { id } => to_json(lib.item(id)?),
+        Command::Similar { id, limit } => to_json(lib.similar(id, limit)?),
         Command::Shelf { shelf, limit } => {
             let shelf = match shelf {
                 ShelfArg::Continue => Shelf::ContinueWatching,
@@ -187,6 +188,9 @@ fn search_query(a: SearchArgs) -> SearchQuery {
             genres: a.genre,
             any_genre: a.any_genre,
             without_genres: a.without_genre,
+            keywords: a.keyword,
+            any_keyword: a.any_keyword,
+            people: a.person,
             year_min: a.year_min,
             year_max: a.year_max,
             runtime_min: a.runtime_min,

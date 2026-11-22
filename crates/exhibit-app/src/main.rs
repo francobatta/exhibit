@@ -48,6 +48,7 @@ fn main() {
             commands::status,
             commands::search,
             commands::facets,
+            commands::similar,
             commands::item,
             commands::shelf,
             commands::needs_review,
