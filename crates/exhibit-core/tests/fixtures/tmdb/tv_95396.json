@@ -1,7 +1,87 @@
-{"id":95396,"name":"Severance","original_name":"Severance","first_air_date":"2022-02-17",
-"overview":"Mark leads a team whose memories have been surgically divided.",
-"genres":[{"id":18,"name":"Drama"},{"id":9648,"name":"Mystery"}],
-"poster_path":"/lFf6LLrQjYldcZItzOkGmMMigP7.jpg","backdrop_path":null,
-"created_by":[{"name":"Dan Erickson"}],
-"seasons":[{"season_number":0,"episode_count":3},{"season_number":1,"episode_count":9},{"season_number":2,"episode_count":10}],
-"credits":{"cast":[{"name":"Adam Scott"},{"name":"Britt Lower"}],"crew":[{"name":"Ben Stiller","job":"Executive Producer"}]}}
+{
+  "id": 95396,
+  "name": "Severance",
+  "original_name": "Severance",
+  "first_air_date": "2022-02-17",
+  "overview": "Mark leads a team whose memories have been surgically divided.",
+  "genres": [
+    {
+      "id": 18,
+      "name": "Drama"
+    },
+    {
+      "id": 9648,
+      "name": "Mystery"
+    }
+  ],
+  "poster_path": "/lFf6LLrQjYldcZItzOkGmMMigP7.jpg",
+  "backdrop_path": null,
+  "created_by": [
+    {
+      "name": "Dan Erickson"
+    }
+  ],
+  "seasons": [
+    {
+      "season_number": 0,
+      "episode_count": 3
+    },
+    {
+      "season_number": 1,
+      "episode_count": 9
+    },
+    {
+      "season_number": 2,
+      "episode_count": 10
+    }
+  ],
+  "credits": {
+    "cast": [
+      {
+        "name": "Adam Scott"
+      },
+      {
+        "name": "Britt Lower"
+      }
+    ],
+    "crew": [
+      {
+        "name": "Ben Stiller",
+        "job": "Executive Producer"
+      }
+    ]
+  },
+  "keywords": {
+    "results": [
+      {
+        "id": 10183,
+        "name": "workplace"
+      },
+      {
+        "id": 4565,
+        "name": "dystopia"
+      },
+      {
+        "id": 9673,
+        "name": "memory"
+      },
+      {
+        "id": 3801,
+        "name": "corporation"
+      }
+    ]
+  },
+  "recommendations": {
+    "page": 1,
+    "results": [
+      {
+        "id": 100088,
+        "name": "The Last of Us"
+      },
+      {
+        "id": 87108,
+        "name": "Chernobyl"
+      }
+    ]
+  }
+}

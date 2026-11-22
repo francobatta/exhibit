@@ -65,6 +65,13 @@ pub struct Filters {
     pub genres: Vec<String>,
     pub any_genre: bool,
     pub without_genres: Vec<String>,
+    /// TMDB keywords, in English ("heist", "neo-noir"), as `facets` names them. All are required,
+    /// or any one with `any_keyword`.
+    pub keywords: Vec<String>,
+    pub any_keyword: bool,
+    /// People by name, in any role (director, writer, cinematographer, composer, editor, cast).
+    /// All are required.
+    pub people: Vec<String>,
     pub year_min: Option<i32>,
     pub year_max: Option<i32>,
     /// Minutes.
@@ -101,6 +108,8 @@ pub struct Count<T> {
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Facets {
     pub genres: Vec<Count<String>>,
+    /// The `MAX_KEYWORDS` keywords most works share.
+    pub keywords: Vec<Count<String>>,
     pub years: Vec<Count<i32>>,
     pub runtimes: Vec<Count<i32>>,
     pub resolution: Vec<Count<String>>,
@@ -121,6 +130,9 @@ pub struct ActivityCounts {
     pub watchlist: u32,
     pub not_in_library: u32,
 }
+
+/// How many keywords `facets` lists: enough to choose from, never the long tail.
+const MAX_KEYWORDS: u32 = 60;
 
 /// A file's picture size (`files f`); NULL for a file with no picture.
 const RESOLUTION: &str = "CASE WHEN coalesce(f.tech ->> 'height', 0) = 0 THEN NULL \
@@ -183,6 +195,30 @@ pub(crate) fn conditions(f: &Filters, p: &mut Params) -> Vec<String> {
         let has = among(p, "lower(g.value)", &lower(&f.without_genres));
         w.push(format!(
             "NOT EXISTS (SELECT 1 FROM json_each(b.genres) g WHERE {has})"
+        ));
+    }
+    if !f.keywords.is_empty() {
+        let mut wanted = lower(&f.keywords);
+        wanted.sort();
+        wanted.dedup();
+        let has = among(p, "k.keyword", &wanted);
+        let hits =
+            format!("(SELECT count(*) FROM item_keywords k WHERE k.item_id = b.id AND {has})");
+        w.push(if f.any_keyword {
+            format!("{hits} > 0")
+        } else {
+            format!("{hits} = {}", wanted.len())
+        });
+    }
+    if !f.people.is_empty() {
+        let mut wanted = lower(&f.people);
+        wanted.sort();
+        wanted.dedup();
+        let has = among(p, "lower(ip.name)", &wanted);
+        w.push(format!(
+            "(SELECT count(DISTINCT lower(ip.name)) FROM item_people ip \
+             WHERE ip.item_id = b.id AND {has}) = {}",
+            wanted.len()
         ));
     }
     for (column, bound, op) in [
@@ -277,6 +313,9 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
          SELECT 'genres', g.value, count(DISTINCT i.id) FROM roots r JOIN items i ON i.id = r.id \
            LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2, json_each({LOCAL_GENRES}) g \
            GROUP BY 2 \
+         UNION ALL SELECT * FROM (SELECT 'keywords', k.keyword, count(*) n FROM roots r \
+           JOIN item_keywords k ON k.item_id = r.id GROUP BY 2 ORDER BY n DESC, 2 \
+           LIMIT {MAX_KEYWORDS}) \
          UNION ALL SELECT 'years', i.year, count(*) FROM roots r JOIN items i ON i.id = r.id \
            WHERE i.year IS NOT NULL GROUP BY 2 \
          UNION ALL SELECT 'runtimes', i.runtime_min, count(*) FROM roots r JOIN items i ON i.id = r.id \
@@ -311,6 +350,7 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
         let number = || r.get::<_, i32>(1).map(|value| Count { value, count });
         match facet.as_str() {
             "genres" => out.genres.push(text()?),
+            "keywords" => out.keywords.push(text()?),
             "years" => out.years.push(number()?),
             "runtimes" => out.runtimes.push(number()?),
             "resolution" => out.resolution.push(text()?),
@@ -333,7 +373,12 @@ pub fn facets(c: &Connection, v: &dyn Volumes, kind: Option<ItemKind>) -> Result
     let common_first = |list: &mut Vec<Count<String>>| {
         list.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.value.cmp(&b.value)))
     };
-    for list in [&mut out.genres, &mut out.audio, &mut out.subtitles] {
+    for list in [
+        &mut out.genres,
+        &mut out.keywords,
+        &mut out.audio,
+        &mut out.subtitles,
+    ] {
         common_first(list);
     }
     for list in [&mut out.resolution, &mut out.picture, &mut out.sound] {

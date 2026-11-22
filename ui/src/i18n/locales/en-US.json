@@ -111,6 +111,8 @@
   },
   "placard": {
     "left": "{{time}} left",
+    "endsAt_one": "Ends at {{time}}",
+    "endsAt_other": "Ends at {{time}}",
     "sound": "Sound",
     "subtitles": "Subtitles",
     "none": "None",
@@ -271,7 +273,33 @@
     "allInOther": "Home shows films and shows. Everything Exhibit has found so far is in Other.",
     "looking": "Exhibit is still looking through your folders.",
     "foundNothing": "Exhibit found nothing to show in your folders. Add another folder in Settings.",
-    "openOther": "Open Other"
+    "hungBy": "Hung by {{name}}",
+    "openOther": "Open Other",
+    "programme": {
+      "morning": "This morning",
+      "afternoon": "This afternoon",
+      "evening": "Tonight",
+      "late": "After hours"
+    },
+    "rows": {
+      "watchlist": "From your watchlist",
+      "long": "Time for a long one",
+      "short": "Under 100 minutes",
+      "acclaimed": "Well reviewed, not seen yet",
+      "autumn": "Autumn evenings",
+      "winter": "Long winter nights",
+      "spring": "Lighter ones for spring",
+      "summer": "Summer adventures"
+    },
+    "why": {
+      "continue": "Where you left off",
+      "watchlist": "On your watchlist",
+      "long": "There is time for a long one",
+      "short": "Short enough to start now",
+      "acclaimed": "Well reviewed, and you have not seen it",
+      "recent": "New to the collection",
+      "loved": "One you loved"
+    }
   },
   "show": {
     "label": "Show",
@@ -281,6 +309,22 @@
   },
   "details": {
     "cast": "Cast",
+    "moreLikeThis": "More like this",
+    "crew": {
+      "writer": "Written by {{names}}",
+      "cinematographer": "Photographed by {{names}}",
+      "composer": "Music by {{names}}",
+      "editor": "Edited by {{names}}"
+    },
+    "because": {
+      "recommended": "Often liked together",
+      "director": "Also by {{name}}",
+      "writer": "Also written by {{name}}",
+      "cinematographer": "Also shot by {{name}}",
+      "composer": "Also scored by {{name}}",
+      "editor": "Also cut by {{name}}",
+      "cast": "Also with {{name}}"
+    },
     "as": "as {{character}}",
     "subtitlesIn": "subtitles {{languages}}",
     "watchedOn": "Watched {{when}}",
@@ -533,6 +577,14 @@
     "library": {
       "no_wal": "The library's folder cannot hold Exhibit's database. Move it to a local drive."
     },
+    "exhibition": {
+      "unknown": "That exhibition is no longer hanging.",
+      "title": "An exhibition needs a title of up to 60 characters.",
+      "wall_text": "The wall text is too long. Keep it under 600 characters.",
+      "works": "An exhibition holds 3 to 24 different works.",
+      "note": "A note on a work is too long. Keep it under 80 characters.",
+      "work": "Only films and shows in the library can hang in an exhibition."
+    },
     "service": {
       "unknown": "Exhibit does not know that service.",
       "unsupported": "That service does not provide this.",
@@ -607,6 +659,8 @@
     "allOf": "Has all of them",
     "anyOf": "Has any of them",
     "without": "not {{genres}}",
+    "with": "with {{people}}",
+    "keywords": "Keywords",
     "year": "Year",
     "runtime": "Runtime",
     "from": "From {{value}}",

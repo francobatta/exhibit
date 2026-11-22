@@ -12,6 +12,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/005_services.sql"),
     include_str!("migrations/006_reception.sql"),
     include_str!("migrations/007_fetched_at.sql"),
+    include_str!("migrations/008_keywords_related.sql"),
+    include_str!("migrations/009_exhibitions.sql"),
 ];
 
 /// Data directory: `EXHIBIT_DATA_DIR` if set, else `%APPDATA%\exhibit`.
@@ -176,49 +178,33 @@ mod tests {
     }
 
     #[test]
-    fn works_already_matched_come_due_spread_across_the_window() {
+    fn works_already_matched_come_due_again_for_their_keywords_and_crew() {
         let d = tempfile::tempdir().unwrap();
         {
             let c = Connection::open(d.path().join("exhibit.db")).unwrap();
-            for sql in &MIGRATIONS[..6] {
+            for sql in &MIGRATIONS[..7] {
                 c.execute_batch(sql).unwrap();
             }
-            c.pragma_update(None, "user_version", 6).unwrap();
-            for i in 0..50 {
-                c.execute(
-                    "INSERT INTO items(kind, title, tmdb_id) VALUES ('movie', 'A', ?1)",
-                    [i + 1],
-                )
-                .unwrap();
-            }
+            c.pragma_update(None, "user_version", 7).unwrap();
             c.execute_batch(
-                "INSERT INTO items(kind, title) VALUES ('movie', 'Unmatched');                  INSERT INTO items(kind, title, tmdb_id) VALUES ('episode', 'E', 9)",
+                "INSERT INTO items(kind, title, tmdb_id, fetched_at, people)                  VALUES ('movie', 'A', 1, 100, '[{\"name\":\"M\",\"role\":\"director\"}]');                  INSERT INTO items(kind, title, tmdb_id, fetched_at) VALUES ('show', 'S', 2, 100);                  INSERT INTO items(kind, title, tmdb_id) VALUES ('episode', 'E', 9);",
             )
             .unwrap();
         }
         let c = open(d.path()).unwrap();
-        let now = now();
-        let times: Vec<i64> = c
-            .prepare("SELECT fetched_at FROM items WHERE kind = 'movie' AND tmdb_id IS NOT NULL")
-            .unwrap()
-            .query_map([], |r| r.get(0))
-            .unwrap()
-            .map(|r| r.unwrap())
-            .collect();
-        assert_eq!(times.len(), 50);
-        let window = 140 * 86_400;
-        assert!(times.iter().all(|t| *t <= now && *t > now - window));
-        // Spread out, not all on one day.
-        let days: std::collections::BTreeSet<i64> = times.iter().map(|t| t / 86_400).collect();
-        assert!(days.len() > 20, "{days:?}");
-        let unstamped: i64 = c
+        let stamped: i64 = c
             .query_row(
-                "SELECT count(*) FROM items WHERE fetched_at IS NULL",
+                "SELECT count(*) FROM items WHERE fetched_at IS NOT NULL",
                 [],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(unstamped, 2);
+        assert_eq!(stamped, 0);
+        // The people already written are indexed.
+        let who: String = c
+            .query_row("SELECT name FROM item_people", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(who, "M");
     }
 
     #[test]

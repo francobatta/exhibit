@@ -2,7 +2,7 @@
 
 A gallery for a home-theatre PC. It finds a local media collection, identifies it, shows it on a TV, and hands playback to mpv.
 
-Read `README.md` for the layout, prerequisites and checks. For anything in `ui/`, also read `ui/AGENTS.md`. The spec is `docs/superpowers/specs/2026-11-14-exhibit-design.md`.
+Read `README.md` for the layout, prerequisites and checks. For anything in `ui/`, also read `ui/AGENTS.md`. The design is `docs/design.md`.
 
 ## What Exhibit is for
 The interface is the product. Everything else serves it: the core, the matching, the speed.
@@ -13,7 +13,7 @@ The interface is the product. Everything else serves it: the core, the matching,
 - **Bold and clear.** Bold comes from scale, type, artwork and motion, not from extra colour. The approved tokens have no accent colour, so don't add one. Be clear at three metres: big type, one focal point per screen, and plain words. Errors say what happened and what to do.
 - **Easy to use.** A direction pad and four buttons reach everything. Gamepad, keyboard and mouse drive one focus system and behave the same on every screen. Use strong defaults and one screen of settings. Nothing should need explaining.
 
-The anti-goals in spec section 4 count as failures even when the code works. The main ones are a multiplying number of settings, screens that behave differently from each other, and a confident wrong match.
+The anti-goals in `docs/design.md` section 4 count as failures even when the code works. The main ones are a multiplying number of settings, screens that behave differently from each other, and a confident wrong match.
 
 ## Fluent UI
 A screen that looks right but stutters is not finished. Fluency is a requirement, not polish.
@@ -58,14 +58,20 @@ To build, tag and publish a Windows release, use the `/release` skill (`.claude/
 When you change the UI, look at the result in the running window before you say it works. A screenshot shows the look; also drive the change with keys to check its motion and focus.
 
 ## Where things stand
-`.superpowers/README.md` is git-ignored. It holds:
+- `docs/design.md` is the living design: intent, anti-goals and every owner decision in force.
+- `.superpowers/README.md` (git-ignored) holds only what is in flight, what comes next, known small debts and the dev library's facts.
 
-- what has been built;
-- the owner's decisions still in force;
-- the next steps and known small debts;
-- the facts about the dev library.
+## How a feature is built
+This section overrides the superpowers process skills. Unless the owner asks for them, don't brainstorm through a visual companion, write specs or plans, run subagent-driven development, or write per-task briefs, reports or reviews.
 
-The spec and stage plans are in `docs/superpowers/`.
+1. **Read only what the feature touches:** the relevant sections of `docs/design.md`, the status file, and the code (grep first). Old specs live in git history; don't dig them up.
+2. **Ask only what the owner alone can decide,** such as scope or a visual direction. Ask once, in chat, with a recommendation. For a new look, build a first version and show a screenshot instead of describing options.
+3. **Build it inline** on a branch off `main`. Use a subagent only for a large, independent and well-specified piece of work.
+4. **Verify proportionately.** While working, run the tests for the crate or screen you changed. Run the full Checks in `README.md` once, before the last commit. For UI, check the running window.
+5. **Commit in small steps** in the repo's style: `area: what the owner now sees`.
+6. **Finish in the same commit:** put any new or changed owner decision into `docs/design.md` as a line or two. Then update the status file by replacing lines, not appending.
+
+Leave no process files behind: no `docs/superpowers/`, no `.superpowers/sdd/` and no brainstorm folders. Screenshots go in the scratchpad.
 
 ## Rules
 - Bun only. Node.js is not installed: never `node`, `npm` or `npx`.
@@ -73,6 +79,7 @@ The spec and stage plans are in `docs/superpowers/`.
 - Never print, remove or overwrite the TMDB key in the `exhibit-dev` keyring.
 - Never point tests at the owner's real data dir or credential store.
 - The UI never touches the database, the file system or the network itself. Everything goes through Tauri commands over `exhibit_core::Library`.
+- No feature is UI-only. A new library operation gets a CLI command and an MCP tool (`crates/exhibit-mcp`) too: brief JSON, a doc comment the agent can act on, writes limited to Exhibit's own state.
 - Code in `ui/src` is written for WebView2 only. Stub happy-dom gaps in `ui/test/setup.ts`, never in `src`.
 - Tokens live only in `ui/src/styles/tokens.css`. Everything is sized in `rem`.
 - Database code is plain `rusqlite` with hand-written SQL.

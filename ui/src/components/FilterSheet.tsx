@@ -164,6 +164,9 @@ export interface FilterSheetProps {
   onClose: () => void;
 }
 
+/** How many keywords the sheet offers: the most shared, enough to browse by. */
+const KEYWORDS = 24;
+
 export function FilterSheet({ open, kind, filters: f, onFilters, count, counting, onClose }: FilterSheetProps) {
   const t = useT();
   const facets: Facets | undefined = useFacets(kind).data;
@@ -172,6 +175,8 @@ export function FilterSheet({ open, kind, filters: f, onFilters, count, counting
     (g, i, all) => all.indexOf(g) === i,
   );
   const included = f.genres?.length ?? 0;
+  // The keywords most works share, and any chosen that a narrower listing no longer counts.
+  const keywords = [...values(facets?.keywords).slice(0, KEYWORDS), ...(f.keywords ?? [])].filter((k, i, all) => all.indexOf(k) === i);
   const languages = (present: string[], chosen: string[] | undefined) =>
     [...present, ...(chosen ?? []).filter((c) => !present.includes(c))];
   const audio = languages(values(facets?.audio), f.audio);
@@ -259,6 +264,33 @@ export function FilterSheet({ open, kind, filters: f, onFilters, count, counting
                   {t("filters.allOf")}
                 </Chip>
                 <Chip focusKey="filters:any-genre" state={f.any_genre ? "in" : "off"} onPress={() => set({ any_genre: true })}>
+                  {t("filters.anyOf")}
+                </Chip>
+              </FocusGroup>
+            )}
+          </Section>
+        )}
+
+        {keywords.length > 0 && (
+          <Section title={t("filters.keywords")}>
+            <FocusGroup id="filters-keywords" orientation="spatial" className="-mx-1 flex flex-wrap gap-2">
+              {keywords.map((k) => (
+                <Chip
+                  key={k}
+                  focusKey={`filters:keyword:${k}`}
+                  state={f.keywords?.includes(k) ? "in" : "off"}
+                  onPress={() => set({ keywords: toggled(f.keywords, k) })}
+                >
+                  {k}
+                </Chip>
+              ))}
+            </FocusGroup>
+            {(f.keywords?.length ?? 0) > 1 && (
+              <FocusGroup id="filters-keyword-match" orientation="horizontal" className="-mx-1 flex gap-2">
+                <Chip focusKey="filters:all-keywords" state={f.any_keyword ? "off" : "in"} onPress={() => set({ any_keyword: false })}>
+                  {t("filters.allOf")}
+                </Chip>
+                <Chip focusKey="filters:any-keyword" state={f.any_keyword ? "in" : "off"} onPress={() => set({ any_keyword: true })}>
                   {t("filters.anyOf")}
                 </Chip>
               </FocusGroup>

@@ -67,6 +67,7 @@ export function detail(over: Partial<ItemDetail> = {}, item: Partial<Item> = {})
     activity: activity(),
     reception: [],
     awards: [],
+    keywords: [],
     ...over,
   };
 }

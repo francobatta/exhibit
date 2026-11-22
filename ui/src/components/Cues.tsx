@@ -44,6 +44,8 @@ export interface CuesProps {
   onEdge?: (dir: Dir) => void;
   /** The screen opens on something else (Home's shelves); see FocusGroup `aside`. */
   aside?: boolean;
+  /** When the work would end if the main action ran now ("Ends at 23:41"), said beside it (Home). */
+  ends?: string | null;
 }
 
 /**
@@ -65,7 +67,7 @@ function Said({ children }: { children: ReactNode }) {
   return <p className="cues-said min-w-0 font-display text-body text-label-dim">{children}</p>;
 }
 
-export function Cues({ id, prefix, item, drive, progress, play = true, details = false, onFocusCue, onEdge, aside = false }: CuesProps) {
+export function Cues({ id, prefix, item, drive, progress, play = true, details = false, onFocusCue, onEdge, aside = false, ends = null }: CuesProps) {
   const t = useT();
   const ctx = useActionContext();
   const f = facetsOf(item);
@@ -94,9 +96,10 @@ export function Cues({ id, prefix, item, drive, progress, play = true, details =
           />
         </span>
         <span>{progress.left}</span>
+        {ends !== null && <span className="text-label-faint">{ends}</span>}
       </div>
     );
-  }
+  } else if (ends !== null && (main.id === "play" || main.id === "resume")) said = <Said>{ends}</Said>;
 
   return (
     // The group spans the placard so it is what lies below the bar from anywhere over it; what the

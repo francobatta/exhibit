@@ -29,6 +29,8 @@ struct Cli {
 enum Command {
     /// Library counts, sources, tools and which keys are set
     Status,
+    /// Serve the library to an outside agent over MCP, on stdin and stdout, until it goes
+    Mcp,
     #[command(subcommand)]
     Source(SourceCmd),
     #[command(subcommand)]
@@ -58,13 +60,21 @@ enum Command {
         item: Option<Id>,
     },
     Search(Box<SearchArgs>),
-    /// What a listing can be narrowed by: genres, years, runtimes, picture, sound and languages
+    /// What a listing can be narrowed by: genres, keywords, years, runtimes, picture, sound and
+    /// languages
     Facets {
         #[arg(long)]
         kind: Option<KindArg>,
     },
     Item {
         id: Id,
+    },
+    /// The works most like one in the library, with what links each (director, keywords,
+    /// TMDB's recommendation)
+    Similar {
+        id: Id,
+        #[arg(long, default_value_t = 20)]
+        limit: u32,
     },
     Shelf {
         shelf: ShelfArg,
@@ -223,6 +233,15 @@ struct SearchArgs {
     any_genre: bool,
     #[arg(long)]
     without_genre: Vec<String>,
+    /// A TMDB keyword ("heist"); repeat for more; all are required unless --any-keyword
+    #[arg(long)]
+    keyword: Vec<String>,
+    #[arg(long)]
+    any_keyword: bool,
+    /// Someone in the work, in any role (director, writer, cinematographer, composer, cast);
+    /// repeat for more, all required
+    #[arg(long)]
+    person: Vec<String>,
     #[arg(long)]
     year_min: Option<i32>,
     #[arg(long)]
@@ -384,6 +403,16 @@ impl KeyName {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    if matches!(cli.command, Command::Mcp) {
+        // stdout carries the protocol: nothing else may be written there.
+        return match exhibit_mcp::serve(Library::open_default) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("exhibit mcp: {e}");
+                ExitCode::FAILURE
+            }
+        };
+    }
     let result = Library::open_default().and_then(|lib| commands::run(&lib, cli.command));
     let (value, code) = match result {
         Ok(v) => (v, ExitCode::SUCCESS),

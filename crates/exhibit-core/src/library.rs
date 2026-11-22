@@ -11,7 +11,8 @@ use crate::cast;
 use crate::db;
 use crate::download::{self, DownloadEvent, DownloadReport, UreqFetch};
 use crate::error::{Detail, Error, Fault, Result};
-use crate::filter::{self, Facets};
+use crate::exhibition::{self, Exhibition, NewExhibition};
+use crate::filter::{self, Count, Facets};
 use crate::freshen::{self, FreshenReport};
 use crate::identify::{self, IdentifyReport, IdentifyScope};
 use crate::lang;
@@ -26,6 +27,7 @@ use crate::scan::{self, ScanEvent, ScanReport};
 use crate::secrets::{OsSecrets, Secrets};
 use crate::service::{Account, DeviceCode, Need, Service, SyncInput, normalize_username};
 use crate::signin::{self, SignInState};
+use crate::similar::{self, Similar};
 use crate::sync::{self, ServiceState, SyncReport};
 use crate::tmdb::{self, Http, MetadataProvider, Tmdb, UreqHttp};
 use crate::tools::{self, Env, Tool, ToolStatus};
@@ -408,6 +410,34 @@ impl Library {
             &self.image_dir(),
             id,
         )
+    }
+
+    /// The works most like `id` in the library, with what links each; see `similar::similar`.
+    pub fn similar(&self, id: Id, limit: u32) -> Result<Vec<Similar>> {
+        similar::similar(&self.conn, &*self.volumes, id, limit)
+    }
+
+    /// The people with the most works in the library in `role`; see `similar::top_people`.
+    pub fn top_people(&self, role: &str, limit: u32) -> Result<Vec<Count<String>>> {
+        similar::top_people(&self.conn, &*self.volumes, role, limit)
+    }
+
+    /// Every exhibition hanging, the most recently hung first.
+    pub fn exhibitions(&self) -> Result<Vec<Exhibition>> {
+        exhibition::list(&self.conn, &*self.volumes)
+    }
+
+    pub fn exhibition(&self, id: Id) -> Result<Option<Exhibition>> {
+        exhibition::get(&self.conn, &*self.volumes, id)
+    }
+
+    /// Hangs an exhibition, or replaces the one it names; see `exhibition::save`.
+    pub fn save_exhibition(&self, e: &NewExhibition) -> Result<Id> {
+        exhibition::save(&self.conn, &*self.volumes, e)
+    }
+
+    pub fn remove_exhibition(&self, id: Id) -> Result<bool> {
+        exhibition::remove(&self.conn, id)
     }
 
     pub fn shelf(&self, shelf: Shelf, limit: u32) -> Result<Vec<ItemSummary>> {

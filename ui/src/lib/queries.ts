@@ -6,6 +6,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type InfiniteData,
@@ -35,8 +36,11 @@ export const keys = {
   status: ["library", "status"] as const,
   shelf: (shelf: Shelf, limit: number) => ["library", "shelf", shelf, limit] as const,
   items: (query: SearchQuery) => ["library", "items", query] as const,
+  row: (query: SearchQuery) => ["library", "row", query] as const,
   facets: (kind: ItemKind | null) => ["library", "facets", kind] as const,
   item: (id: Id) => ["library", "item", id] as const,
+  similar: (id: Id) => ["library", "similar", id] as const,
+  exhibitions: ["library", "exhibitions"] as const,
   cast: (id: Id) => ["library", "cast", id] as const,
   needsReview: ["library", "needs-review"] as const,
   services: ["library", "services"] as const,
@@ -83,6 +87,17 @@ export function useShelf(shelf: Shelf, limit: number) {
   return useQuery({ queryKey: keys.shelf(shelf, limit), queryFn: () => api.shelf(shelf, limit) });
 }
 
+/** Several shelves at once, each a named shelf or one page of a search (Home's programme). */
+export function useRows(sources: ReadonlyArray<{ shelf: Shelf; limit: number } | { query: SearchQuery }>) {
+  return useQueries({
+    queries: sources.map((s) =>
+      "shelf" in s
+        ? { queryKey: keys.shelf(s.shelf, s.limit), queryFn: () => api.shelf(s.shelf, s.limit) }
+        : { queryKey: keys.row(s.query), queryFn: () => api.search(s.query) },
+    ),
+  });
+}
+
 /**
  * Every item matching `query`, loaded in pages of 500 one after another; `items` is the pages so
  * far, flattened. With `enabled` false only what is cached is returned. A new query keeps showing
@@ -118,6 +133,16 @@ const ITEM_STALE = 10 * 60_000;
  * One full record. With `fetch` false only what is cached is returned, so a screen can show a
  * record it has seen at once and ask for a new one only once focus has settled on it.
  */
+/** The exhibitions hanging on Home. An agent hanging one from outside reaches the window through the library's change. */
+export function useExhibitions() {
+  return useQuery({ queryKey: keys.exhibitions, queryFn: api.exhibitions });
+}
+
+/** The works in the library most like `id`, with what links each. */
+export function useSimilar(id: Id) {
+  return useQuery({ queryKey: keys.similar(id), queryFn: () => api.similar(id, 30) });
+}
+
 export function useItem(id: Id | null, fetch = true) {
   return useQuery({
     queryKey: keys.item(id ?? -1),

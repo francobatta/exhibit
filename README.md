@@ -5,8 +5,9 @@ movies, shows and other videos in your folders, identifies them through TMDB, an
 a TV-first interface you can drive with a gamepad, a keyboard or a mouse. It never plays anything
 itself: it launches [mpv](https://mpv.io) and steps aside.
 
-Windows 11 first. The status is stage 2 of 4: the core library and the window are built and under
-the owner's whole-app check. The design and the plans are in `docs/superpowers/`.
+Windows 11 first. Stages 1 and 2 of 4, the core library and the window, are built and released as
+0.0.2. The owner's whole-app check and stage 3 (the MCP server) come next. The design is
+`docs/design.md`.
 
 ## Layout
 
@@ -17,9 +18,10 @@ the owner's whole-app check. The design and the plans are in `docs/superpowers/`
 | `crates/exhibit-app` | Tauri 2 shell: one command per library operation, a worker, folder watching, playback |
 | `crates/exhibit-letterboxd`, `exhibit-mdblist`, `exhibit-wikidata` | Service adapters: your Letterboxd activity, public scores (MDBList, signed in with a QR code), laurels (Wikidata) |
 | `crates/exhibit-services` | The registry of adapters compiled in |
+| `crates/exhibit-mcp` | The MCP server: the library's operations as tools for an outside agent |
 | `ui/` | React 19, TypeScript, Vite, Tailwind 4, Vercel UI SDK, Motion, TanStack Query (see `ui/AGENTS.md`) |
 | `scripts/` | `dev.ps1` (run in dev mode), `cdp.ts` (drive and screenshot a dev window), `shot.ps1`, `release.ps1` (build, tag and publish a release) |
-| `docs/superpowers/` | Spec, stage plans, screenshots |
+| `docs/design.md` | The living design: intent, anti-goals, owner decisions |
 
 ## Prerequisites
 
@@ -62,6 +64,23 @@ The environment variables behind the script:
 | `EXHIBIT_WINDOWED=1` | A 1600x900 window instead of full screen |
 | `EXHIBIT_TMDB_BUILTIN=off` | Leaves out the build's own TMDB key at run time, as if the build had none (the CLI's end-to-end tests) |
 | `EXHIBIT_TMDB_KEY` | At build time: the TMDB key to bake in, instead of the file `tmdb-app-key` |
+
+## Agents (MCP)
+
+Exhibit serves its library to an outside agent (Claude Code, Claude Desktop, any MCP client) over
+stdio: `exhibit mcp` from the CLI, or `Exhibit.exe mcp` from an installed build, which opens no
+window. The tools read the library (overview, search by keyword and person, one work in full,
+similar works, shelves, history), and write only Exhibit's own state: watched and loved, the taste
+profile, exhibitions (curated shelves on Home), matches in review, and play. Three prompts start
+the common jobs: `curate_exhibition`, `recommend`, `update_taste_profile`. An open window picks
+up what an agent writes within a second.
+
+In this repo, `.mcp.json` points Claude Code at a debug build on the dev library
+(`cargo build -p exhibit-cli` first). For the owner's real library:
+
+```powershell
+claude mcp add exhibit -- "$env:LOCALAPPDATA\Exhibit\Exhibit.exe" mcp
+```
 
 ## Checks
 

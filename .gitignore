@@ -4,7 +4,6 @@ target/
 dist/
 ui/dist/
 crates/exhibit-app/gen/
-docs/superpowers/shots/
 
 # The TMDB key baked into builds (see crates/exhibit-core/build.rs). Never commit it.
 /tmdb-app-key

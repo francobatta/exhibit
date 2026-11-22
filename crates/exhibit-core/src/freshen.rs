@@ -24,6 +24,7 @@ use crate::identify_show::still_name;
 use crate::lang;
 use crate::model::{Id, ItemKind};
 use crate::nfo::ExternalId;
+use crate::similar;
 use crate::tmdb::{
     MetadataProvider, MovieMeta, SearchHit, SeasonMeta, SeasonTexts, ShowMeta, Texts,
 };
@@ -144,6 +145,7 @@ fn movie(
         backdrop,
         now
     ])?;
+    similar::store(&tx, id, &m.keywords, &m.related)?;
     keep_only(&tx, &[id], lang)?;
     if let Some((t, poster)) = texts {
         store_work_texts(&tx, id, lang, &t, poster.as_deref())?;
@@ -241,6 +243,7 @@ fn show(
         backdrop,
         now
     ])?;
+    similar::store(&tx, id, &m.keywords, &m.related)?;
     let mut ids = vec![id];
     for (meta, words, stills) in &seasons {
         for (ep_id, _, n) in owned.iter().filter(|(_, s, _)| *s == meta.season) {

@@ -116,6 +116,9 @@
   },
   "placard": {
     "left": "Quedan {{time}}",
+    "endsAt_one": "Termina a la {{time}}",
+    "endsAt_many": "Termina a las {{time}}",
+    "endsAt_other": "Termina a las {{time}}",
     "sound": "Audio",
     "subtitles": "Subtítulos",
     "none": "Ninguno",
@@ -269,7 +272,33 @@
     "empty": "Todavía no hay nada aquí.",
     "allInOther": "Inicio muestra películas y series. Todo lo que Exhibit ha encontrado hasta ahora está en Otros.",
     "looking": "Exhibit sigue revisando tus carpetas.",
-    "openOther": "Abrir Otros"
+    "hungBy": "Montada por {{name}}",
+    "openOther": "Abrir Otros",
+    "programme": {
+      "morning": "Esta mañana",
+      "afternoon": "Esta tarde",
+      "evening": "Esta noche",
+      "late": "De madrugada"
+    },
+    "rows": {
+      "watchlist": "De tu lista por ver",
+      "long": "Tiempo para una larga",
+      "short": "Menos de 100 minutos",
+      "acclaimed": "Bien valoradas, sin ver todavía",
+      "autumn": "Tardes de otoño",
+      "winter": "Largas noches de invierno",
+      "spring": "Algo ligero para la primavera",
+      "summer": "Aventuras de verano"
+    },
+    "why": {
+      "continue": "Donde lo dejaste",
+      "watchlist": "Está en tu lista por ver",
+      "long": "Hay tiempo para una larga",
+      "short": "Lo bastante corta para empezar ya",
+      "acclaimed": "Bien valorada, y no la has visto",
+      "recent": "Nueva en la colección",
+      "loved": "Una de tus favoritas"
+    }
   },
   "show": {
     "label": "Serie",
@@ -279,6 +308,22 @@
   },
   "details": {
     "cast": "Reparto",
+    "moreLikeThis": "Más como esta",
+    "crew": {
+      "writer": "Guion de {{names}}",
+      "cinematographer": "Fotografía de {{names}}",
+      "composer": "Música de {{names}}",
+      "editor": "Montaje de {{names}}"
+    },
+    "because": {
+      "recommended": "Suelen gustar juntas",
+      "director": "También de {{name}}",
+      "writer": "También escrita por {{name}}",
+      "cinematographer": "También fotografiada por {{name}}",
+      "composer": "También con música de {{name}}",
+      "editor": "También montada por {{name}}",
+      "cast": "También con {{name}}"
+    },
     "as": "como {{character}}",
     "subtitlesIn": "subtítulos en {{languages}}",
     "watchedOn": "Visto el {{when}}",
@@ -534,6 +579,14 @@
     "library": {
       "no_wal": "La carpeta de la biblioteca no admite la base de datos de Exhibit. Muévela a una unidad local."
     },
+    "exhibition": {
+      "unknown": "Esa exposición ya no está colgada.",
+      "title": "Una exposición necesita un título de hasta 60 caracteres.",
+      "wall_text": "El texto de sala es demasiado largo. Mantenlo por debajo de 600 caracteres.",
+      "works": "Una exposición reúne de 3 a 24 obras distintas.",
+      "note": "La nota de una obra es demasiado larga. Mantenla por debajo de 80 caracteres.",
+      "work": "Solo las películas y series de la biblioteca pueden colgarse en una exposición."
+    },
     "service": {
       "unknown": "Exhibit no conoce ese servicio.",
       "unsupported": "Ese servicio no ofrece esto.",
@@ -607,6 +660,8 @@
     "allOf": "Con todos ellos",
     "anyOf": "Con alguno de ellos",
     "without": "sin {{genres}}",
+    "with": "con {{people}}",
+    "keywords": "Palabras clave",
     "year": "Año",
     "runtime": "Duración",
     "from": "Desde {{value}}",

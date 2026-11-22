@@ -16,6 +16,7 @@ use crate::nfo::{self, ExternalId, NfoInfo};
 use crate::parse::{self, KindHint};
 use crate::rows::{enum_str, item_columns, item_from_row};
 use crate::scan::{join_rel, resolve, source_rows};
+use crate::similar;
 use crate::tmdb::{MetadataProvider, MovieMeta, SearchHit};
 use crate::volume::Volumes;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -587,6 +588,7 @@ pub(crate) fn save_movie(
     if let Some(item_id) = item_id {
         absorb(&tx, item_id, target)?;
     }
+    similar::store(&tx, target, &m.keywords, &m.related)?;
     tx.commit()?;
     Ok(target)
 }
@@ -1299,6 +1301,7 @@ mod tests {
             }],
             poster: Some(format!("/p{id}.jpg")),
             backdrop: Some(format!("/b{id}.jpg")),
+            ..MovieMeta::default()
         }
     }
 
@@ -1313,6 +1316,7 @@ mod tests {
             poster: Some(format!("/p{id}.jpg")),
             backdrop: Some(format!("/b{id}.jpg")),
             seasons: seasons.to_vec(),
+            ..ShowMeta::default()
         }
     }
 

@@ -692,6 +692,7 @@ mod tests {
             }],
             poster: Some(format!("/p{id}.jpg")),
             backdrop: Some(format!("/b{id}.jpg")),
+            ..MovieMeta::default()
         }
     }
 

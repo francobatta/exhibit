@@ -369,7 +369,9 @@ fn ensure_show(
         tmdb_id: Some(m.tmdb_id),
         ..Fill::new(ItemKind::Show, &m.title)
     };
-    insert_item(tx, &fill, how, added_at)
+    let id = insert_item(tx, &fill, how, added_at)?;
+    crate::similar::store(tx, id, &m.keywords, &m.related)?;
+    Ok(id)
 }
 
 /// Where an episode file goes: episode `ep` of `season` of `show_item`, with its still.

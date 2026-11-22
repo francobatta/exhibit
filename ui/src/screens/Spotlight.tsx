@@ -5,7 +5,7 @@
 // a show opens), X opens the item menu. Up from the shelves reaches the hero's cues, the same row
 // as on Details: play, Details, Loved and Watched, acting on the work last focused on a shelf.
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useBackdrop, useSettled } from "@/components/Backdrop";
 import { Cues } from "@/components/Cues";
@@ -18,6 +18,7 @@ import { t, useT } from "@/i18n";
 import { hasActivity, hasReception, mainHint, runMain, useActionContext } from "@/lib/actions";
 import { plain, type ItemSummary, type Shelf as ShelfName } from "@/lib/api";
 import { motion } from "motion/react";
+import { endsAt } from "@/lib/format";
 import { easeOut, focusSpring, glideScroll, remPx, rems, seconds, stopGlide } from "@/lib/motion";
 import { useItem, useItemSources, useJobStatus, useServices, useShelf, useStatus } from "@/lib/queries";
 import { openSettings } from "@/nav/Screens";
@@ -35,10 +36,16 @@ const SHELVES = [
   { shelf: "loved", limit: 30, title: "home.loved" },
 ] as const satisfies Array<{ shelf: ShelfName; limit: number; title: string; activity?: boolean }>;
 
-interface Row {
-  shelf: ShelfName;
+export interface Row {
+  /** Names the shelf: its focus group is `home-<key>`. */
+  key: string;
   title: string;
   items: ItemSummary[];
+  /** A wall text before the first work (an exhibition's), and who hung the shelf. */
+  wall?: string;
+  wallBy?: string | null;
+  /** A line under each work (an exhibition's note on it). */
+  caption?: (item: ItemSummary) => string;
 }
 
 /** The works a spotlight of `kind` shows: a show's own episodes count as the show's. */
@@ -78,28 +85,32 @@ export function Spotlight({ kind }: { kind: WallKind }) {
   // Recently added holds every film and show, so when it is empty there are none; Other has its
   // own wall and never comes to Home.
   const activity = hasActivity(services.data);
-  const rows: Row[] = SHELVES.map((s, i) => ({ shelf: s.shelf, title: t(s.title), items: (queries[i]!.data ?? []).filter((w) => KINDS[kind].includes(w.kind)) })).filter(
+  const rows: Row[] = SHELVES.map((s, i) => ({ key: s.shelf, title: t(s.title), items: (queries[i]!.data ?? []).filter((w) => KINDS[kind].includes(w.kind)) })).filter(
     (r, i) => r.items.length > 0 && (activity || !("activity" in SHELVES[i]!)),
   );
-  if (rows.length === 0) {
-    // Which empty this is waits for the folders to be known.
-    if (status === undefined) return <Loading />;
-    const sources = status.sources.length;
-    const other = sources > 0 && status.other > 0;
-    return (
-      <Empty
-        title={t("home.empty")}
-        body={emptyBody(sources, other, job === null || job.phase !== null)}
-        status={jobLine(job) ?? undefined}
-        action={
-          other
-            ? { label: t("home.openOther"), onAction: () => useNav.getState().replaceRoot({ screen: "wall", kind: "other" }) }
-            : { label: t("common.openSettings"), onAction: openSettings }
-        }
-      />
-    );
-  }
+  if (rows.length === 0) return <NothingToShow job={job} status={status} />;
   return <Stage rows={rows} verdicts={activity || hasReception(services.data)} />;
+}
+
+/** Films and shows to show, and none yet: why, and where to go. */
+export function NothingToShow({ job, status }: { job: ReturnType<typeof useJobStatus>; status: ReturnType<typeof useStatus>["data"] }) {
+  const t = useT();
+  // Which empty this is waits for the folders to be known.
+  if (status === undefined) return <Loading />;
+  const sources = status.sources.length;
+  const other = sources > 0 && status.other > 0;
+  return (
+    <Empty
+      title={t("home.empty")}
+      body={emptyBody(sources, other, job === null || job.phase !== null)}
+      status={jobLine(job) ?? undefined}
+      action={
+        other
+          ? { label: t("home.openOther"), onAction: () => useNav.getState().replaceRoot({ screen: "wall", kind: "other" }) }
+          : { label: t("common.openSettings"), onAction: openSettings }
+      }
+    />
+  );
 }
 
 /**
@@ -113,10 +124,30 @@ function emptyBody(sources: number, other: boolean, looking: boolean): string {
   return t("home.foundNothing");
 }
 
-function Stage({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
-  const [focused, setFocused] = useState<ItemSummary>(rows[0]!.items[0]!);
-  // The shelf in view, by its name: a refresh may add or drop a shelf above it.
-  const [active, setActive] = useState<ShelfName>(rows[0]!.shelf);
+export interface StageProps {
+  rows: Row[];
+  /** A service gives verdicts: the hero keeps their line. */
+  verdicts: boolean;
+  /** The work the hero opens on; the first shelf's first work by default. The shelves still open on the first. */
+  first?: ItemSummary;
+  /** Open on the hero's cues (Home's pick, one press from playing), not on the shelves. */
+  onCues?: boolean;
+  /**
+   * Above the placard, given the work it shows and the shelf it was focused on: null for the work
+   * the screen opened on, until a shelf has had focus (Home's greeting, or a work's wall label).
+   */
+  head?: (shown: ItemSummary, shelf: string | null) => ReactNode;
+  /** Now, in ms: the cues say when the work would end if started now. */
+  clock?: number;
+}
+
+export function Stage({ rows, verdicts, first, onCues = false, head, clock }: StageProps) {
+  const [focused, setFocused] = useState<ItemSummary>(first ?? rows[0]!.items[0]!);
+  // The shelf in view, by its key: a refresh may add or drop a shelf above it.
+  const [active, setActive] = useState<string>(rows[0]!.key);
+  // Whether a shelf has had focus: until then the hero shows the work the screen opened on, which
+  // belongs to no shelf in particular (Home's pick).
+  const [entered, setEntered] = useState(false);
   // The focused work as the library last reported it (marking it watched changes its facts).
   const current = rows.flatMap((r) => r.items).find((i) => i.id === focused.id) ?? focused;
   // A record seen before shows at once; a new one is asked for once focus has settled, so a held
@@ -124,6 +155,10 @@ function Stage({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
   const settled = useSettled(current.id, seconds("--delay-backdrop"));
   const loaded = useItem(current.id, settled === current.id).data;
   const detail = loaded?.item.id === current.id ? loaded : undefined;
+  const progress = placardLines(current, detail).progress;
+  // What is left to watch, in minutes: the rest of a started work, else all of it.
+  const minutes = detail?.item.runtime_min ?? current.runtime_min;
+  const remaining = minutes === null ? null : minutes * (1 - (progress?.done ?? 0));
   // Which drive a disabled play waits for, when the full record says.
   const drive = useItemSources(detail).find((s) => !s.online)?.path;
 
@@ -144,14 +179,15 @@ function Stage({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
   // the right, -1 from the left), none when it came from another shelf.
   const [from, setFrom] = useState(0);
   const was = useRef(focused);
-  const focus = useCallback((item: ItemSummary, row: ShelfName) => {
-    const items = latest.current.rows.find((r) => r.shelf === row)?.items ?? [];
+  const focus = useCallback((item: ItemSummary, row: string) => {
+    const items = latest.current.rows.find((r) => r.key === row)?.items ?? [];
     const a = items.findIndex((i) => i.id === was.current.id);
     const b = items.findIndex((i) => i.id === item.id);
     was.current = item;
     setFrom(a < 0 || b < 0 ? 0 : Math.sign(b - a));
     setFocused(item);
     setActive(row);
+    setEntered(true);
   }, []);
 
   return (
@@ -160,7 +196,9 @@ function Stage({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
       <div className="flex h-full flex-col">
         {/* The placard stands on the shelves: a longer title grows upward, the action line stays put. */}
         <div className="flex min-h-0 flex-1 flex-col justify-end px-edge pt-bar pb-(--home-placard-foot)">
-          <div data-placard className="flex max-w-measure-hero flex-col gap-5">
+          <div data-placard className="relative flex max-w-measure-hero flex-col gap-5">
+            {/* Above the placard and out of its flow, so it never moves the placard. */}
+            {head && <div className="pointer-events-none absolute inset-x-0 bottom-full pb-5">{head(current, entered ? active : null)}</div>}
             {/* A new work's label slides in a little from the way focus moved; nothing else moves. */}
             <motion.div
               key={current.id}
@@ -175,9 +213,10 @@ function Stage({ rows, verdicts }: { rows: Row[]; verdicts: boolean }) {
               prefix="hero"
               item={detail ?? current}
               drive={drive}
-              progress={placardLines(current, detail).progress}
+              progress={progress}
+              ends={clock === undefined ? null : endsAt(clock, remaining)}
               details
-              aside
+              aside={!onCues}
             />
           </div>
         </div>
@@ -199,14 +238,14 @@ function Shelves({
   onFocusItem,
 }: {
   rows: Row[];
-  active: ShelfName;
+  active: string;
   onOpen: (item: ItemSummary) => void;
-  onFocusItem: (item: ItemSummary, row: ShelfName) => void;
+  onFocusItem: (item: ItemSummary, row: string) => void;
 }) {
   // Which shelves are shown, in order: the layout and the handlers follow it, not the row count.
-  const shape = rows.map((r) => r.shelf).join(",");
+  const shape = rows.map((r) => r.key).join(",");
   // A shelf gone from under focus leaves the first one in view; the scope then puts focus there.
-  const at = Math.max(0, rows.findIndex((r) => r.shelf === active));
+  const at = Math.max(0, rows.findIndex((r) => r.key === active));
   const els = useRef<Array<HTMLDivElement | null>>([]);
   // Each shelf's offset from the first, and the first shelf's height, in rem: the layout is all
   // rem, so these hold at any window size.
@@ -246,15 +285,15 @@ function Shelves({
   // the top bar lands on it and not on a shelf slid out above. Up or Down inside the region first
   // opens the neighbour, synchronously, so the focus bridge (listening on the document, after this)
   // can cross into it; once the key has played out the neighbour closes again, entered or not.
-  const [reach, setReach] = useState<ShelfName | null>(null);
-  const open = useCallback((shelf: ShelfName) => {
+  const [reach, setReach] = useState<string | null>(null);
+  const open = useCallback((shelf: string) => {
     flushSync(() => setReach(shelf));
     setTimeout(() => setReach(null));
   }, []);
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const next = event.key === "ArrowUp" ? at - 1 : event.key === "ArrowDown" ? at + 1 : -1;
-    const shelf = rows[next]?.shelf;
+    const shelf = rows[next]?.key;
     if (shelf === undefined) return;
     open(shelf);
     // Up goes to the shelf above itself: slid out of view, it lies behind the hero's cues, which
@@ -272,8 +311,7 @@ function Shelves({
   const handlers = useMemo(
     () =>
       new Map(
-        shape.split(",").map((shelf) => {
-          const name = shelf as ShelfName;
+        shape.split(",").map((name) => {
           return [name, { focus: (item: ItemSummary) => onFocusItem(item, name), enter: () => open(name) }] as const;
         }),
       ),
@@ -293,20 +331,23 @@ function Shelves({
       <div className="flex flex-col gap-(--home-shelf-gap) pb-[calc(var(--home-shelf-gap)+var(--home-peek))]">
         {rows.map((row, i) => (
           <div
-            key={row.shelf}
+            key={row.key}
             ref={(el) => {
               els.current[i] = el;
             }}
           >
             <Shelf
-              id={`home-${row.shelf}`}
+              id={`home-${row.key}`}
               title={row.title}
               items={row.items}
+              wall={row.wall}
+              wallBy={row.wallBy}
+              caption={row.caption}
               onOpen={onOpen}
               hintOf={mainHint}
-              onFocusItem={handlers.get(row.shelf)!.focus}
-              inert={row.shelf !== active && row.shelf !== reach}
-              onEnter={handlers.get(row.shelf)!.enter}
+              onFocusItem={handlers.get(row.key)!.focus}
+              inert={row.key !== active && row.key !== reach}
+              onEnter={handlers.get(row.key)!.enter}
             />
           </div>
         ))}

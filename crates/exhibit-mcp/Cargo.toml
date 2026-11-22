@@ -1,0 +1,17 @@
+[package]
+name = "exhibit-mcp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+exhibit-core = { version = "0.0.2", path = "../exhibit-core" }
+rmcp = { version = "3.11.0", features = ["server", "macros", "transport-io"] }
+schemars = "1.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1", features = ["rt", "macros", "io-std"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"
+rmcp = { version = "3.11.0", features = ["client"] }
+tokio = { version = "1", features = ["rt", "macros", "io-util"] }

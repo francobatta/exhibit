@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "exhibit": {
+      "command": "target/debug/exhibit.exe",
+      "args": ["mcp"],
+      "env": {
+        "EXHIBIT_DATA_DIR": ".superpowers/dev-data",
+        "EXHIBIT_KEYRING_SERVICE": "exhibit-dev"
+      }
+    }
+  }
+}
