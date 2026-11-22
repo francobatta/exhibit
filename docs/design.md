@@ -206,7 +206,8 @@ designed empty, loading, offline and error states.
    "Copy setup prompt", on first run's last step and in Settings, copies one line that sends the
    agent to `agent-setup.md`, written into the data directory on each copy for this exe and this
    library; the file has the agent check the server (`mcp --check`), register it at user level in
-   its own client, and confirm. The program installs as `Exhibit.exe`, the path the file names.
+   its own client, and confirm. The program installs as `Exhibit.exe`, the path the file names;
+   a release ships the installer alone, no portable exe (owner, 2026-11).
    Still to do: hand `play` to an open window instead of starting mpv itself.
 4. **Built-in agent** (Anthropic API through the Vercel AI SDK, owner's key, optional): one text box
    whose answers come back as a shelf with a line of reasoning each, not a chat. Agent matching,
