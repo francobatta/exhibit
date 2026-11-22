@@ -185,14 +185,54 @@ pub(crate) fn online_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Id>>
 /// lists the watchlist films with no file.
 fn list(
     c: &Connection,
-    mut p: Params,
+    p: Params,
     wanted: bool,
     wheres: &[String],
     order: &str,
     limit: u32,
     offset: u32,
 ) -> Result<Vec<ItemSummary>> {
-    let (limit_p, offset_p) = (p.bind(limit as i64), p.bind(offset as i64));
+    // First the page's ids, which computes only the columns its conditions and order read;
+    // then every column, for those rows alone.
+    let ids: Vec<Id> = {
+        let mut p = Params(p.0.clone());
+        let (limit_p, offset_p) = (p.bind(limit as i64), p.bind(offset as i64));
+        let sql = format!(
+            "{} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
+            listing("b.id", wanted, wheres)
+        );
+        c.prepare_cached(&sql)?
+            .query_map(params_from_iter(p.0.iter()), |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?
+    };
+    rows_by_ids(c, p, wanted, &ids)
+}
+
+/// The summaries of `ids` that the listing (`wanted` as for `list`) shows, in their order.
+fn rows_by_ids(
+    c: &Connection,
+    mut p: Params,
+    wanted: bool,
+    ids: &[Id],
+) -> Result<Vec<ItemSummary>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cond = format!(
+        "b.id IN (SELECT value FROM json_each({}))",
+        p.bind(json_ids(ids))
+    );
+    let sql = listing(SUMMARY_COLUMNS, wanted, &[cond]);
+    let mut by_id: HashMap<Id, ItemSummary> = c
+        .prepare_cached(&sql)?
+        .query_map(params_from_iter(p.0.iter()), summary_from_row)?
+        .map(|r| r.map(|s| (s.id, s)))
+        .collect::<rusqlite::Result<_>>()?;
+    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+}
+
+/// The summary listing's SQL: `select` over the rows `b` that meet `wheres`.
+fn listing(select: &str, wanted: bool, wheres: &[String]) -> String {
     let container = "i.kind IN ('show', 'season')";
     // Episodes at or below the item that have a file, all of them and the watched ones.
     let has_file = "EXISTS (SELECT 1 FROM files ff WHERE ff.item_id = e.id)";
@@ -219,8 +259,8 @@ fn list(
     } else {
         wheres.join(" AND ")
     };
-    let sql = format!(
-        "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT {SUMMARY_COLUMNS} FROM (\
+    format!(
+        "WITH RECURSIVE {TREE_CTE} SELECT {select} FROM (\
            SELECT i.id, i.kind, i.parent_id, {LOCAL_TITLE} AS title, i.year, i.season, i.episode, \
              (SELECT coalesce(nullif(st.title, ''), s.title) FROM tree t \
                 JOIN items s ON s.id = t.root_id \
@@ -232,38 +272,50 @@ fn list(
              CASE WHEN {container} THEN 1.0 * {seen} / nullif({total}, 0) \
                   ELSE CASE WHEN p.duration_s > 0 \
                        THEN min(1.0, p.position_s / p.duration_s) END END AS progress, \
-             {loved} AS loved, coalesce(lib.avail, 0) AS available, i.match_state, \
+             {loved} AS loved, {available} AS available, i.match_state, \
              {LOCAL_GENRES} AS genres, i.added_at, \
              nullif((SELECT max(q.last_played_at) FROM tree t JOIN play_state q ON q.item_id = t.id \
                 WHERE t.root_id = i.id), 0) AS played_at, \
              (SELECT f.rel_path FROM files f WHERE f.item_id = i.id ORDER BY f.id LIMIT 1) AS path, \
-             lib.item_id IS NOT NULL AS in_library, i.tmdb_id, {my_rating} AS my_rating \
-           FROM items i {join} lib ON lib.item_id = i.id \
+             {in_library} AS in_library, i.tmdb_id, {my_rating} AS my_rating \
+           FROM items i \
            LEFT JOIN item_texts tx ON tx.item_id = i.id AND tx.lang = ?2 \
            LEFT JOIN play_state p ON p.item_id = i.id {admit}) b \
-         WHERE {where_sql} ORDER BY {order} LIMIT {limit_p} OFFSET {offset_p}",
+         WHERE {where_sql}",
         width = tech("width"),
         height = tech("height"),
         hdr = tech("hdr"),
+        in_library = IN_LIBRARY,
+        available = AVAILABLE,
         watched = watched_sql("i", "p"),
         loved = loved_sql("i"),
         my_rating = my_rating_sql("i"),
-        join = if wanted { "LEFT JOIN" } else { "JOIN" },
         admit = if wanted {
             format!(
-                "WHERE lib.item_id IS NOT NULL OR (i.wanted = 1 AND {})",
+                "WHERE {IN_LIBRARY} OR (i.wanted = 1 AND {})",
                 on_watchlist_sql("i", &watched_sql("i", "p"))
             )
         } else {
-            String::new()
+            format!("WHERE {IN_LIBRARY}")
         },
-    );
-    let mut s = c.prepare_cached(&sql)?;
-    let rows = s
-        .query_map(params_from_iter(p.0.iter()), summary_from_row)?
-        .collect::<rusqlite::Result<_>>()?;
-    Ok(rows)
+    )
 }
+
+/// The work `i` has a file at or beneath it: it is in the library. Asked of each row, so a
+/// page computes it for its own rows only.
+const IN_LIBRARY: &str = "EXISTS (SELECT 1 FROM item_tree t JOIN files f ON f.item_id = t.id \
+     WHERE t.root_id = i.id)";
+
+/// `IN_LIBRARY` for the work whose id is the SQL `id`: a lookup for a few rows, where `LIB_CTE`
+/// would add up the whole library first.
+pub(crate) fn in_library(id: &str) -> String {
+    IN_LIBRARY.replace("i.id", id)
+}
+
+/// 1 when one of the files at or beneath `i` is on a source whose id is in the JSON array
+/// bound as `?1`, else 0.
+const AVAILABLE: &str = "coalesce((SELECT max(f.source_id IN (SELECT value FROM json_each(?1))) \
+     FROM item_tree t JOIN files f ON f.item_id = t.id WHERE t.root_id = i.id), 0)";
 
 /// Summaries of the visible items among `ids`, in the order of `ids`.
 pub(crate) fn summaries_by_ids(
@@ -271,16 +323,7 @@ pub(crate) fn summaries_by_ids(
     online: &[Id],
     ids: &[Id],
 ) -> Result<Vec<ItemSummary>> {
-    let mut p = Params::new(c, online)?;
-    let cond = format!(
-        "b.id IN (SELECT value FROM json_each({}))",
-        p.bind(json_ids(ids))
-    );
-    let mut by_id: HashMap<Id, ItemSummary> = list(c, p, false, &[cond], "b.id", u32::MAX, 0)?
-        .into_iter()
-        .map(|s| (s.id, s))
-        .collect();
-    Ok(ids.iter().filter_map(|id| by_id.remove(id)).collect())
+    rows_by_ids(c, Params::new(c, online)?, false, ids)
 }
 
 /// Turns free text into an FTS5 query: every word becomes a quoted prefix term, so quotes,
@@ -544,19 +587,19 @@ fn continue_watching(c: &Connection, online: &[Id], limit: u32) -> Result<Vec<It
 /// Their `children` are left empty: review candidates are file-backed provisional items.
 pub fn needs_review(c: &Connection, v: &dyn Volumes) -> Result<Vec<ItemDetail>> {
     let online = online_sources(c, v)?;
-    let cond = "b.match_state = 'needsreview'".to_string();
-    list(
-        c,
-        Params::new(c, &online)?,
-        false,
-        &[cond],
-        "b.added_at DESC, b.id DESC",
-        u32::MAX,
-        0,
-    )?
-    .into_iter()
-    .map(|s| item_with(c, &online, s.id, false))
-    .collect()
+    // Only the ids are needed here: each item's record is read below.
+    let ids: Vec<Id> = c
+        .prepare_cached(
+            "SELECT i.id FROM items i WHERE i.match_state = 'needsreview' \
+             AND EXISTS (SELECT 1 FROM item_tree t JOIN files f ON f.item_id = t.id \
+                         WHERE t.root_id = i.id) \
+             ORDER BY i.added_at DESC, i.id DESC",
+        )?
+        .query_map([], |r| r.get(0))?
+        .collect::<rusqlite::Result<_>>()?;
+    ids.into_iter()
+        .map(|id| item_with(c, &online, id, false))
+        .collect()
 }
 
 /// Headline numbers for the status view. Movies, shows and other count items with a present
@@ -681,12 +724,12 @@ pub fn history(c: &Connection, v: &dyn Volumes, limit: u32) -> Result<Vec<Histor
     let limit = limit.min(MAX_LIMIT);
     let log: Vec<(Id, i64, i64, f64)> = c
         .prepare_cached(&format!(
-            "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} \
-             SELECT l.item_id, l.started_at, coalesce(l.ended_at, l.started_at), l.position_s \
-             FROM play_log l JOIN lib ON lib.item_id = l.item_id \
-             ORDER BY l.started_at DESC, l.id DESC LIMIT ?2"
+            "SELECT l.item_id, l.started_at, coalesce(l.ended_at, l.started_at), l.position_s \
+             FROM play_log l WHERE {} \
+             ORDER BY l.started_at DESC, l.id DESC LIMIT ?1",
+            in_library("l.item_id")
         ))?
-        .query_map(params![json_ids(&online), limit], |r| {
+        .query_map(params![limit], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })?
         .collect::<rusqlite::Result<_>>()?;

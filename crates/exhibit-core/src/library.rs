@@ -433,7 +433,7 @@ impl Library {
 
     /// Hangs an exhibition, or replaces the one it names; see `exhibition::save`.
     pub fn save_exhibition(&self, e: &NewExhibition) -> Result<Id> {
-        exhibition::save(&self.conn, &*self.volumes, e)
+        exhibition::save(&self.conn, e)
     }
 
     pub fn remove_exhibition(&self, id: Id) -> Result<bool> {
