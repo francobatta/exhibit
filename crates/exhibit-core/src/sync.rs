@@ -12,7 +12,9 @@ use crate::db;
 use crate::error::{Detail, Error, Result};
 use crate::identify::{self, How};
 use crate::matcher::{self, Evidence};
+use crate::memo::Memo;
 use crate::model::{Id, ItemKind, MatchSource};
+use crate::par;
 use crate::service::{Account, Dated, Fact, Service, SyncInput, normalize_username};
 use crate::tmdb::{Http, MetadataProvider};
 
@@ -202,6 +204,12 @@ fn run(
         since => (svc.activity(account, since, http)?.facts, None),
     };
     let again = export.is_some();
+    // What TMDB says is kept for the run, so the searches and details asked ahead on other
+    // threads are there when the run asks in order.
+    let memo = tmdb.map(|(p, _)| Memo::new(p));
+    let tmdb = tmdb
+        .zip(memo.as_ref())
+        .map(|((_, dir), m)| (m as &dyn MetadataProvider, dir));
     let films = resolve(c, service, &facts, again, tmdb.map(|(p, _)| p))?;
 
     let tx = db::write_tx(c)?;
@@ -304,16 +312,37 @@ fn resolve(
         }
     }
     if let Some(p) = p {
-        for f in films
+        let mut wanted: Vec<&mut Film> = films
             .values_mut()
             .filter(|f| f.tmdb_id.is_none() && !f.tried)
-        {
-            f.tmdb_id = search(c, p, &f.title, f.year)?;
-            f.tried = true;
-        }
+            .collect();
+        // An export can name hundreds of films: their searches go out a few at a time ahead
+        // of the run, which decides each in order.
+        let asks: Vec<(String, Option<i32>)> =
+            wanted.iter().map(|f| (f.title.clone(), f.year)).collect();
+        std::thread::scope(|s| -> Result<()> {
+            s.spawn(|| {
+                par::each(
+                    &asks,
+                    AHEAD_THREADS,
+                    |(title, year)| {
+                        let _ = identify::search_all(p, ItemKind::Movie, title, *year);
+                    },
+                    |_, ()| Ok::<_, ()>(()),
+                )
+            });
+            for f in wanted.iter_mut() {
+                f.tmdb_id = search(c, p, &f.title, f.year)?;
+                f.tried = true;
+            }
+            Ok(())
+        })?;
     }
     Ok(films)
 }
+
+/// Requests to TMDB sent ahead at once.
+const AHEAD_THREADS: usize = 6;
 
 /// The TMDB movie the identification matcher accepts for a title and year, if any. When it
 /// refuses because namesakes tie at the top, the one the owner has a file of is taken, if
@@ -472,14 +501,26 @@ fn add_wanted(
         .collect::<rusqlite::Result<Vec<i64>>>()?;
     let how = How::certain(MatchSource::Lookup);
     let mut made = Vec::new();
-    for tmdb_id in missing {
-        let m = match p.movie(tmdb_id) {
-            Ok(m) => m,
-            Err(Error::NotFound(_)) => continue,
-            Err(e) => return Err(e),
-        };
-        made.push(identify::save_movie(c, p, cache_dir, None, &m, how)?);
-    }
+    // Each film's details and artwork are fetched ahead, a few at a time; the rows are made
+    // in order.
+    let ahead = |&tmdb_id: &i64| {
+        if let Ok(m) = p.movie(tmdb_id) {
+            let (poster, backdrop) = (m.poster.as_deref(), m.backdrop.as_deref());
+            identify::artwork(p, cache_dir, "movie", tmdb_id, poster, backdrop);
+        }
+    };
+    std::thread::scope(|s| -> Result<()> {
+        s.spawn(|| par::each(&missing, AHEAD_THREADS, ahead, |_, ()| Ok::<_, ()>(())));
+        for &tmdb_id in &missing {
+            let m = match p.movie(tmdb_id) {
+                Ok(m) => m,
+                Err(Error::NotFound(_)) => continue,
+                Err(e) => return Err(e),
+            };
+            made.push(identify::save_movie(c, p, cache_dir, None, &m, how)?);
+        }
+        Ok(())
+    })?;
     Ok(made)
 }
 

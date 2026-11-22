@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 
 use regex::Regex;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ExternalId {
     /// A TMDB id whose kind is unknown or a movie (XML tags, `themoviedb.org/movie/<n>`).
     Tmdb(i64),

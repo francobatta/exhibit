@@ -6,7 +6,7 @@
 use crate::db;
 use crate::error::{Detail, Error, Result};
 use crate::model::Id;
-use crate::query::{self, ItemSummary, LIB_CTE, TREE_CTE, online_sources};
+use crate::query::{self, ItemSummary, online_sources};
 use crate::volume::Volumes;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
@@ -66,7 +66,7 @@ fn invalid(code: &'static str, message: String) -> Error {
 
 /// Hangs `e`, or replaces the exhibition it names, and returns its id. Hanging a new one beyond
 /// `MAX_EXHIBITIONS` takes down the oldest.
-pub fn save(c: &Connection, v: &dyn Volumes, e: &NewExhibition) -> Result<Id> {
+pub fn save(c: &Connection, e: &NewExhibition) -> Result<Id> {
     let title = e.title.trim();
     if title.is_empty() || title.chars().count() > MAX_TITLE {
         return Err(invalid(
@@ -108,7 +108,7 @@ pub fn save(c: &Connection, v: &dyn Volumes, e: &NewExhibition) -> Result<Id> {
         ));
     }
     // Every work must be a film or a show the owner has.
-    let owned = owned_works(c, v, &e.works.iter().map(|w| w.id).collect::<Vec<_>>())?;
+    let owned = owned_works(c, &e.works.iter().map(|w| w.id).collect::<Vec<_>>())?;
     if let Some(missing) = e.works.iter().find(|w| !owned.contains(&w.id)) {
         return Err(invalid(
             "exhibition.work",
@@ -158,17 +158,14 @@ pub fn save(c: &Connection, v: &dyn Volumes, e: &NewExhibition) -> Result<Id> {
 }
 
 /// Of `ids`, the films and shows that have a file.
-fn owned_works(c: &Connection, v: &dyn Volumes, ids: &[Id]) -> Result<HashSet<Id>> {
-    let online = online_sources(c, v)?;
+fn owned_works(c: &Connection, ids: &[Id]) -> Result<HashSet<Id>> {
     let sql = format!(
-        "WITH RECURSIVE {TREE_CTE}, {LIB_CTE} SELECT i.id FROM items i JOIN lib ON lib.item_id = i.id \
-         WHERE i.kind IN ('movie', 'show') AND i.id IN (SELECT value FROM json_each(?2))"
+        "SELECT i.id FROM items i WHERE i.kind IN ('movie', 'show') \
+         AND i.id IN (SELECT value FROM json_each(?1)) AND {}",
+        query::in_library("i.id")
     );
     Ok(c.prepare_cached(&sql)?
-        .query_map(
-            params![query::json_ids(&online), query::json_ids(ids)],
-            |r| r.get(0),
-        )?
+        .query_map(params![query::json_ids(ids)], |r| r.get(0))?
         .collect::<rusqlite::Result<_>>()?)
 }
 
@@ -295,12 +292,7 @@ mod tests {
     #[test]
     fn hangs_in_order_with_notes_and_replaces_by_id() {
         let e = env();
-        let id = save(
-            &e.c,
-            &e.v,
-            &show(&[e.films[2], e.films[0], e.films[1]], "Three"),
-        )
-        .unwrap();
+        let id = save(&e.c, &show(&[e.films[2], e.films[0], e.films[1]], "Three")).unwrap();
         let hung = list(&e.c, &e.v).unwrap();
         assert_eq!(hung.len(), 1);
         let titles: Vec<&str> = hung[0]
@@ -315,7 +307,7 @@ mod tests {
             id: Some(id),
             ..show(&e.films[..4], "Four")
         };
-        assert_eq!(save(&e.c, &e.v, &again).unwrap(), id);
+        assert_eq!(save(&e.c, &again).unwrap(), id);
         let hung = list(&e.c, &e.v).unwrap();
         assert_eq!(
             (hung.len(), hung[0].title.as_str(), hung[0].works.len()),
@@ -328,7 +320,7 @@ mod tests {
     #[test]
     fn refuses_works_that_are_not_the_owners_and_shows_out_of_shape() {
         let e = env();
-        let err = |x: NewExhibition| save(&e.c, &e.v, &x).unwrap_err().to_string();
+        let err = |x: NewExhibition| save(&e.c, &x).unwrap_err().to_string();
         assert!(
             err(show(&[e.films[0], e.films[1], e.wanted], "Wanted"))
                 .contains(&e.wanted.to_string())
@@ -343,9 +335,9 @@ mod tests {
     #[test]
     fn hanging_beyond_the_most_takes_down_the_oldest() {
         let e = env();
-        let first = save(&e.c, &e.v, &show(&e.films[..3], "First")).unwrap();
+        let first = save(&e.c, &show(&e.films[..3], "First")).unwrap();
         for n in 0..MAX_EXHIBITIONS {
-            save(&e.c, &e.v, &show(&e.films[..3], &format!("Show {n}"))).unwrap();
+            save(&e.c, &show(&e.films[..3], &format!("Show {n}"))).unwrap();
         }
         let hung = list(&e.c, &e.v).unwrap();
         assert_eq!(hung.len(), MAX_EXHIBITIONS);

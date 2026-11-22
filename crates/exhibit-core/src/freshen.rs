@@ -7,8 +7,8 @@
 //! `pace` apart, so a large library is renewed in a steady trickle rather than a burst.
 //! Migration 007 spread the works already matched across the window for the same reason.
 
-use std::cell::Cell;
 use std::path::Path;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use rusqlite::{Connection, params};
@@ -61,7 +61,7 @@ pub fn freshen(
     let paced = Paced {
         inner: p,
         pace,
-        used: Cell::new(0),
+        used: AtomicU32::new(0),
     };
     let lang = lang::language(c)?;
     let due: Vec<(Id, String, i64)> = c
@@ -75,7 +75,7 @@ pub fn freshen(
         .collect::<rusqlite::Result<_>>()?;
     let mut report = FreshenReport::default();
     for (id, kind, tmdb_id) in due {
-        if paced.used.get() >= budget {
+        if paced.used.load(Ordering::Relaxed) >= budget {
             break;
         }
         let done = if kind == "show" {
@@ -93,7 +93,7 @@ pub fn freshen(
                     .execute(params![id, now])?;
             }
             Err(e @ (Error::Invalid(_) | Error::Db(_) | Error::Io(_))) => {
-                report.requests = paced.used.get();
+                report.requests = paced.used.load(Ordering::Relaxed);
                 return Err(e);
             }
             Err(e) => {
@@ -102,7 +102,7 @@ pub fn freshen(
             }
         }
     }
-    report.requests = paced.used.get();
+    report.requests = paced.used.load(Ordering::Relaxed);
     Ok(report)
 }
 
@@ -335,7 +335,7 @@ fn artwork(
 struct Paced<'a> {
     inner: &'a dyn MetadataProvider,
     pace: Duration,
-    used: Cell<u32>,
+    used: AtomicU32,
 }
 
 impl Paced<'_> {
@@ -343,7 +343,7 @@ impl Paced<'_> {
         if !self.pace.is_zero() {
             std::thread::sleep(self.pace);
         }
-        self.used.set(self.used.get() + 1);
+        self.used.fetch_add(1, Ordering::Relaxed);
     }
 }
 

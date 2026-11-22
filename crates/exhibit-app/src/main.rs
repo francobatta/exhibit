@@ -12,14 +12,13 @@ mod testlib;
 mod watch;
 mod worker;
 
-use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
 use exhibit_core::Library;
 use tauri::window::Color;
 use tauri::{App, Manager, WebviewUrl, WebviewWindowBuilder};
 
-use crate::state::{AppState, Changed};
+use crate::state::{AppState, Changed, Pool};
 use crate::worker::{Job, WorkerHandle};
 
 /// The wall colour, shown before the page paints.
@@ -123,7 +122,7 @@ fn setup(app: &mut App, windowed: bool) -> Result<(), Box<dyn std::error::Error>
     watch::spawn(worker.clone(), changed.clone());
     services::spawn(worker.clone());
     app.manage(AppState {
-        lib: Mutex::new(lib),
+        libs: Pool::new(lib, Library::open_default),
         worker,
         downloads: Default::default(),
         playing: AtomicBool::new(false),

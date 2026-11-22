@@ -13,6 +13,7 @@ use crate::identify::{
 };
 use crate::matcher::{self, Evidence};
 use crate::model::{Candidate, Id, ItemKind, MatchSource};
+use crate::par;
 use crate::parse::{normalize_title, parse_path};
 use crate::tmdb::{EpisodeMeta, MetadataProvider, SeasonMeta, ShowMeta};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -483,6 +484,8 @@ pub(crate) fn episode_stills(
         )?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
+    // The stills to fetch, (episode item, TMDB path, file name), read season by season.
+    let mut stills: Vec<(Id, String, String)> = Vec::new();
     // The season in hand, by (show, season number); None when it could not be read.
     let mut season: Option<((i64, i32), Option<SeasonMeta>)> = None;
     for (id, show_id, n, episode) in missing {
@@ -508,29 +511,42 @@ pub(crate) fn episode_stills(
         let Some((_, Some(meta))) = &season else {
             continue;
         };
-        let Some(still) = meta
+        if let Some(still) = meta
             .episodes
             .iter()
             .find(|e| e.episode == episode)
-            .and_then(|e| e.still.as_deref())
-        else {
-            continue;
-        };
-        let name = still_name(show_id, n, episode);
-        match download(p, cache_dir, still, STILL_SIZE, &name) {
+            .and_then(|e| e.still.clone())
+        {
+            stills.push((id, still, still_name(show_id, n, episode)));
+        }
+    }
+    // Downloaded a few at a time; each lands in the library as it arrives. `Err(None)` stops
+    // the run once TMDB is out of reach.
+    let fetch =
+        |(_, still, name): &(Id, String, String)| download(p, cache_dir, still, STILL_SIZE, name);
+    let done = par::each(&stills, STILL_THREADS, fetch, |(id, _, name), got| {
+        match got {
             Ok(()) => {
-                c.prepare_cached("UPDATE items SET backdrop = ?2 WHERE id = ?1")?
-                    .execute(params![id, name])?;
+                c.prepare_cached("UPDATE items SET backdrop = ?2 WHERE id = ?1")
+                    .and_then(|mut s| s.execute(params![id, name]))
+                    .map_err(|e| Some(e.into()))?;
             }
-            Err(e @ Error::Invalid(_)) => return Err(e),
+            Err(e @ Error::Invalid(_)) => return Err(Some(e)),
             Err(e) => {
                 let unreachable = matches!(e, Error::Provider(_));
                 report.errors.push(format!("still for {name}: {e}"));
                 if unreachable {
-                    break;
+                    return Err(None);
                 }
             }
         }
+        Ok(())
+    });
+    match done {
+        Ok(()) | Err(None) => Ok(()),
+        Err(Some(e)) => Err(e),
     }
-    Ok(())
 }
+
+/// Episode stills downloaded at once.
+const STILL_THREADS: usize = 6;

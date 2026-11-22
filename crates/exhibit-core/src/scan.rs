@@ -195,7 +195,7 @@ pub fn list_sources(c: &Connection, v: &dyn Volumes) -> Result<Vec<Source>> {
         .map(|row| {
             let (path, online) = match resolve(v, &row) {
                 Some(p) => {
-                    let online = p.is_dir();
+                    let online = v.is_online(&p);
                     (p, online)
                 }
                 None => (PathBuf::from(&row.last_path), false),
@@ -321,6 +321,17 @@ fn scan_with(
 
     let scanned_at = db::now();
     let mut added = Vec::new();
+    let root_text = root.to_string_lossy();
+    // A folder just as it was writes nothing, so the window is not told the library changed.
+    if changed.is_empty()
+        && moved.is_empty()
+        && missing.is_empty()
+        && new.is_empty()
+        && row.last_path == root_text
+    {
+        on(ScanEvent::Finished(report.clone()));
+        return Ok(report);
+    }
     let tx = db::write_tx(c)?;
     for (file_id, size, mtime) in &changed {
         tx.prepare_cached("UPDATE files SET size=?2, mtime=?3, probed=0, tech=NULL WHERE id=?1")?
@@ -349,7 +360,7 @@ fn scan_with(
         added.push((tx.last_insert_rowid(), rel));
     }
     tx.prepare_cached("UPDATE sources SET last_path=?2 WHERE id=?1")?
-        .execute(params![id, root.to_string_lossy()])?;
+        .execute(params![id, root_text])?;
     tx.commit()?;
 
     report.changed = changed.len() as u32;
@@ -561,6 +572,30 @@ mod tests {
             r.get(0)
         })
         .unwrap()
+    }
+
+    #[test]
+    fn a_scan_that_finds_nothing_new_writes_nothing() {
+        let e = env();
+        media_tree(e.drive.path());
+        let v = vols(e.drive.path());
+        let src = add_source(&e.c, &v, &e.drive.path().join("media")).unwrap();
+        scan(&e.c, &v, src.id);
+        let version = |c: &Connection| -> i64 {
+            c.query_row("PRAGMA data_version", [], |r| r.get(0))
+                .unwrap()
+        };
+        let watcher = db::open(e._data.path()).unwrap();
+        let before = version(&watcher);
+        assert_eq!(
+            scan(&e.c, &v, src.id),
+            report(src.id, true, [0, 0, 0, 0, 3])
+        );
+        assert_eq!(version(&watcher), before);
+        // A change is still written.
+        write(e.drive.path(), "media/Movies/New.mkv", 1000);
+        assert_eq!(scan(&e.c, &v, src.id).added, 1);
+        assert_ne!(version(&watcher), before);
     }
 
     #[test]
