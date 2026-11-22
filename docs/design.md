@@ -201,7 +201,8 @@ designed empty, loading, offline and error states.
    agent spends its tokens on the library. Exhibitions: a curator hangs 3 to 24 works the owner
    has, with a title, a wall text and a note on each; at most six hang, as shelves on Home after
    Continue watching. A shelf opens with its wall text and who hung it, where three works would
-   be; the note on the focused work sits above its placard, once the owner is on that shelf. Still to do: hand `play` to an open window instead of starting mpv itself.
+   be; the note on the focused work sits above its placard, once the owner is on that shelf.
+   Still to do: hand `play` to an open window instead of starting mpv itself.
 4. **Built-in agent** (Anthropic API through the Vercel AI SDK, owner's key, optional): one text box
    whose answers come back as a shelf with a line of reasoning each, not a chat. Agent matching,
    agent shelves on Home, a taste profile the owner can read and edit. Ask is shaped so stage 4
