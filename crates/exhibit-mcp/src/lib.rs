@@ -26,6 +26,59 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+pub mod setup;
+
+/// `mcp` and its two flags, the same from the window's exe and the CLI. Bare, it serves the library
+/// on stdin and stdout until the client goes. `--check` starts this exe as a client would and
+/// reports whether the server answers. `--setup` writes the instructions that set an agent up
+/// into `data_dir` and prints the line that sends an agent to them. Answers the exit code.
+pub fn main(
+    flag: Option<&str>,
+    open: fn() -> CoreResult<Library>,
+    data_dir: &std::path::Path,
+) -> i32 {
+    match flag {
+        None => match serve(open) {
+            Ok(()) => 0,
+            Err(e) => {
+                // stdout carries the protocol: nothing else may be written there.
+                eprintln!("exhibit mcp: {e}");
+                1
+            }
+        },
+        Some("--check") | Some("--setup") => {
+            let launch = match setup::Launch::current() {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("exhibit mcp: {e}");
+                    return 1;
+                }
+            };
+            if flag == Some("--setup") {
+                return match setup::write_instructions(&launch, data_dir) {
+                    Ok(path) => {
+                        println!("{}", setup::prompt(&path, None));
+                        0
+                    }
+                    Err(e) => {
+                        eprintln!("exhibit mcp: could not write the instructions: {e}");
+                        1
+                    }
+                };
+            }
+            let checked = setup::check(&launch);
+            println!("{}", setup::report(&launch, &checked));
+            i32::from(checked.is_err())
+        }
+        Some(other) => {
+            eprintln!(
+                "exhibit mcp: unknown option {other}; use --check or --setup, or nothing to serve"
+            );
+            2
+        }
+    }
+}
+
 /// Runs the server on stdin and stdout until the client goes. `open` opens the library; it is
 /// called again for each play, which runs mpv on a thread of its own.
 pub fn serve(open: fn() -> CoreResult<Library>) -> std::io::Result<()> {

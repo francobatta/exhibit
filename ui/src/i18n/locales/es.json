@@ -713,5 +713,15 @@
       "spirit": "Premios Independent Spirit",
       "sundance": "Sundance"
     }
+  },
+  "agentSetup": {
+    "title": "Conecta tu agente de IA",
+    "body": "Claude Code, Codex u otro agente de IA en este equipo puede recorrer tu colección contigo, sugerirte qué ver y colgar exposiciones en Inicio. Pégale el prompt de configuración una vez; él hace el resto.",
+    "copy": "Copiar prompt de configuración",
+    "copyAgain": "Copiar otra vez",
+    "copied": "Prompt de configuración copiado. Pégaselo a tu agente.",
+    "copyFailed": "Exhibit no pudo copiar el prompt de configuración: {{reason}}",
+    "settingsTitle": "Agente de IA",
+    "settingsNote": "Claude Code, Codex u otro agente de IA en este equipo, que recorre y cura la colección contigo. Pégale el prompt de configuración una vez."
   }
 }

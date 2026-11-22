@@ -304,3 +304,15 @@ mod tests {
 pub fn cast(id: Id) -> ApiResult<Vec<CastMember>> {
     Ok(Library::open_default()?.cast(id)?)
 }
+
+/// The line the owner copies to their AI agent: it sends the agent to the instructions, written
+/// afresh into the data directory for this exe and the library this window shows, so the agent
+/// registers Exhibit's MCP server for good. `reply_in` names the window's language when it is not
+/// English, so the agent answers in it.
+#[tauri::command(async)]
+pub fn agent_prompt(reply_in: Option<String>) -> ApiResult<String> {
+    use exhibit_mcp::setup;
+    let path =
+        setup::write_instructions(&setup::Launch::current()?, &exhibit_core::db::data_dir())?;
+    Ok(setup::prompt(&path, reply_in.as_deref()))
+}

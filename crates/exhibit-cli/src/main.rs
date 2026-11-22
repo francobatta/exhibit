@@ -30,7 +30,15 @@ enum Command {
     /// Library counts, sources, tools and which keys are set
     Status,
     /// Serve the library to an outside agent over MCP, on stdin and stdout, until it goes
-    Mcp,
+    Mcp {
+        /// Start this exe as an MCP client would and say whether the server answers
+        #[arg(long, conflicts_with = "setup")]
+        check: bool,
+        /// Write the instructions that set an AI agent up with this server for good, and print
+        /// the line to give the agent (the window's "Copy setup prompt")
+        #[arg(long)]
+        setup: bool,
+    },
     #[command(subcommand)]
     Source(SourceCmd),
     #[command(subcommand)]
@@ -403,15 +411,16 @@ impl KeyName {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    if matches!(cli.command, Command::Mcp) {
-        // stdout carries the protocol: nothing else may be written there.
-        return match exhibit_mcp::serve(Library::open_default) {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(e) => {
-                eprintln!("exhibit mcp: {e}");
-                ExitCode::FAILURE
-            }
+    if let Command::Mcp { check, setup } = cli.command {
+        let flag = if check {
+            Some("--check")
+        } else if setup {
+            Some("--setup")
+        } else {
+            None
         };
+        let code = exhibit_mcp::main(flag, Library::open_default, &exhibit_core::db::data_dir());
+        return ExitCode::from(u8::try_from(code).unwrap_or(1));
     }
     let result = Library::open_default().and_then(|lib| commands::run(&lib, cli.command));
     let (value, code) = match result {

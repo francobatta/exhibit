@@ -26,6 +26,14 @@ GlobalRegistrator.register({ url: "http://localhost:1420/" });
 HTMLElement.prototype.showPopover ??= function () {};
 HTMLElement.prototype.hidePopover ??= function () {};
 Element.prototype.getAnimations ??= () => [];
+// Motion cancels a running animation when its element leaves; the cancelled `finished` promise
+// is only logged by WebView2, but fails a test as an unhandled rejection here.
+const animate = Element.prototype.animate;
+Element.prototype.animate = function (...args: Parameters<Element["animate"]>) {
+  const a = animate.apply(this, args);
+  a.finished.catch(() => {});
+  return a;
+};
 
 // What WebView2 has and happy-dom lacks. Scrolling moves the position at once and fires `scroll`,
 // as Chromium does at the end of a smooth scroll, so virtualised lists render what scrolled in.

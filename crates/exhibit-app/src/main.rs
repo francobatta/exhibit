@@ -25,14 +25,16 @@ use crate::worker::{Job, WorkerHandle};
 const WALL: Color = Color(0x0f, 0x11, 0x13, 0xff);
 
 fn main() {
-    // `Exhibit.exe mcp`: the library for an outside agent over stdio, with no window. Before the
-    // single-instance plugin, which would hand a second launch to the open window and exit.
-    if std::env::args().nth(1).as_deref() == Some("mcp") {
-        if let Err(e) = exhibit_mcp::serve(Library::open_default) {
-            eprintln!("exhibit mcp: {e}");
-            std::process::exit(1);
-        }
-        return;
+    // `Exhibit.exe mcp`: the library for an outside agent over stdio, with no window (`--check`
+    // and `--setup` too). Before the single-instance plugin, which would hand a second launch to
+    // the open window and exit.
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() == Some("mcp") {
+        std::process::exit(exhibit_mcp::main(
+            args.next().as_deref(),
+            Library::open_default,
+            &exhibit_core::db::data_dir(),
+        ));
     }
     // Development and screenshots: a plain 1600x900 window that remembers nothing.
     let windowed = std::env::var_os("EXHIBIT_WINDOWED").is_some_and(|v| v == "1");
@@ -58,6 +60,7 @@ fn main() {
             commands::facets,
             commands::similar,
             commands::exhibitions,
+            commands::agent_prompt,
             commands::item,
             commands::shelf,
             commands::needs_review,

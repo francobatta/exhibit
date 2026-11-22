@@ -30,6 +30,13 @@ afterEach(() => {
 
 const heading = () => document.querySelector("h1")?.textContent;
 
+/** The last step, the AI agent, skipped: first run ends at Home. */
+async function skipAgent() {
+  expect(heading()).toBe("Connect your AI agent");
+  expect(activeKey()).toBe("first:agent:main");
+  await choose("first:agent:skip");
+}
+
 async function choose(key: string) {
   await act(async () => {
     focusItem(key);
@@ -45,7 +52,7 @@ test("with every tool found, the tools step is left out, and skipping every step
   screens({ screen: "firstRun" });
   await settle(120);
   expect(heading()).toBe("Welcome to Exhibit");
-  expect(document.body.textContent).toContain("Step 1 of 2");
+  expect(document.body.textContent).toContain("Step 1 of 3");
   expect(activeKey()).toBe("first:folder:main");
   // Ask stays out of first run.
   openAsk();
@@ -56,6 +63,7 @@ test("with every tool found, the tools step is left out, and skipping every step
   expect(activeKey()).toBe("first:tmdb:field");
 
   await choose("first:tmdb:skip");
+  await skipAgent();
   expect(useNav.getState().entries.map((e) => e.route)).toEqual([{ screen: "home" }]);
   expect(tauri.calls().some((c) => c.cmd === "set_secret" || c.cmd === "add_source")).toBe(false);
 });
@@ -67,14 +75,15 @@ test("a missing tool gets its own step, which can be skipped too", async () => {
   screens({ screen: "firstRun" });
   await settle(120);
 
-  expect(document.body.textContent).toContain("Step 1 of 3");
+  expect(document.body.textContent).toContain("Step 1 of 4");
   await choose("first:folder:skip");
   expect(heading()).toBe("Media tools");
-  expect(document.body.textContent).toContain("Step 2 of 3");
+  expect(document.body.textContent).toContain("Step 2 of 4");
   expect(document.body.textContent).toContain("mpv plays your files and reads their details. Nothing can play until mpv is here.");
   await choose("first:tools:skip");
   expect(heading()).toBe("TMDB key");
   await choose("first:tmdb:skip");
+  await skipAgent();
   expect(useNav.getState().current).toEqual({ screen: "home" });
 });
 
@@ -136,7 +145,7 @@ test("with exhibits own tmdb key there is no key step, and signing in for scores
   tauri.handle("poll_sign_in", () => (approved ? "done" : "pending"));
   screens({ screen: "firstRun" });
   await settle(120);
-  expect(document.body.textContent).toContain("Step 1 of 2");
+  expect(document.body.textContent).toContain("Step 1 of 3");
 
   await choose("first:folder:skip");
   expect(heading()).toBe("What critics and audiences think");
@@ -152,6 +161,7 @@ test("with exhibits own tmdb key there is no key step, and signing in for scores
   expect(activeKey()).toBe("first:scores:sign-in:cancel");
   approved = true;
   await settle(300);
+  await skipAgent();
   expect(useNav.getState().current).toEqual({ screen: "home" });
 });
 
@@ -161,8 +171,9 @@ test("a service already signed in, or none to sign in to, adds no step", async (
   tauri.handle("services", () => [scoresService(), awardsService()]);
   screens({ screen: "firstRun" });
   await settle(120);
-  expect(document.body.textContent).toContain("Step 1 of 1");
+  expect(document.body.textContent).toContain("Step 1 of 2");
   await choose("first:folder:skip");
+  await skipAgent();
   expect(useNav.getState().current).toEqual({ screen: "home" });
 });
 
@@ -172,12 +183,40 @@ test("the scores step can be skipped", async () => {
   tauri.handle("services", () => [scoresService({ username: null })]);
   screens({ screen: "firstRun" });
   await settle(120);
-  expect(document.body.textContent).toContain("Step 1 of 3");
+  expect(document.body.textContent).toContain("Step 1 of 4");
   await choose("first:folder:skip");
   expect(heading()).toBe("TMDB key");
   await choose("first:tmdb:skip");
   expect(heading()).toBe("What critics and audiences think");
   await choose("first:scores:skip");
+  await skipAgent();
   expect(useNav.getState().current).toEqual({ screen: "home" });
   expect(tauri.calls().some((c) => c.cmd === "start_sign_in")).toBe(false);
+});
+
+test("the agent step copies the setup prompt with one button, which then goes on", async () => {
+  const prompt = 'Read and follow the instructions in "C:\exhibit\agent-setup.md" to set me up for Exhibit.';
+  tauri.handle("status", () => BUILT_IN);
+  tauri.handle("detect_tools", () => [found("mpv"), found("ffmpeg")]);
+  tauri.handle("services", () => []);
+  tauri.handle("agent_prompt", () => prompt);
+  tauri.handle("plugin:clipboard-manager|write_text", () => null);
+  screens({ screen: "firstRun" });
+  await settle(120);
+  await choose("first:folder:skip");
+  expect(heading()).toBe("Connect your AI agent");
+
+  const main = () => document.querySelector('[data-focus-key="first:agent:main"]')!;
+  expect(main().textContent).toBe("Copy setup prompt");
+  await select();
+  await settle();
+  // The instructions are written as the prompt is asked for, in the window's language (English: none).
+  expect(tauri.calls().find((c) => c.cmd === "agent_prompt")?.args).toEqual({ replyIn: null });
+  const copied = tauri.calls().find((c) => c.cmd === "plugin:clipboard-manager|write_text");
+  expect(JSON.stringify(copied?.args)).toContain("agent-setup.md");
+  expect(document.body.textContent).toContain("Setup prompt copied. Paste it to your agent.");
+  expect(activeKey()).toBe("first:agent:main");
+  expect(main().textContent).toBe("Continue");
+  await choose("first:agent:main");
+  expect(useNav.getState().current).toEqual({ screen: "home" });
 });

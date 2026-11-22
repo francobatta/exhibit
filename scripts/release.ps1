@@ -20,7 +20,7 @@ Steps, in order; any failure stops the run:
      waits for the first-run screen over CDP, checks the build carries its TMDB key, screenshots
      it, closes it, deletes the temp library.
   6. Publish: commits the version, makes an annotated tag, pushes main and the tag, and creates
-     the GitHub release with the installer and a portable exe.
+     the GitHub release with the installer.
 
 Before step 6 a failure puts the version files back. After it starts, nothing is undone: see
 .claude/skills/release/SKILL.md for recovery.
@@ -178,7 +178,7 @@ try {
         Pop-Location
     }
 
-    $exe = Join-Path $repo "target\release\exhibit-app.exe"
+    $exe = Join-Path $repo "target\release\Exhibit.exe"
     $setup = Join-Path $repo "target\release\bundle\nsis\Exhibit_${Tag}_x64-setup.exe"
     if (-not (Test-Path $setup)) { throw "The installer is missing: $setup" }
     $built = (Get-Item $exe).VersionInfo.ProductVersion
@@ -238,6 +238,11 @@ try {
         Write-Host "  The build carries its own TMDB key."
         Invoke-Checked "screenshot" { bun scripts/cdp.ts shot $shot | Out-Null }
         Write-Host "  First run showed. Screenshot: $shot"
+        # The MCP server an agent registers: the same exe, started as a client would start it. Through
+        # cmd, which waits for a windowed exe and passes its output on; PowerShell does neither.
+        $check = @(cmd /c "`"$exe`" mcp --check")
+        if ($LASTEXITCODE -ne 0) { throw "Exhibit.exe mcp --check failed: $($check -join ' ')" }
+        Write-Host "  $($check[0]) $($check[2].Trim())"
     } finally {
         if (-not $app.HasExited) { Stop-Process -Id $app.Id -Force -ErrorAction SilentlyContinue }
         $app.WaitForExit(10000) | Out-Null
@@ -256,8 +261,6 @@ try {
     # ------------------------------------------------------------ 6. Publish
     Write-Step "Publish"
     $bundle = Join-Path $repo "target\release\bundle"
-    $portable = Join-Path $bundle "Exhibit_${Tag}_x64_portable.exe"
-    Copy-Item $exe $portable -Force
 
     $range = if ($previous) { "$previous..HEAD" } else { "HEAD" }
     $changes = @(Get-Output { git log --no-merges --pretty="- %s" $range })
@@ -265,9 +268,8 @@ try {
     $body = @"
 Exhibit $Tag for Windows 11 (x64).
 
-**Downloads**
-- ``Exhibit_${Tag}_x64-setup.exe``: installer. It installs for the current user, needs no admin rights, and adds a Start menu entry.
-- ``Exhibit_${Tag}_x64_portable.exe``: a single exe that runs as is.
+**Download**
+- ``Exhibit_${Tag}_x64-setup.exe``: the installer. It installs for the current user, needs no admin rights, and adds a Start menu entry.
 
 **Needs**
 - WebView2, which ships with Windows 11. If it is missing, the installer fetches it.
@@ -293,12 +295,12 @@ The builds are not code-signed, so SmartScreen may warn on first launch: choose 
     Invoke-Checked "git push main" { git push --quiet origin HEAD:main }
     Invoke-Checked "git push tag" { git push --quiet origin "refs/tags/$Tag" }
     Invoke-Checked "gh release create" {
-        gh release create $Tag $setup $portable --title "Exhibit $Tag" --notes-file $notes --verify-tag
+        gh release create $Tag $setup --title "Exhibit $Tag" --notes-file $notes --verify-tag
     }
     $url = Get-Output { gh release view $Tag --json url --jq .url }
     Write-Step "Released $Tag"
     Write-Host "  $url"
-    Write-Host "  Assets: $(Split-Path $setup -Leaf), $(Split-Path $portable -Leaf)"
+    Write-Host "  Asset: $(Split-Path $setup -Leaf)"
 } finally {
     if (-not $published) {
         Invoke-Checked "restore version files" { git checkout HEAD -- $versionFiles }

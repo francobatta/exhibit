@@ -5,7 +5,7 @@ description: Use when asked to release, publish, ship or tag a version of Exhibi
 
 # Release Exhibit for Windows
 
-A release is one run of `scripts/release.ps1`. It turns a clean `main` into a tagged commit and a GitHub release that carries an installer and a portable exe. The script runs every step and stops at the first failure, so nobody has to remember the steps.
+A release is one run of `scripts/release.ps1`. It turns a clean `main` into a tagged commit and a GitHub release that carries the installer. The script runs every step and stops at the first failure, so nobody has to remember the steps.
 
 ## 1. Get the tag first
 
@@ -51,11 +51,11 @@ The user asked for the release, so pushing the tag and creating the release is t
 | 1. Preflight | Fetches tags | The tag isn't `x.y.z`, or isn't newer than the latest tag; not on `main`; the tree is dirty; `main` is behind `origin/main`; the tag or its release already exists; `gh` isn't signed in; `exhibit-app` or `Exhibit` is running; the CDP port answers |
 | 2. Version | Writes the tag into `Cargo.toml` (`[workspace.package]`), every `exhibit-* = { version = ..., path = ... }` pin in `crates/*/Cargo.toml`, `crates/exhibit-app/tauri.conf.json` and `ui/package.json`. `Cargo.lock` follows at the first cargo run | A file's version line can't be found |
 | 3. Checks | `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`; in `ui/`: `bun install --frozen-lockfile`, `bun test --parallel`, `bunx --bun tsc --noEmit` | Any check fails |
-| 4. Build | `bun run tauri build` in `ui/`. Its `beforeBuildCommand` builds the UI; Tauri builds `target/release/exhibit-app.exe` and the NSIS installer. The script then reads the exe's ProductVersion | The installer is missing, or the exe's version isn't the tag |
-| 5. Smoke test | Starts the release exe windowed, on an empty temp data dir, with keyring service `exhibit-release-check` and DevTools on `-CdpPort`. Waits for the `http://tauri.localhost` page, then for the intro (`[data-slot=intro]`) to finish and the "Welcome to Exhibit" text to show, and takes a screenshot, then closes the app and deletes the temp dir | Exhibit started during the build; the exe exits (code 0 means another Exhibit took over); no window appears in 60 s; or first run doesn't show in 30 s |
-| 6. Publish | Copies the exe to `Exhibit_<tag>_x64_portable.exe`; writes release notes (downloads, needs, SmartScreen, and "Changes since" from `git log`); commits `release: <tag>`; makes an annotated tag; pushes `main`, then the tag; `gh release create <tag> <setup> <portable> --verify-tag` | Any git or gh command fails |
+| 4. Build | `bun run tauri build` in `ui/`. Its `beforeBuildCommand` builds the UI; Tauri builds `target/release/Exhibit.exe` and the NSIS installer. The script then reads the exe's ProductVersion | The installer is missing, or the exe's version isn't the tag |
+| 5. Smoke test | Starts the release exe windowed, on an empty temp data dir, with keyring service `exhibit-release-check` and DevTools on `-CdpPort`. Waits for the `http://tauri.localhost` page, then for the intro (`[data-slot=intro]`) to finish and the "Welcome to Exhibit" text to show, and takes a screenshot; runs `cmd /c "Exhibit.exe" mcp --check` (cmd, because PowerShell neither waits for a windowed exe nor passes on its output); then closes the app and deletes the temp dir | Exhibit started during the build; the exe exits (code 0 means another Exhibit took over); no window appears in 60 s; first run doesn't show in 30 s; or the MCP check fails |
+| 6. Publish | Writes release notes (download, needs, SmartScreen, and "Changes since" from `git log`); commits `release: <tag>`; makes an annotated tag; pushes `main`, then the tag; `gh release create <tag> <setup> --verify-tag` | Any git or gh command fails |
 
-Build output: `target/release/bundle/nsis/Exhibit_<tag>_x64-setup.exe`, `target/release/bundle/Exhibit_<tag>_x64_portable.exe`, and the notes in `target/release/bundle/release-notes-<tag>.md`. `target/` is git-ignored.
+Build output: `target/release/bundle/nsis/Exhibit_<tag>_x64-setup.exe` and the notes in `target/release/bundle/release-notes-<tag>.md`. `target/` is git-ignored.
 
 If steps 1 to 5 fail, the script puts the version files back (`git checkout HEAD -- ...`). Fix the cause and run it again with the same tag.
 
@@ -67,7 +67,7 @@ From the commit on, nothing is undone automatically. Find out how far it got, th
 |---|---|
 | Committed, no tag | `git tag -a <tag> -m "Exhibit <tag>"`, then push both as below |
 | Tagged locally, not pushed | `git push origin HEAD:main` then `git push origin refs/tags/<tag>` |
-| Tag pushed, no release | `gh release create <tag> target/release/bundle/nsis/Exhibit_<tag>_x64-setup.exe target/release/bundle/Exhibit_<tag>_x64_portable.exe --title "Exhibit <tag>" --notes-file target/release/bundle/release-notes-<tag>.md --verify-tag` |
+| Tag pushed, no release | `gh release create <tag> target/release/bundle/nsis/Exhibit_<tag>_x64-setup.exe --title "Exhibit <tag>" --notes-file target/release/bundle/release-notes-<tag>.md --verify-tag` |
 | Release made, an asset is missing | `gh release upload <tag> <file>` |
 
 Check each state with `git log -1 --oneline`, `git ls-remote --tags origin <tag>` and `gh release view <tag>`.
@@ -79,14 +79,14 @@ This is what the script automates, for when it needs debugging or changing.
 1. **Version.** Set `x.y.z` in the places listed in step 2 of the table. Every `exhibit-* = { version = ... }` pin must match the workspace version, or cargo fails with `failed to select a version for the requirement exhibit-...`.
 2. **Checks.** Run the commands from step 3 of the table, the same as `README.md` → Checks.
 3. **Build.** In `ui/`, run `bun run tauri build`. In `tauri.conf.json`, `bundle.active: true` with `targets: ["nsis"]` makes the per-user installer. With `active: false`, the build makes only the bare exe. The first build downloads NSIS into Tauri's cache. The exe embeds the UI, and Windows 11 provides WebView2; the installer fetches WebView2 if it is missing.
-4. **Smoke test.** Never start the release exe on the owner's real data or keyring. Set these environment variables, then start `target\release\exhibit-app.exe`:
+4. **Smoke test.** Never start the release exe on the owner's real data or keyring. Set these environment variables, then start `target\release\Exhibit.exe`:
    - `EXHIBIT_DATA_DIR` to a new temp dir;
    - `EXHIBIT_KEYRING_SERVICE=exhibit-release-check`;
    - `EXHIBIT_WINDOWED=1`, which also skips the window-state plugin, so the installed app's saved window stays untouched;
    - `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9334`.
 
    Then run `$env:CDP_PORT=9334; bun scripts/cdp.ts eval "document.body.innerText"` and `... shot <file>`. `scripts/cdp.ts` finds both dev pages (`localhost:1420`) and release pages (`tauri.localhost`).
-5. **Publish.** Commit the version files, run `git tag -a <tag> -m "Exhibit <tag>"`, then push `main` and then the tag. Run `gh release create` with the installer and the portable copy of the exe.
+5. **Publish.** Commit the version files, run `git tag -a <tag> -m "Exhibit <tag>"`, then push `main` and then the tag. Run `gh release create` with the installer.
 
 ## Never
 

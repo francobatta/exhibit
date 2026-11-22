@@ -9,6 +9,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { useScreenBackdrop } from "@/components/Backdrop";
 import { confirm } from "@/components/Dialog";
 import { FocusButton } from "@/components/FocusButton";
+import { useAgentSetup } from "@/components/AgentSetup";
 import { useBrowse } from "@/components/FolderBrowser";
 import { Lamp } from "@/components/Lamp";
 import { ServiceMark } from "@/components/ServiceMark";
@@ -114,6 +115,7 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
           <Tools tools={tools} />
           <Tmdb status={status} />
           <ServicesPart />
+          <AgentPart />
           <Part title={t("settings.agentKey")} note={t("settings.agentNote")}>
             <SetLine set={status.agent_key} />
             <SecretForm name="agent" label={t("settings.agentKey")} isSet={status.agent_key} />
@@ -124,6 +126,21 @@ function Parts({ status, tools, part }: { status: LibraryStatus; tools: ToolStat
         </div>
       </div>
     </FocusScope>
+  );
+}
+
+/** The owner's AI agent: the button that copies its setup prompt. */
+function AgentPart() {
+  const t = useT();
+  const { copied, copy } = useAgentSetup();
+  return (
+    <Part title={t("agentSetup.settingsTitle")} note={t("agentSetup.settingsNote")}>
+      <FocusGroup id="agent-setup" orientation="horizontal" className="flex">
+        <FocusButton focusKey="agent-setup:copy" onSelect={copy}>
+          {copied ? t("agentSetup.copyAgain") : t("agentSetup.copy")}
+        </FocusButton>
+      </FocusGroup>
+    </Part>
   );
 }
 
