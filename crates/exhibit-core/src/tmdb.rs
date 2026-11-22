@@ -78,8 +78,9 @@ pub struct SeasonMeta {
 }
 
 /// TMDB as identification sees it. Details (`movie`, `show`, `season`) come in English, the
-/// library's base language; searches and `texts` in the language asked for.
-pub trait MetadataProvider {
+/// library's base language; searches and `texts` in the language asked for. Shared between
+/// threads, which fetch side by side.
+pub trait MetadataProvider: Sync {
     fn search_movie(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>>;
     fn search_show(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>>;
     fn find_external(&self, id: &ExternalId) -> Result<Option<SearchHit>>;
@@ -344,7 +345,7 @@ impl<H: Http> Tmdb<H> {
     }
 }
 
-impl<H: Http> MetadataProvider for Tmdb<H> {
+impl<H: Http + Sync> MetadataProvider for Tmdb<H> {
     fn search_movie(&self, title: &str, year: Option<i32>, lang: &str) -> Result<Vec<SearchHit>> {
         self.search("/search/movie", "year", ItemKind::Movie, title, year, lang)
     }
@@ -805,13 +806,13 @@ const SEND_LIMIT: u64 = 32 * 1024 * 1024;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
+    use std::sync::Mutex;
 
     struct FakeHttp {
         routes: Vec<(&'static str, &'static str)>,
         /// Status of every response; 200 serves the routes (404 when none matches).
         status: u16,
-        log: RefCell<Vec<(String, Option<String>)>>,
+        log: Mutex<Vec<(String, Option<String>)>>,
     }
 
     fn fixture(name: &str) -> Vec<u8> {
@@ -822,7 +823,8 @@ mod tests {
     impl Http for &FakeHttp {
         fn get(&self, url: &str, bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
             self.log
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .push((url.to_string(), bearer.map(str::to_string)));
             if self.status != 200 {
                 return Ok((self.status, b"{}".to_vec()));
@@ -839,7 +841,7 @@ mod tests {
         FakeHttp {
             routes: routes.to_vec(),
             status: 200,
-            log: RefCell::new(vec![]),
+            log: Mutex::new(vec![]),
         }
     }
 
@@ -856,7 +858,7 @@ mod tests {
     }
 
     fn last_url(f: &FakeHttp) -> String {
-        f.log.borrow().last().unwrap().0.clone()
+        f.log.lock().unwrap().last().unwrap().0.clone()
     }
 
     #[test]
@@ -937,7 +939,7 @@ mod tests {
         Tmdb::new(V4_TOKEN.into(), &f)
             .search_movie("x", None, "en-US")
             .unwrap();
-        let (url, bearer) = f.log.borrow()[0].clone();
+        let (url, bearer) = f.log.lock().unwrap()[0].clone();
         assert!(!url.contains("api_key"));
         assert_eq!(bearer.as_deref(), Some(V4_TOKEN));
 
@@ -945,7 +947,7 @@ mod tests {
             Tmdb::new(key.into(), &f)
                 .search_movie("x", None, "en-US")
                 .unwrap();
-            let (url, bearer) = f.log.borrow().last().unwrap().clone();
+            let (url, bearer) = f.log.lock().unwrap().last().unwrap().clone();
             assert!(url.ends_with(&format!("&api_key={key}")), "{url}");
             assert_eq!(bearer, None);
         }
@@ -1096,7 +1098,13 @@ mod tests {
             t.find_external(&ExternalId::Tmdb(95396)),
             Err(Error::NotFound(_))
         ));
-        assert!(f.log.borrow().iter().all(|(url, _)| !url.contains("/tv/")));
+        assert!(
+            f.log
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(url, _)| !url.contains("/tv/"))
+        );
     }
 
     #[test]
@@ -1136,7 +1144,8 @@ mod tests {
         ));
         assert!(
             f.log
-                .borrow()
+                .lock()
+                .unwrap()
                 .iter()
                 .all(|(url, _)| !url.contains("/movie/"))
         );

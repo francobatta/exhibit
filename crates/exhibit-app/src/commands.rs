@@ -1,6 +1,6 @@
-//! One command per `Library` operation. Quick calls share the state's library; calls that
-//! wait on the network or on tool processes (`status` runs each tool's `--version`) open
-//! their own, so they never hold up the others.
+//! One command per `Library` operation. Quick calls share the state's pool of connections;
+//! calls that wait on the network or on tool processes (`detect_tools` runs each tool's
+//! `--version`) open their own, so they never hold one of those for long.
 
 use std::path::{Path, PathBuf};
 
@@ -32,7 +32,7 @@ pub struct Boot {
 
 #[tauri::command(async)]
 pub fn boot(state: State<'_, AppState>) -> ApiResult<Boot> {
-    let status = Library::open_default()?.status()?;
+    let status = state.lib().status()?;
     Ok(Boot {
         first_run: status.sources.is_empty(),
         image_dir: state.image_dir.to_string_lossy().to_string(),
@@ -41,8 +41,8 @@ pub fn boot(state: State<'_, AppState>) -> ApiResult<Boot> {
 }
 
 #[tauri::command(async)]
-pub fn status() -> ApiResult<LibraryStatus> {
-    Ok(Library::open_default()?.status()?)
+pub fn status(state: State<'_, AppState>) -> ApiResult<LibraryStatus> {
+    Ok(state.lib().status()?)
 }
 
 #[tauri::command(async)]

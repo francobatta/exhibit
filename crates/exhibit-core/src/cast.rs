@@ -127,14 +127,15 @@ mod tests {
 
     use crate::nfo::ExternalId;
     use crate::tmdb::{MovieMeta, SearchHit, SeasonMeta, ShowMeta};
-    use std::cell::{Cell, RefCell};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[derive(Default)]
     struct Fake {
         people: Vec<Person>,
         images_fail: bool,
-        calls: RefCell<Vec<String>>,
-        images: Cell<u32>,
+        calls: Mutex<Vec<String>>,
+        images: AtomicU32,
     }
 
     impl MetadataProvider for Fake {
@@ -148,7 +149,7 @@ mod tests {
             unreachable!()
         }
         fn movie(&self, id: i64) -> Result<MovieMeta> {
-            self.calls.borrow_mut().push(format!("movie {id}"));
+            self.calls.lock().unwrap().push(format!("movie {id}"));
             Ok(MovieMeta {
                 tmdb_id: id,
                 title: "Easy Rider".into(),
@@ -167,7 +168,7 @@ mod tests {
             unreachable!()
         }
         fn image(&self, path: &str, size: &str) -> Result<Vec<u8>> {
-            self.images.set(self.images.get() + 1);
+            self.images.fetch_add(1, Ordering::Relaxed);
             if self.images_fail {
                 return Err(Error::Provider("offline".into()));
             }
@@ -242,8 +243,8 @@ mod tests {
         // Opened again, and without a key: from the cache.
         super::cast(&c, None, &cache, id).unwrap();
         super::cast(&c, Some(&p), &cache, id).unwrap();
-        assert_eq!(p.images.get(), 1);
-        assert!(p.calls.borrow().is_empty());
+        assert_eq!(p.images.load(Ordering::Relaxed), 1);
+        assert!(p.calls.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -262,7 +263,7 @@ mod tests {
         let first = cast(&c, Some(&p), &cache, id).unwrap();
         assert_eq!(first[0].portrait.as_deref(), Some("person-1.jpg"));
         cast(&c, Some(&p), &cache, id).unwrap();
-        assert_eq!(*p.calls.borrow(), ["movie 624"]);
+        assert_eq!(*p.calls.lock().unwrap(), ["movie 624"]);
     }
 
     #[test]
@@ -279,7 +280,7 @@ mod tests {
         let cast = cast(&c, Some(&p), &dir.path().join("images"), id).unwrap();
         assert_eq!(cast.len(), 2);
         assert!(cast.iter().all(|m| m.portrait.is_none()));
-        assert_eq!(p.images.get(), 1);
+        assert_eq!(p.images.load(Ordering::Relaxed), 1);
     }
 
     #[test]

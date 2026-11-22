@@ -12,11 +12,15 @@ use serde_json::Value;
 
 use crate::error::{Error, Result};
 use crate::model::{AudioTrack, Id, SubTrack, TechInfo};
+use crate::par;
 use crate::scan::{join_rel, resolve, source_rows};
 use crate::tools::{Tools, run_with_timeout};
 use crate::volume::Volumes;
 
 const TOOL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Tool processes run at once while probing or making thumbnails.
+const TOOL_THREADS: usize = 4;
 
 fn invalid(what: &str) -> Error {
     Error::Tool(format!("unreadable probe output: {what}").into())
@@ -144,25 +148,31 @@ pub fn probe_pending(
             )?
             .query_map([source.id], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
-        for (id, rel) in files {
-            let path = join_rel(&root, &rel);
+        // A few files are read at once; each mpv mostly waits on the disk.
+        let read = |(_, rel): &(Id, String)| {
+            let path = join_rel(&root, rel);
             let tech = probe_file(tools, &path).and_then(|t| {
                 serde_json::to_string(&t).map_err(|e| Error::Tool(format!("{e}").into()))
             });
+            let on_disk = tech.is_ok() || path.exists();
+            (tech, on_disk)
+        };
+        par::each(&files, TOOL_THREADS, read, |(id, _), (tech, on_disk)| {
             match tech {
                 Ok(_) => ok += 1,
                 Err(_) => failed += 1,
             }
             // A file gone from disk is the scanner's business; it is not marked probed. A file
             // read again whose new read fails keeps the details it had.
-            if tech.is_ok() || path.exists() {
+            if on_disk {
                 c.prepare_cached(
                     "UPDATE files SET tech = coalesce(?1, tech), probed = 1 WHERE id = ?2",
                 )?
                 .execute(rusqlite::params![tech.as_ref().ok(), id])?;
             }
-            on(id, tech.err().map(|e| e.to_string()).as_deref());
-        }
+            on(*id, tech.err().map(|e| e.to_string()).as_deref());
+            Ok::<_, Error>(())
+        })?;
     }
     Ok((ok, failed))
 }
@@ -198,10 +208,10 @@ pub fn thumbnails_pending(
         )?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    let (mut made, mut failed) = (0, 0);
-    let mut last = None;
+    // Each item's first file that is online and has a duration: (item, file, duration).
+    let mut todo: Vec<(Id, PathBuf, f64)> = Vec::new();
     for (item, source, rel, tech) in files {
-        if last == Some(item) {
+        if todo.last().is_some_and(|t| t.0 == item) {
             continue;
         }
         let Some(root) = roots.get(&source) else {
@@ -214,24 +224,25 @@ pub fn thumbnails_pending(
         else {
             continue;
         };
-        last = Some(item);
-        let name = format!("thumb-{item}.jpg");
-        let file = join_rel(root, &rel);
-        match thumbnail(
-            tools,
-            &file,
-            duration * THUMBNAIL_AT,
-            &cache_dir.join(&name),
-        ) {
+        todo.push((item, join_rel(root, &rel), duration));
+    }
+    let (mut made, mut failed) = (0, 0);
+    let take = |(item, file, duration): &(Id, PathBuf, f64)| {
+        let dest = cache_dir.join(format!("thumb-{item}.jpg"));
+        thumbnail(tools, file, duration * THUMBNAIL_AT, &dest)
+    };
+    par::each(&todo, TOOL_THREADS, take, |&(item, _, _), done| {
+        match done {
             Ok(()) => {
                 c.prepare_cached("UPDATE items SET backdrop = ?2 WHERE id = ?1")?
-                    .execute(rusqlite::params![item, name])?;
+                    .execute(rusqlite::params![item, format!("thumb-{item}.jpg")])?;
                 made += 1;
             }
             Err(_) => failed += 1,
         }
         on(item);
-    }
+        Ok::<_, Error>(())
+    })?;
     Ok((made, failed))
 }
 
@@ -744,7 +755,11 @@ mod tests {
         assert!(cache.join(&name).is_file());
         assert_eq!(backdrop(&l.c, bad), None);
         assert_eq!(backdrop(&l.c, b), None);
-        assert_eq!(seen, vec![a, bad]);
+        // Made side by side: each item tried once, in any order.
+        seen.sort();
+        let mut tried = vec![a, bad];
+        tried.sort();
+        assert_eq!(seen, tried);
         // One frame at 10% of the duration.
         assert_eq!(std::fs::read_to_string(&log).unwrap().trim(), "100");
         // Done items are not redone; the failure is tried again on the next call.

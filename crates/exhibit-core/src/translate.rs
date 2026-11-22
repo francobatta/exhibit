@@ -12,6 +12,7 @@ use crate::identify::{
 };
 use crate::lang;
 use crate::model::{Id, ItemKind};
+use crate::par;
 use crate::rows::enum_str;
 use crate::tmdb::{MetadataProvider, Texts};
 use rusqlite::{Connection, params};
@@ -77,27 +78,44 @@ fn works(
         )?
         .query_map([lang], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
         .collect::<rusqlite::Result<_>>()?;
-    for (id, kind, tmdb_id) in todo {
-        let kind = if kind == enum_str(ItemKind::Show) {
+    let kind_of = |kind: &str| {
+        if kind == enum_str(ItemKind::Show) {
             ItemKind::Show
         } else {
             ItemKind::Movie
-        };
-        let (texts, poster) = match work_texts(p, cache_dir, kind, tmdb_id, lang, false) {
+        }
+    };
+    // Fetched a few at a time; stored here, in the order they come back. `Err(None)` stops
+    // the run once TMDB is out of reach; `Err(Some(_))` is a failure that ends it.
+    let fetch = |(_, kind, tmdb_id): &(Id, String, i64)| {
+        work_texts(p, cache_dir, kind_of(kind), *tmdb_id, lang, false)
+    };
+    let done = par::each(&todo, WORK_THREADS, fetch, |(id, kind, tmdb_id), got| {
+        let (texts, poster) = match got {
             Ok(t) => t,
             Err(e) => {
-                if keep_going(e, format!("{} {tmdb_id} in {lang}", enum_str(kind)), report)? {
-                    continue;
-                }
-                return Ok(false);
+                let what = format!("{} {tmdb_id} in {lang}", enum_str(kind_of(kind)));
+                return match keep_going(e, what, report) {
+                    Ok(true) => Ok(()),
+                    Ok(false) => Err(None),
+                    Err(e) => Err(Some(e)),
+                };
             }
         };
-        store_work_texts(c, id, lang, &texts, poster.as_deref())?;
+        store_work_texts(c, *id, lang, &texts, poster.as_deref()).map_err(Some)?;
         report.translated += 1;
-        on(id);
+        on(*id);
+        Ok(())
+    });
+    match done {
+        Ok(()) => Ok(true),
+        Err(None) => Ok(false),
+        Err(Some(e)) => Err(e),
     }
-    Ok(true)
 }
+
+/// Works whose text is fetched at once.
+const WORK_THREADS: usize = 6;
 
 /// A movie's or show's text in `lang`, and its poster in that language saved (afresh with
 /// `again`, else only when not cached yet). A work TMDB no longer knows has empty text.

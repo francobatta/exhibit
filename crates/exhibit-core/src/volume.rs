@@ -47,7 +47,7 @@ fn online_now(path: &Path) -> bool {
 
 impl SystemVolumes {
     pub fn new() -> Self {
-        Self::default()
+        SystemVolumes
     }
 }
 

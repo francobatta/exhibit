@@ -11,8 +11,10 @@ use crate::error::{Detail, Error, Result};
 use crate::identify_show::{self, Member};
 use crate::lang;
 use crate::matcher::{self, Evidence};
+use crate::memo::Memo;
 use crate::model::{Candidate, Id, ItemKind, MatchSource, MatchState, Person, TechInfo};
 use crate::nfo::{self, ExternalId, NfoInfo};
+use crate::par;
 use crate::parse::{self, KindHint};
 use crate::rows::{enum_str, item_columns, item_from_row};
 use crate::scan::{join_rel, resolve, source_rows};
@@ -57,6 +59,7 @@ pub struct IdentifyReport {
 }
 
 /// A provisional item waiting to be identified, seen through one of its files.
+#[derive(Clone)]
 pub(crate) struct Pending {
     pub(crate) item_id: Id,
     pub(crate) rel_path: String,
@@ -145,30 +148,43 @@ pub fn identify(
     scope: IdentifyScope,
     on: &mut dyn FnMut(Id),
 ) -> Result<IdentifyReport> {
+    let memo = Memo::new(p);
+    let p: &dyn MetadataProvider = &memo;
     let mut report = IdentifyReport::default();
     small_posters(c, p, cache_dir, &mut report)?;
     let mut posters = CandidatePosters::new(p, cache_dir);
     let mut episodes: Vec<Member> = Vec::new();
-    for item in pending(c, v, &scope)? {
-        let outcome = match route(p, &item) {
-            Ok(Route::Episode {
-                title,
-                year,
-                show_id,
-                season,
-                episode,
-            }) => {
-                episodes.push(identify_show::member(
-                    item, title, year, show_id, season, episode,
-                ));
-                continue;
-            }
-            Ok(route) => identify_single(c, p, cache_dir, &mut posters, &item, route),
-            Err(e) => Err(e),
-        };
-        record(&mut report, &item.rel_path, outcome, 1)?;
-        on(item.item_id);
-    }
+    let items = pending(c, v, &scope)?;
+    // The films' requests go out side by side ahead of the run, which takes them in order.
+    std::thread::scope(|s| -> Result<()> {
+        s.spawn(|| look_ahead(&memo, cache_dir, &items));
+        for item in &items {
+            let outcome = match route(p, item) {
+                Ok(Route::Episode {
+                    title,
+                    year,
+                    show_id,
+                    season,
+                    episode,
+                }) => {
+                    episodes.push(identify_show::member(
+                        item.clone(),
+                        title,
+                        year,
+                        show_id,
+                        season,
+                        episode,
+                    ));
+                    continue;
+                }
+                Ok(route) => identify_single(c, p, cache_dir, &mut posters, item, route),
+                Err(e) => Err(e),
+            };
+            record(&mut report, &item.rel_path, outcome, 1)?;
+            on(item.item_id);
+        }
+        Ok(())
+    })?;
     for g in &identify_show::groups(episodes) {
         let outcome = identify_show::identify_group(c, p, cache_dir, &mut posters, g);
         record(&mut report, &g.title, outcome, g.members.len() as u32)?;
@@ -427,10 +443,44 @@ fn match_movie(
     title: &str,
     year: Option<i32>,
 ) -> Result<Counts> {
+    let found = search_film(p, item.duration_min, title, year)?;
+    let Some((meta, score)) = found.sure else {
+        let mut scored = found.scored;
+        posters.add(&mut scored, &found.hits)?;
+        set_review(c, item.item_id, &scored)?;
+        return Ok((0, 1));
+    };
+    save_movie(
+        c,
+        p,
+        cache_dir,
+        Some(item.item_id),
+        &meta,
+        How::lookup(score),
+    )?;
+    Ok((1, 0))
+}
+
+/// What a search for a film found: every hit scored, best first, the hits themselves, and the
+/// details and score of the one the matcher is sure of.
+struct FilmSearch {
+    scored: Vec<Candidate>,
+    hits: Vec<SearchHit>,
+    sure: Option<(MovieMeta, f32)>,
+}
+
+/// Searches TMDB for a film and scores what it finds. Touches nothing but the provider, so the
+/// look-ahead runs it on other threads.
+fn search_film(
+    p: &dyn MetadataProvider,
+    duration_min: Option<f64>,
+    title: &str,
+    year: Option<i32>,
+) -> Result<FilmSearch> {
     let ev = Evidence {
         title,
         year,
-        duration_min: item.duration_min,
+        duration_min,
     };
     let hits = search_all(p, ItemKind::Movie, title, year)?;
     let mut metas: Vec<MovieMeta> = Vec::new();
@@ -448,24 +498,48 @@ fn match_movie(
         scored.push(candidate(hit, matcher::score(&ev, hit, runtime)));
     }
     sort_candidates(&mut scored);
-    let Some(best) = matcher::decide(&scored) else {
-        posters.add(&mut scored, &hits)?;
-        set_review(c, item.item_id, &scored)?;
-        return Ok((0, 1));
+    let sure = match matcher::decide(&scored).map(|b| (b.tmdb_id, b.score)) {
+        Some((id, score)) => {
+            let meta = match metas.into_iter().find(|m| m.tmdb_id == id) {
+                Some(m) => m,
+                None => p.movie(id)?,
+            };
+            Some((meta, score))
+        }
+        None => None,
     };
-    let meta = match metas.into_iter().find(|m| m.tmdb_id == best.tmdb_id) {
-        Some(m) => m,
-        None => p.movie(best.tmdb_id)?,
+    Ok(FilmSearch { scored, hits, sure })
+}
+
+/// Requests to TMDB the look-ahead keeps under way at once.
+const AHEAD_THREADS: usize = 6;
+
+/// Fetches, a few at a time, what identifying `items` in order will ask TMDB for: each film's
+/// searches and details, and a sure match's artwork. The run then finds them in `p` and in the
+/// cache folder. Nothing is written to the library, and a failure is left for the run to meet
+/// and report; the first refusal or outage stops the look-ahead. Candidates for review get
+/// their posters from the run, which tries an outage once rather than once per candidate.
+fn look_ahead(p: &Memo, cache_dir: &Path, items: &[Pending]) {
+    let ahead = |item: &Pending| {
+        if p.failed() {
+            return;
+        }
+        let film = |title: &str, year| search_film(p, item.duration_min, title, year);
+        let sure = match route(p, item) {
+            Ok(Route::Movie { title, year }) => film(&title, year).map(|f| f.sure),
+            Ok(Route::NfoMovie { id, title, year }) => match p.movie(id) {
+                Ok(m) => Ok(Some((m, 1.0))),
+                Err(Error::NotFound(_)) => film(&title, year).map(|f| f.sure),
+                Err(e) => Err(e),
+            },
+            _ => return,
+        };
+        if let Ok(Some((m, _))) = sure {
+            let (poster, backdrop) = (m.poster.as_deref(), m.backdrop.as_deref());
+            artwork(p, cache_dir, "movie", m.tmdb_id, poster, backdrop);
+        }
     };
-    save_movie(
-        c,
-        p,
-        cache_dir,
-        Some(item.item_id),
-        &meta,
-        How::lookup(best.score),
-    )?;
-    Ok((1, 0))
+    let _ = par::each(items, AHEAD_THREADS, ahead, |_, ()| Ok::<_, ()>(()));
 }
 
 pub(crate) fn candidate(hit: &SearchHit, score: f32) -> Candidate {
@@ -739,7 +813,7 @@ pub(crate) fn json<T: Serialize + ?Sized>(v: &T) -> String {
 /// Downloads poster and backdrop into `cache_dir` as `<kind>-<id>-poster.jpg` and
 /// `<kind>-<id>-backdrop.jpg` and returns the file names; the poster is also saved small,
 /// as `<kind>-<id>-poster-s.jpg`. A file already cached is reused; a failed download gives
-/// `None` and never fails the match.
+/// `None` and never fails the match. The three files download side by side.
 pub(crate) fn artwork(
     p: &dyn MetadataProvider,
     cache_dir: &Path,
@@ -748,18 +822,19 @@ pub(crate) fn artwork(
     poster: Option<&str>,
     backdrop: Option<&str>,
 ) -> (Option<String>, Option<String>) {
-    let get = |path: Option<&str>, size: &str, name: String| -> Option<String> {
-        download(p, cache_dir, path?, size, &name).ok()?;
-        Some(name)
-    };
-    let large = get(poster, POSTER_SIZE, poster_name(kind, id, lang::BASE));
-    if let Some(name) = &large {
-        get(poster, POSTER_SMALL_SIZE, small_poster(name));
-    }
-    (
-        large,
-        get(backdrop, BACKDROP_SIZE, format!("{kind}-{id}-backdrop.jpg")),
-    )
+    let large = poster_name(kind, id, lang::BASE);
+    let wanted = [
+        (poster, POSTER_SIZE, large.clone()),
+        (poster, POSTER_SMALL_SIZE, small_poster(&large)),
+        (backdrop, BACKDROP_SIZE, format!("{kind}-{id}-backdrop.jpg")),
+    ];
+    let got = par::map(&wanted, wanted.len(), |(path, size, name)| {
+        download(p, cache_dir, (*path)?, size, name).ok()?;
+        Some(name.clone())
+    });
+    let [large, _small, backdrop]: [Option<String>; 3] =
+        got.try_into().unwrap_or([None, None, None]);
+    (large, backdrop)
 }
 
 /// The cached poster of TMDB movie or show `id` in `lang`: `movie-603-poster.jpg` in
@@ -865,7 +940,7 @@ pub(crate) fn download(
     name: &str,
 ) -> Result<()> {
     let dest = cache_dir.join(name);
-    if !dest.is_file() {
+    if let Some(_claim) = Claim::take(&dest) {
         let bytes = p.image(path, size)?;
         std::fs::create_dir_all(cache_dir)?;
         // Written aside and renamed, so a cut-off download is never taken as cached.
@@ -874,6 +949,38 @@ pub(crate) fn download(
         std::fs::rename(&part, &dest)?;
     }
     Ok(())
+}
+
+/// A cache file one thread is downloading. Another thread that wants the same file waits for
+/// it rather than downloading it again (two versions of a film match at once in identify).
+struct Claim(PathBuf);
+
+static CLAIMS: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+static CLAIM_DONE: std::sync::Condvar = std::sync::Condvar::new();
+
+impl Claim {
+    /// The claim on `dest`, once no other thread holds it; `None` when the file is there.
+    fn take(dest: &Path) -> Option<Claim> {
+        let mut held = CLAIMS.lock().unwrap_or_else(|e| e.into_inner());
+        loop {
+            if dest.is_file() {
+                return None;
+            }
+            if !held.iter().any(|p| p == dest) {
+                held.push(dest.to_path_buf());
+                return Some(Claim(dest.to_path_buf()));
+            }
+            held = CLAIM_DONE.wait(held).unwrap_or_else(|e| e.into_inner());
+        }
+    }
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        let mut held = CLAIMS.lock().unwrap_or_else(|e| e.into_inner());
+        held.retain(|p| *p != self.0);
+        CLAIM_DONE.notify_all();
+    }
 }
 
 /// Saves TMDB image `path` at `size` as `cache_dir/name`, replacing the file there.
@@ -951,7 +1058,7 @@ fn small_posters(
 /// cached into `cache_dir`. The search is in the owner's language `lang`, so titles and
 /// posters are the ones they know. `kind` must be `Movie` or `Show`.
 pub fn lookup(
-    p: &(dyn MetadataProvider + Sync),
+    p: &dyn MetadataProvider,
     cache_dir: &Path,
     text: &str,
     kind: ItemKind,
@@ -1087,7 +1194,7 @@ mod tests {
     };
     use crate::volume::FakeVolumes;
     use ItemKind::{Episode, Movie, Other, Show};
-    use std::cell::RefCell;
+
     use std::fs;
     use std::path::PathBuf;
     use std::sync::Mutex;
@@ -1109,10 +1216,13 @@ mod tests {
         season_texts: Vec<(i64, i32, &'static str, SeasonTexts)>,
         fail: Mutex<Vec<String>>,
         calls: Mutex<Vec<String>>,
+        /// How long each request takes.
+        latency: std::time::Duration,
     }
 
     impl Fake {
         fn log(&self, call: String) -> Result<()> {
+            std::thread::sleep(self.latency);
             let refused = self
                 .fail
                 .lock()
@@ -1527,16 +1637,19 @@ mod tests {
             (it.tmdb_id, it.match_source),
             (Some(603), Some(MatchSource::Lookup))
         );
+        // Each asked once; the artwork comes side by side, in any order.
+        let mut calls = p.calls.lock().unwrap().clone();
+        calls.sort();
         assert_eq!(
-            *p.calls.lock().unwrap(),
+            calls,
             [
+                "image original/b603.jpg",
+                "image w342/p603.jpg",
+                "image w780/p603.jpg",
+                "movie 603",
                 "search_movie The Matrix en-US",
                 "search_movie The Matrix es-ES",
                 "search_movie The Matrix es-MX",
-                "movie 603",
-                "image w780/p603.jpg",
-                "image w342/p603.jpg",
-                "image original/b603.jpg"
             ]
         );
     }
@@ -1692,8 +1805,10 @@ mod tests {
         p.images_fail = true;
         let images = p.count("image");
         let r = run(&e, &p, IdentifyScope::Review);
-        // One try for the small posters (three missing), one for the stills (two missing).
-        assert_eq!(p.count("image"), images + 2);
+        // One try for the small posters (three missing). The stills (two missing) are asked
+        // side by side, so the outage costs one wait whether one or both had gone out.
+        let tried = p.count("image") - images;
+        assert!((2..=3).contains(&tried), "{tried}");
         assert_eq!(r.errors.len(), 2);
     }
 
@@ -1912,6 +2027,57 @@ mod tests {
     }
 
     #[test]
+    fn films_are_fetched_side_by_side_and_matched_in_order() {
+        let titles = [
+            ("The Matrix", 603, 1999),
+            ("Heat", 949, 1995),
+            ("Alien", 348, 1979),
+            ("Paprika", 4977, 2006),
+            ("Ran", 11645, 1985),
+            ("Solaris", 593, 1972),
+        ];
+        let files: Vec<String> = titles
+            .iter()
+            .map(|(t, _, y)| format!("{t} ({y}).mkv"))
+            .collect();
+        let e = env(&files.iter().map(String::as_str).collect::<Vec<_>>());
+        let p = Fake {
+            movies: titles
+                .iter()
+                .map(|&(t, id, y)| movie(id, t, y, 100))
+                .collect(),
+            movie_hits: titles
+                .iter()
+                .map(|&(t, id, y)| (t, vec![hit(id, Movie, t, Some(y))]))
+                .collect(),
+            latency: std::time::Duration::from_millis(40),
+            ..Default::default()
+        };
+        let mut order = Vec::new();
+        let t = std::time::Instant::now();
+        let r = identify(
+            &e.c,
+            &e.v,
+            &p,
+            &e.cache(),
+            IdentifyScope::Unmatched,
+            &mut |id| order.push(id),
+        )
+        .unwrap();
+        let took = t.elapsed();
+        assert_eq!(r, report(6, 0, 0));
+        // Six films of three searches, details and three images each, 40 ms apiece: 1.7 s
+        // one after another.
+        assert!(took < std::time::Duration::from_millis(1500), "{took:?}");
+        // Every request still made once, and the items taken in order.
+        assert_eq!(p.count("search_movie Heat en-US"), 1);
+        assert_eq!(p.count("movie 949"), 1);
+        let mut sorted = order.clone();
+        sorted.sort();
+        assert_eq!(order, sorted);
+    }
+
+    #[test]
     fn two_files_same_movie_share_one_item() {
         let a = "The Matrix (1999)/The.Matrix.1999.1080p.mkv";
         let b = "The Matrix (1999)/The.Matrix.1999.2160p.mkv";
@@ -2020,11 +2186,11 @@ mod tests {
     }
 
     /// Answers every request with the status it holds and counts the requests.
-    struct StatusHttp(u16, RefCell<u32>);
+    struct StatusHttp(u16, std::sync::atomic::AtomicU32);
 
     impl crate::tmdb::Http for &StatusHttp {
         fn get(&self, _url: &str, _bearer: Option<&str>) -> Result<(u16, Vec<u8>)> {
-            *self.1.borrow_mut() += 1;
+            self.1.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             Ok((self.0, b"{}".to_vec()))
         }
     }
@@ -2038,7 +2204,7 @@ mod tests {
         ];
         let e = env(&files);
         for status in [401, 403] {
-            let http = StatusHttp(status, RefCell::new(0));
+            let http = StatusHttp(status, Default::default());
             let p = crate::tmdb::Tmdb::new("k".into(), &http);
             let r = identify(
                 &e.c,
@@ -2052,7 +2218,10 @@ mod tests {
                 matches!(&r, Err(Error::Invalid(m)) if m == crate::tmdb::KEY_REJECTED),
                 "{r:?}"
             );
-            assert_eq!(*http.1.borrow(), 1);
+            // The run's own first request, and at most one per item the look-ahead had under
+            // way when the refusal came back.
+            let asked = http.1.load(std::sync::atomic::Ordering::Relaxed) as usize;
+            assert!((1..=1 + files.len()).contains(&asked), "{asked}");
         }
         for f in files {
             let it = file_item(&e, f);
@@ -2760,7 +2929,10 @@ mod tests {
         p.fail.lock().unwrap().push("texts".into());
         let r = translate_to(&e, &p, "es-ES");
         assert_eq!((r.translated, r.errors.len()), (0, 1), "{r:?}");
-        assert_eq!(p.count("texts"), 1);
+        // The works are asked side by side, so those under way all meet the outage at once;
+        // none is asked after it.
+        let works = p.count("movie ") + p.count("show ");
+        assert!((1..=works.max(1)).contains(&p.count("texts")));
         assert!(!crate::translate::complete(&e.c, "es-ES").unwrap());
     }
 
