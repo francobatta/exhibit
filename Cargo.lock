@@ -1254,7 +1254,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-app"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "exhibit-core",
  "exhibit-mcp",
@@ -1275,7 +1275,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-cli"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "clap",
  "exhibit-core",
@@ -1288,7 +1288,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-core"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "keyring",
  "regex",
@@ -1307,7 +1307,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-letterboxd"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "csv",
  "exhibit-core",
@@ -1317,7 +1317,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-mcp"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "exhibit-core",
  "rmcp",
@@ -1330,7 +1330,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-mdblist"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "exhibit-core",
  "serde_json",
@@ -1338,7 +1338,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-services"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "exhibit-core",
  "exhibit-letterboxd",
@@ -1348,7 +1348,7 @@ dependencies = [
 
 [[package]]
 name = "exhibit-wikidata"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "exhibit-core",
  "serde_json",

@@ -8,8 +8,8 @@ name = "exhibit-app"
 path = "src/main.rs"
 
 [dependencies]
-exhibit-core = { version = "0.0.2", path = "../exhibit-core" }
-exhibit-mcp = { version = "0.0.2", path = "../exhibit-mcp" }
+exhibit-core = { version = "0.0.3", path = "../exhibit-core" }
+exhibit-mcp = { version = "0.0.3", path = "../exhibit-mcp" }
 exhibit-services = { path = "../exhibit-services" }
 notify = "9.0.0"
 qrcode = { version = "0.15.0", default-features = false, features = ["svg"] }
